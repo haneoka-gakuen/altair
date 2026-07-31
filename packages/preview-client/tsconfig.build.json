@@ -1,0 +1,14 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": false,
+    "outDir": "dist",
+    "paths": {
+      "@haneoka/vega-protocol": [
+        "./../../node_modules/@haneoka/vega-protocol/dist/index.d.ts"
+      ]
+    },
+    "rootDir": "src",
+    "sourceMap": true
+  }
+}

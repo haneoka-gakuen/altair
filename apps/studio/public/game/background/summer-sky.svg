@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1920 1080" role="img" aria-label="Soft summer sky">
+  <defs>
+    <linearGradient id="sky" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#a9d9ff"/>
+      <stop offset=".52" stop-color="#ced9ff"/>
+      <stop offset="1" stop-color="#f3cbe1"/>
+    </linearGradient>
+    <radialGradient id="light" cx=".72" cy=".22" r=".58">
+      <stop offset="0" stop-color="#fff" stop-opacity=".82"/>
+      <stop offset="1" stop-color="#fff" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <rect width="1920" height="1080" fill="url(#sky)"/>
+  <rect width="1920" height="1080" fill="url(#light)"/>
+  <path d="M0 820C310 730 530 870 820 800s530-46 1100 54v226H0Z" fill="#7187a7" opacity=".28"/>
+  <path d="M0 900c360-74 690 62 970-2s576-54 950 38v144H0Z" fill="#304965" opacity=".34"/>
+</svg>

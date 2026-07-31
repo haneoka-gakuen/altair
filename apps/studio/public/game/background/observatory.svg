@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1920 1080" role="img" aria-label="Night observatory">
+  <defs>
+    <linearGradient id="night" x1="0" y1="0" x2=".82" y2="1">
+      <stop offset="0" stop-color="#07101f"/>
+      <stop offset=".58" stop-color="#172a4a"/>
+      <stop offset="1" stop-color="#5b5577"/>
+    </linearGradient>
+    <radialGradient id="haze" cx=".76" cy=".3" r=".54">
+      <stop offset="0" stop-color="#accdff" stop-opacity=".4"/>
+      <stop offset="1" stop-color="#accdff" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <rect width="1920" height="1080" fill="url(#night)"/>
+  <rect width="1920" height="1080" fill="url(#haze)"/>
+  <g fill="#fff" opacity=".72">
+    <circle cx="330" cy="240" r="3"/>
+    <circle cx="1140" cy="180" r="4"/>
+    <circle cx="1450" cy="390" r="3"/>
+    <circle cx="760" cy="360" r="2"/>
+  </g>
+  <path d="M0 880c330-80 660 44 930-12s590-48 990 44v168H0Z" fill="#03070d" opacity=".72"/>
+  <path d="M1290 844a176 176 0 0 1 352 0Z" fill="#0a111d"/>
+  <rect x="1284" y="838" width="364" height="144" rx="10" fill="#0a111d"/>
+  <path d="m1458 802 92-205 34 15-88 202Z" fill="#101c2e"/>
+</svg>

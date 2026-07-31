@@ -1,0 +1,21 @@
+name: Feature request
+description: Propose a scoped authoring, conversion, preview, or Studio capability
+title: "[Feature] "
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: User problem
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed behavior
+    validations:
+      required: true
+  - type: textarea
+    id: compatibility
+    attributes:
+      label: WebGAL, Vega, plugin, and migration effects

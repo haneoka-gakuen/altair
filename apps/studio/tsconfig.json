@@ -1,0 +1,29 @@
+{
+  "compilerOptions": {
+    "allowImportingTsExtensions": true,
+    "jsx": "react-jsx",
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "paths": {
+      "@haneoka/altair": ["../../src/index.ts"],
+      "@haneoka/altair-plugin-webgal": [
+        "../../.dependencies/altair-plugin-webgal/src/index.ts"
+      ],
+      "@haneoka/altair-preview-client": ["../../packages/preview-client/src/index.ts"],
+      "@haneoka/vega/marketplace": [
+        "./../../node_modules/@haneoka/vega/dist/marketplace/index.d.ts"
+      ],
+      "@haneoka/vega-protocol": [
+        "./../../node_modules/@haneoka/vega-protocol/dist/index.d.ts"
+      ]
+    },
+    "noEmit": true,
+    "noUncheckedIndexedAccess": true,
+    "skipLibCheck": true,
+    "strict": true,
+    "target": "ES2022",
+    "types": ["vite/client"]
+  },
+  "include": ["src"]
+}

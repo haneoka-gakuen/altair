@@ -1,0 +1,60 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 630" role="img" aria-labelledby="title desc">
+  <title id="title">ALTAIR</title>
+  <desc id="desc">Authoring &amp; Localization Toolkit for Adaptation, Interchange, and Revision</desc>
+  <defs>
+    <linearGradient id="background" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#FFFFFF"/>
+      <stop offset=".72" stop-color="#FFFFFF"/>
+      <stop offset="1" stop-color="#EEF6FF"/>
+    </linearGradient>
+    <linearGradient id="accent" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#5BB8FF"/>
+      <stop offset="1" stop-color="#0878F9"/>
+    </linearGradient>
+    <filter id="shadow" x="-30%" y="-30%" width="160%" height="160%">
+      <feDropShadow dx="0" dy="14" stdDeviation="18" flood-color="#111827" flood-opacity=".09"/>
+    </filter>
+  </defs>
+  <rect x=".5" y=".5" width="1199" height="629" rx="26" fill="url(#background)" stroke="#E8E8EA"/>
+  <g transform="translate(34 98) scale(.8)">
+    <g>
+    <path d="M100 86L510 110L306 414Z" fill="none" stroke="#CDD0D7" stroke-width="2"/>
+    <g>
+
+    <path d="M100 69L105 81L117 86L105 91L100 103L95 91L83 86L95 81Z" fill="#A7A9AF"/>
+  </g>
+    <g>
+
+    <path d="M510 93L515 105L527 110L515 115L510 127L505 115L493 110L505 105Z" fill="#A7A9AF"/>
+  </g>
+    <g>
+    <circle cx="306" cy="414" r="28" fill="#0878F9" opacity=".11"/>
+    <path d="M306 397L311 409L323 414L311 419L306 431L301 419L289 414L301 409Z" fill="#0878F9"/>
+  </g>
+
+    <g filter="url(#shadow)">
+    <rect x="116" y="132" width="132" height="92" rx="16" fill="#FFFFFF" stroke="#D8DAE0"/>
+    <rect x="365" y="132" width="132" height="92" rx="16" fill="#FFFFFF" stroke="#D8DAE0"/>
+    <rect x="179" y="252" width="254" height="116" rx="18" fill="url(#accent)"/>
+    <path d="M144 161H216M144 183H202" stroke="#B8BBC3" stroke-width="7" stroke-linecap="round"/>
+    <path d="M393 161H469M393 183H449" stroke="#B8BBC3" stroke-width="7" stroke-linecap="round"/>
+    <path d="M248 179C279 179 278 250 306 275M365 179C334 179 336 250 306 275" fill="none" stroke="#0878F9" stroke-width="3"/>
+    <path d="M214 288H398M214 314H348M214 340H372" stroke="#FFFFFF" stroke-opacity=".84" stroke-width="8" stroke-linecap="round"/>
+    <circle cx="306" cy="275" r="15" fill="#FFFFFF"/>
+    <circle cx="306" cy="275" r="7" fill="#0878F9"/>
+  </g>
+
+    <text x="100" y="54" text-anchor="middle" fill="#71717A" font-family="Inter, Helvetica Neue, Arial, sans-serif" font-size="11" font-weight="600" letter-spacing="1.4">VEGA</text>
+    <text x="510" y="78" text-anchor="middle" fill="#71717A" font-family="Inter, Helvetica Neue, Arial, sans-serif" font-size="11" font-weight="600" letter-spacing="1.4">DENEB</text>
+    <text x="306" y="454" text-anchor="middle" fill="#71717A" font-family="Inter, Helvetica Neue, Arial, sans-serif" font-size="11" font-weight="600" letter-spacing="1.4">ALTAIR</text>
+  </g>
+  </g>
+  <g transform="translate(566 178)">
+    <text x="0" y="100" fill="#111114" font-family="Inter, Helvetica Neue, Arial, sans-serif" font-size="90" font-weight="600" letter-spacing="-4">ALTAIR</text>
+    <text x="2" y="154" fill="#3F3F46" font-family="Inter, Helvetica Neue, Arial, sans-serif" font-size="18">Authoring &amp; Localization Toolkit for</text>
+    <text x="2" y="184" fill="#3F3F46" font-family="Inter, Helvetica Neue, Arial, sans-serif" font-size="18">Adaptation, Interchange, and Revision</text>
+    <line x1="2" y1="240" x2="54" y2="240" stroke="#0878F9" stroke-width="3" stroke-linecap="round"/>
+    <text x="72" y="246" fill="#71717A" font-family="Inter, Helvetica Neue, Arial, sans-serif" font-size="16" font-weight="500" letter-spacing="2.2">α AQUILAE</text>
+  </g>
+</svg>

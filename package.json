@@ -1,0 +1,97 @@
+{
+  "name": "@haneoka/altair",
+  "version": "0.1.0",
+  "description": "Plugin host, protocol, and canonical model for visual-novel authoring",
+  "keywords": [
+    "visual-novel",
+    "adv",
+    "story-editor",
+    "plugin-host",
+    "authoring-protocol"
+  ],
+  "license": "MPL-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/haneoka-gakuen/altair.git"
+  },
+  "bugs": {
+    "url": "https://github.com/haneoka-gakuen/altair/issues"
+  },
+  "homepage": "https://github.com/haneoka-gakuen/altair#readme",
+  "type": "module",
+  "sideEffects": false,
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist",
+    "LICENSE",
+    "LICENSE-SCOPE.md",
+    "README.md",
+    "THIRD_PARTY_NOTICES.md",
+    "docs/brand/header.svg",
+    "docs/brand/favicon.svg",
+    "docs/screenshots/*.webp"
+  ],
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "default": "./dist/index.js"
+    },
+    "./plugins": {
+      "types": "./dist/plugins.d.ts",
+      "import": "./dist/plugins.js",
+      "default": "./dist/plugins.js"
+    },
+    "./host": {
+      "types": "./dist/host.d.ts",
+      "import": "./dist/host.js",
+      "default": "./dist/host.js"
+    },
+    "./protocol": {
+      "types": "./dist/protocol.d.ts",
+      "import": "./dist/protocol.js",
+      "default": "./dist/protocol.js"
+    },
+    "./resource-browser": {
+      "types": "./dist/resource-browser.d.ts",
+      "import": "./dist/resource-browser.js",
+      "default": "./dist/resource-browser.js"
+    },
+    "./model": {
+      "types": "./dist/model.d.ts",
+      "import": "./dist/model.js",
+      "default": "./dist/model.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "scripts": {
+    "build:core": "vite build && tsc -p tsconfig.build.json",
+    "build": "pnpm run build:core && pnpm --filter @haneoka/altair-preview-client build && pnpm --filter @haneoka/altair-app build",
+    "typecheck:core": "tsc -p tsconfig.json --noEmit",
+    "typecheck": "pnpm run typecheck:core && pnpm --filter @haneoka/altair-preview-client typecheck && pnpm --filter @haneoka/altair-app typecheck",
+    "verify:package": "node scripts/verify-core-package.mjs",
+    "check:core": "pnpm run typecheck:core && pnpm run build:core && pnpm run verify:package",
+    "check": "pnpm run typecheck",
+    "prepack": "pnpm run check:core"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "packageManager": "pnpm@11.14.0",
+  "dependencies": {
+    "@haneoka/vega-protocol": "^0.1.0",
+    "semver": "^7.7.4"
+  },
+  "devDependencies": {
+    "@types/node": "^26.1.0",
+    "@types/semver": "^7.7.1",
+    "typescript": "^6.0.3",
+    "vite": "^7.3.6"
+  }
+}

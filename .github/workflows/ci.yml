@@ -1,0 +1,203 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+concurrency:
+  group: altair-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Check out Altair
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: altair
+          persist-credentials: false
+
+      # The three repositories are developed side by side. Building the shared
+      # protocol first keeps CI honest without copying Vega runtime code here.
+      - name: Check out Vega
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: haneoka-gakuen/vega
+          path: altair/.dependencies/vega
+          persist-credentials: false
+
+      - name: Check out WebGAL compatibility plugin
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: haneoka-gakuen/altair-plugin-webgal
+          path: altair/.dependencies/altair-plugin-webgal
+          persist-credentials: false
+
+      - name: Check out ADV authoring plugin
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: haneoka-gakuen/altair-plugin-adv
+          path: altair/.dependencies/altair-plugin-adv
+          persist-credentials: false
+
+      - name: Check out flow authoring plugin
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: haneoka-gakuen/altair-plugin-flow
+          path: altair/.dependencies/altair-plugin-flow
+          persist-credentials: false
+
+      - name: Check out history authoring plugin
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: haneoka-gakuen/altair-plugin-history
+          path: altair/.dependencies/altair-plugin-history
+          persist-credentials: false
+
+      - name: Check out drafts authoring plugin
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: haneoka-gakuen/altair-plugin-drafts
+          path: altair/.dependencies/altair-plugin-drafts
+          persist-credentials: false
+
+      - name: Check out prose authoring plugin
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: haneoka-gakuen/altair-plugin-prose
+          path: altair/.dependencies/altair-plugin-prose
+          persist-credentials: false
+
+      - name: Check out authoring marketplace plugin
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: haneoka-gakuen/altair-plugin-marketplace
+          path: altair/.dependencies/altair-plugin-marketplace
+          persist-credentials: false
+
+      - name: Check out Vega preview authoring plugin
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: haneoka-gakuen/altair-plugin-vega-preview
+          path: altair/.dependencies/altair-plugin-vega-preview
+          persist-credentials: false
+
+      - name: Check out browser workspace plugin
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: haneoka-gakuen/altair-plugin-workspace-browser
+          path: altair/.dependencies/altair-plugin-workspace-browser
+          persist-credentials: false
+
+      - name: Check out full authoring preset
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: haneoka-gakuen/altair-preset-full
+          path: altair/.dependencies/altair-preset-full
+          persist-credentials: false
+
+      - name: Check out Vega marketplace
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: haneoka-gakuen/vega-marketplace
+          path: altair/.dependencies/vega-marketplace
+          persist-credentials: false
+
+      - name: Check out Pixi renderer
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: haneoka-gakuen/vega-renderer-pixi
+          path: altair/.dependencies/vega-renderer-pixi
+          persist-credentials: false
+
+      - name: Check out Haneoka theme
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: haneoka-gakuen/vega-theme-haneoka
+          path: altair/.dependencies/vega-theme-haneoka
+          persist-credentials: false
+
+      - name: Check out Vega WebGAL runtime
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: haneoka-gakuen/vega-plugin-webgal
+          path: altair/.dependencies/vega-plugin-webgal
+          persist-credentials: false
+
+      - name: Check out Vega default shell
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: haneoka-gakuen/vega-shell-default
+          path: altair/.dependencies/vega-shell-default
+          persist-credentials: false
+
+      - name: Check out Vega portable UI
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: haneoka-gakuen/vega-ui-portable
+          path: altair/.dependencies/vega-ui-portable
+          persist-credentials: false
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
+        with:
+          version: "11.14.0"
+
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "20"
+          cache: pnpm
+          cache-dependency-path: altair/pnpm-lock.yaml
+
+      - name: Install dependencies
+        working-directory: altair
+        run: pnpm install --frozen-lockfile
+
+      - name: Build the shared preview protocol
+        working-directory: altair
+        run: pnpm --filter @haneoka/vega-protocol build
+
+      - name: Build the bundled Vega preview runtime
+        working-directory: altair
+        run: pnpm --filter @haneoka/vega build:core
+
+      - name: Build trusted official preview plugins
+        working-directory: altair
+        run: |
+          pnpm --filter @haneoka/vega-catalog-official build
+          pnpm --filter @haneoka/vega-renderer-pixi build
+          pnpm --filter @haneoka/vega-theme-haneoka build
+          pnpm --filter @haneoka/vega-plugin-webgal build
+          pnpm --filter @haneoka/vega-shell-default build
+          pnpm --filter @haneoka/vega-ui-portable build
+
+      - name: Build trusted official authoring plugins
+        working-directory: altair
+        run: |
+          pnpm --filter @haneoka/altair-plugin-adv build
+          pnpm --filter @haneoka/altair-plugin-flow build
+          pnpm --filter @haneoka/altair-plugin-history build
+          pnpm --filter @haneoka/altair-plugin-drafts build
+          pnpm --filter @haneoka/altair-plugin-marketplace build
+          pnpm --filter @haneoka/altair-plugin-prose build
+          pnpm --filter @haneoka/altair-plugin-vega-preview build
+          pnpm --filter @haneoka/altair-plugin-webgal build
+          pnpm --filter @haneoka/altair-plugin-workspace-browser build
+          pnpm --filter @haneoka/altair-preset-full build
+
+      - name: Check Altair, preview client, and Studio
+        working-directory: altair
+        run: pnpm check
+
+      - name: Verify the published core package
+        working-directory: altair
+        run: pnpm pack --dry-run

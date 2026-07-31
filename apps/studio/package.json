@@ -1,0 +1,49 @@
+{
+  "name": "@haneoka/altair-app",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -b && vite build",
+    "typecheck": "tsc -b",
+    "check": "pnpm run typecheck && pnpm run build"
+  },
+  "dependencies": {
+    "@haneoka/altair": "workspace:*",
+    "@haneoka/altair-plugin-adv": "workspace:*",
+    "@haneoka/altair-plugin-drafts": "workspace:*",
+    "@haneoka/altair-plugin-flow": "workspace:*",
+    "@haneoka/altair-plugin-history": "workspace:*",
+    "@haneoka/altair-plugin-marketplace": "workspace:*",
+    "@haneoka/altair-plugin-prose": "workspace:*",
+    "@haneoka/altair-plugin-vega-preview": "workspace:*",
+    "@haneoka/altair-plugin-webgal": "workspace:*",
+    "@haneoka/altair-plugin-workspace-browser": "workspace:*",
+    "@haneoka/altair-preset-full": "workspace:*",
+    "@haneoka/altair-preview-client": "workspace:*",
+    "@haneoka/vega": "^0.1.0",
+    "@haneoka/vega-catalog-official": "workspace:*",
+    "@haneoka/vega-plugin-richtext": "workspace:*",
+    "@haneoka/vega-plugin-webgal": "workspace:*",
+    "@haneoka/vega-renderer-pixi": "workspace:*",
+    "@haneoka/vega-shell-default": "workspace:*",
+    "@haneoka/vega-theme-haneoka": "workspace:*",
+    "@haneoka/vega-ui-portable": "workspace:*",
+    "@monaco-editor/react": "^4.7.0",
+    "howler": "2.2.4",
+    "lucide-react": "^1.27.0",
+    "monaco-editor": "^0.56.0",
+    "pixi.js": "6.5.10",
+    "react": "^19.2.4",
+    "react-dom": "^19.2.4",
+    "three": "0.184.0"
+  },
+  "devDependencies": {
+    "@types/react": "^19.2.14",
+    "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react": "^5.1.4",
+    "typescript": "^6.0.3",
+    "vite": "^7.3.6"
+  }
+}

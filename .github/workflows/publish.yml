@@ -1,0 +1,83 @@
+name: Publish
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: altair-publish-${{ github.event.release.tag_name }}
+  cancel-in-progress: false
+
+jobs:
+  npm:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check out Altair
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          path: altair
+          persist-credentials: false
+
+      - name: Check out Vega
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: haneoka-gakuen/vega
+          path: altair/.dependencies/vega
+          persist-credentials: false
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
+        with:
+          version: 11.14.0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+          package-manager-cache: false
+
+      - name: Verify release version
+        working-directory: altair
+        env:
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: node scripts/verify-release-tag.mjs
+
+      - name: Install release dependencies
+        working-directory: altair
+        run: pnpm install --frozen-lockfile --filter @haneoka/altair... --filter @haneoka/altair-preview-client... --filter @haneoka/vega...
+
+      - name: Build Vega protocol
+        working-directory: altair
+        run: pnpm --filter @haneoka/vega-protocol build
+
+      - name: Check packages
+        working-directory: altair
+        run: pnpm check:core && pnpm --filter @haneoka/altair-preview-client check
+
+      - name: Publish authoring toolkit
+        working-directory: altair
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          package_name=$(node -p "require('./package.json').name.replaceAll('/', '-')")
+          package_dir="$RUNNER_TEMP/$package_name"
+          mkdir -p "$package_dir"
+          pnpm pack --pack-destination "$package_dir"
+          npm publish "$package_dir"/*.tgz --access public --provenance
+
+      - name: Publish preview client
+        working-directory: altair/packages/preview-client
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          package_name=$(node -p "require('./package.json').name.replaceAll('/', '-')")
+          package_dir="$RUNNER_TEMP/$package_name"
+          mkdir -p "$package_dir"
+          pnpm pack --pack-destination "$package_dir"
+          npm publish "$package_dir"/*.tgz --access public --provenance
