@@ -188,6 +188,12 @@ jobs:
           pnpm --filter @haneoka/vega-shell-default build
           pnpm --filter @haneoka/vega-ui-portable build
 
+      - name: Build Altair packages
+        working-directory: altair
+        run: |
+          pnpm run build:core
+          pnpm --filter @haneoka/altair-preview-client build
+
       - name: Build trusted official authoring plugins
         working-directory: altair
         run: |
