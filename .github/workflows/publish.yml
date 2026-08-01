@@ -30,6 +30,91 @@ jobs:
           path: altair/.dependencies/vega
           persist-credentials: false
 
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: haneoka-gakuen/vega-plugin-richtext
+          path: altair/.dependencies/vega-plugin-richtext
+          persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: haneoka-gakuen/altair-plugin-adv
+          path: altair/.dependencies/altair-plugin-adv
+          persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: haneoka-gakuen/altair-plugin-drafts
+          path: altair/.dependencies/altair-plugin-drafts
+          persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: haneoka-gakuen/altair-plugin-flow
+          path: altair/.dependencies/altair-plugin-flow
+          persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: haneoka-gakuen/altair-plugin-history
+          path: altair/.dependencies/altair-plugin-history
+          persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: haneoka-gakuen/altair-plugin-marketplace
+          path: altair/.dependencies/altair-plugin-marketplace
+          persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: haneoka-gakuen/altair-plugin-prose
+          path: altair/.dependencies/altair-plugin-prose
+          persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: haneoka-gakuen/altair-plugin-vega-preview
+          path: altair/.dependencies/altair-plugin-vega-preview
+          persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: haneoka-gakuen/altair-plugin-webgal
+          path: altair/.dependencies/altair-plugin-webgal
+          persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: haneoka-gakuen/altair-plugin-workspace-browser
+          path: altair/.dependencies/altair-plugin-workspace-browser
+          persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: haneoka-gakuen/altair-preset-full
+          path: altair/.dependencies/altair-preset-full
+          persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: haneoka-gakuen/vega-marketplace
+          path: altair/.dependencies/vega-marketplace
+          persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: haneoka-gakuen/vega-plugin-webgal
+          path: altair/.dependencies/vega-plugin-webgal
+          persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: haneoka-gakuen/vega-renderer-pixi
+          path: altair/.dependencies/vega-renderer-pixi
+          persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: haneoka-gakuen/vega-shell-default
+          path: altair/.dependencies/vega-shell-default
+          persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: haneoka-gakuen/vega-theme-haneoka
+          path: altair/.dependencies/vega-theme-haneoka
+          persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: haneoka-gakuen/vega-ui-portable
+          path: altair/.dependencies/vega-ui-portable
+          persist-credentials: false
       - name: Set up pnpm
         uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
         with:
