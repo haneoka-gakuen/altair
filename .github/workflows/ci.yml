@@ -182,6 +182,7 @@ jobs:
         run: |
           pnpm --filter @haneoka/vega-catalog-official build
           pnpm --filter @haneoka/vega-renderer-pixi build
+          pnpm --filter @haneoka/vega-plugin-richtext build
           pnpm --filter @haneoka/vega-theme-haneoka build
           pnpm --filter @haneoka/vega-plugin-webgal build
           pnpm --filter @haneoka/vega-shell-default build
