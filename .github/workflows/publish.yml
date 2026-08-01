@@ -50,7 +50,7 @@ jobs:
 
       - name: Install release dependencies
         working-directory: altair
-        run: pnpm install --frozen-lockfile --filter @haneoka/altair... --filter @haneoka/altair-preview-client... --filter @haneoka/vega...
+        run: pnpm install --no-frozen-lockfile --filter @haneoka/altair... --filter @haneoka/altair-preview-client... --filter @haneoka/vega...
 
       - name: Build Vega protocol
         working-directory: altair

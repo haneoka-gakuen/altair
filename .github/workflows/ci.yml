@@ -160,7 +160,9 @@ jobs:
 
       - name: Install dependencies
         working-directory: altair
-        run: pnpm install --frozen-lockfile
+        # Source dependencies are checked out above and may have newer workspace
+        # manifests than this repository's registry lockfile.
+        run: pnpm install --no-frozen-lockfile
 
       - name: Build the shared preview protocol
         working-directory: altair
