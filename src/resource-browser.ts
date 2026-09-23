@@ -5,14 +5,7 @@
 export type ResourceBrowserPath = readonly string[];
 
 export type ResourceBrowserDisplayKind =
-  | "image"
-  | "audio"
-  | "video"
-  | "model"
-  | "scene"
-  | "data"
-  | "other"
-  | (string & {});
+  "image" | "audio" | "video" | "model" | "scene" | "data" | "other" | (string & {});
 
 export interface ResourceBrowserRequest {
   /** Authoring insert kinds accepted by the active editor target. */
@@ -48,9 +41,7 @@ export interface ResourceBrowserFile<Reference = unknown> {
   readonly reference: Reference;
 }
 
-export type ResourceBrowserNode<Reference = unknown> =
-  | ResourceBrowserDirectory
-  | ResourceBrowserFile<Reference>;
+export type ResourceBrowserNode<Reference = unknown> = ResourceBrowserDirectory | ResourceBrowserFile<Reference>;
 
 export interface ResourceBrowserInsert<Value = unknown> {
   readonly kind: string;
@@ -65,10 +56,7 @@ export interface ResourceBrowserInsert<Value = unknown> {
  * Source plugins own traversal, previews, availability and insert
  * normalization. Hosts only render nodes and forward user intent.
  */
-export interface ResourceBrowserProvider<
-  Reference = unknown,
-  Value = unknown,
-> {
+export interface ResourceBrowserProvider<Reference = unknown, Value = unknown> {
   readonly id: string;
   readonly name: string;
   readonly roots: readonly ResourceBrowserDirectory[];
@@ -76,16 +64,11 @@ export interface ResourceBrowserProvider<
   list(
     path: ResourceBrowserPath,
     request: ResourceBrowserRequest,
-  ):
-    | readonly ResourceBrowserNode<Reference>[]
-    | Promise<readonly ResourceBrowserNode<Reference>[]>;
+  ): readonly ResourceBrowserNode<Reference>[] | Promise<readonly ResourceBrowserNode<Reference>[]>;
   open(
     file: ResourceBrowserFile<Reference>,
     request: ResourceBrowserRequest,
-  ):
-    | ResourceBrowserInsert<Value>
-    | undefined
-    | Promise<ResourceBrowserInsert<Value> | undefined>;
+  ): ResourceBrowserInsert<Value> | undefined | Promise<ResourceBrowserInsert<Value> | undefined>;
   refresh?(request: ResourceBrowserRequest): void | Promise<void>;
   dispose?(): void | Promise<void>;
 }

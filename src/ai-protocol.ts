@@ -32,8 +32,5 @@ export interface AltairAdaptationResult {
 export interface AltairAiProvider {
   readonly id: string;
   readonly name: string;
-  adapt(
-    request: AltairAdaptationRequest,
-    signal: AbortSignal,
-  ): Promise<AltairAdaptationResult>;
+  adapt(request: AltairAdaptationRequest, signal: AbortSignal): Promise<AltairAdaptationResult>;
 }

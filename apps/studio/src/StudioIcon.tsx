@@ -149,18 +149,12 @@ const ICONS: Readonly<Record<StudioIconName, LucideIcon>> = Object.freeze({
   "zoom-out": ZoomOut,
 });
 
-export interface StudioIconProps
-  extends Omit<LucideProps, "children" | "name"> {
+export interface StudioIconProps extends Omit<LucideProps, "children" | "name"> {
   readonly name: StudioIconName;
   readonly size?: number | string;
 }
 
-export function StudioIcon({
-  className,
-  name,
-  size = 16,
-  ...props
-}: StudioIconProps) {
+export function StudioIcon({ className, name, size = 16, ...props }: StudioIconProps) {
   const Icon = ICONS[name];
   const classes = className ? `studio-icon ${className}` : "studio-icon";
   return (

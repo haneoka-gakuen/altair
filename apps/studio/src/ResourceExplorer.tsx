@@ -1,11 +1,5 @@
-import type {
-  StoryProject,
-  StoryProjectPlugin,
-} from "@haneoka/altair";
-import type {
-  AltairMarketplaceService,
-  AltairPluginCatalog,
-} from "@haneoka/altair-plugin-marketplace";
+import type { StoryProject, StoryProjectPlugin } from "@haneoka/altair";
+import type { AltairMarketplaceService, AltairPluginCatalog } from "@haneoka/altair-plugin-marketplace";
 import { useMemo, useState, type ReactNode } from "react";
 import type { StudioProjectFile } from "./folder-workspace";
 import { PluginManager } from "./PluginManager";
@@ -31,10 +25,7 @@ const ASSET_ICONS = Object.freeze({
   scene: "scene",
 }) satisfies Readonly<Record<StudioProjectFile["kind"], StudioIconName>>;
 
-const resourceTree = <T,>(
-  values: readonly T[],
-  pathFor: (value: T) => string,
-): readonly ResourceTreeNode<T>[] => {
+const resourceTree = <T,>(values: readonly T[], pathFor: (value: T) => string): readonly ResourceTreeNode<T>[] => {
   interface MutableTreeNode {
     name: string;
     path: string;
@@ -63,14 +54,11 @@ const resourceTree = <T,>(
     }
   }
 
-  const freeze = (
-    nodes: ReadonlyMap<string, MutableTreeNode>,
-  ): readonly ResourceTreeNode<T>[] =>
+  const freeze = (nodes: ReadonlyMap<string, MutableTreeNode>): readonly ResourceTreeNode<T>[] =>
     [...nodes.values()]
       .sort((left, right) => {
         const leftDirectory = left.children.size > 0 && left.value === undefined;
-        const rightDirectory =
-          right.children.size > 0 && right.value === undefined;
+        const rightDirectory = right.children.size > 0 && right.value === undefined;
         if (leftDirectory !== rightDirectory) return leftDirectory ? -1 : 1;
         return left.name.localeCompare(right.name, undefined, {
           numeric: true,
@@ -99,9 +87,7 @@ export interface ResourceExplorerProps {
   readonly onImport: () => void;
   readonly onOpenScene: (sceneId: string) => void;
   readonly onPluginCatalogAdd: (catalog: AltairPluginCatalog) => void;
-  readonly onPluginsChange: (
-    plugins: readonly StoryProjectPlugin[],
-  ) => void | Promise<void>;
+  readonly onPluginsChange: (plugins: readonly StoryProjectPlugin[]) => void | Promise<void>;
   readonly onRefresh: () => void;
 }
 
@@ -123,27 +109,14 @@ export function ResourceExplorer({
   const { t } = useStudioI18n();
   const [tab, setTab] = useState<"assets" | "scenes" | "plugins">("assets");
   const [selectedAssetPath, setSelectedAssetPath] = useState("");
-  const assets = useMemo(
-    () => files.filter(({ kind }) => kind !== "scene"),
-    [files],
-  );
-  const assetTree = useMemo(
-    () => resourceTree(assets, ({ displayPath }) => displayPath),
-    [assets],
-  );
-  const sourceTree = useMemo(
-    () => resourceTree(documents, ({ path }) => path),
-    [documents],
-  );
-  const selectedAsset = assets.find(({ path }) => path === selectedAssetPath);
-  const selectedAssetUrl = selectedAsset
-    ? assetUrls.get(selectedAsset.path)
-    : undefined;
-  const assetIcon = (entry: StudioProjectFile): StudioIconName =>
-    ASSET_ICONS[entry.kind];
-  const renderAssets = (
-    nodes: readonly ResourceTreeNode<StudioProjectFile>[],
-  ): ReactNode =>
+  const assets = useMemo(() => files.filter(({ kind }) => kind !== "scene"), [files]);
+  const assetsByPath = useMemo(() => new Map(assets.map((asset) => [asset.path, asset] as const)), [assets]);
+  const assetTree = useMemo(() => resourceTree(assets, ({ displayPath }) => displayPath), [assets]);
+  const sourceTree = useMemo(() => resourceTree(documents, ({ path }) => path), [documents]);
+  const selectedAsset = assetsByPath.get(selectedAssetPath);
+  const selectedAssetUrl = selectedAsset ? assetUrls.get(selectedAsset.path) : undefined;
+  const assetIcon = (entry: StudioProjectFile): StudioIconName => ASSET_ICONS[entry.kind];
+  const renderAssets = (nodes: readonly ResourceTreeNode<StudioProjectFile>[]): ReactNode =>
     nodes.map((node) =>
       node.value ? (
         <button
@@ -168,9 +141,7 @@ export function ResourceExplorer({
         </details>
       ),
     );
-  const renderSources = (
-    nodes: readonly ResourceTreeNode<StudioSourceDocument>[],
-  ): ReactNode =>
+  const renderSources = (nodes: readonly ResourceTreeNode<StudioSourceDocument>[]): ReactNode =>
     nodes.map((node) =>
       node.value ? (
         <button
@@ -198,18 +169,10 @@ export function ResourceExplorer({
       <div className="rail-title">
         <span>{t("resources")}</span>
         <span className="rail-actions">
-          <button
-            aria-label={t("refresh")}
-            disabled={busy}
-            onClick={onRefresh}
-          >
+          <button aria-label={t("refresh")} disabled={busy} onClick={onRefresh}>
             <StudioIcon name="refresh" />
           </button>
-          <button
-            aria-label={t("openProject")}
-            disabled={busy}
-            onClick={onImport}
-          >
+          <button aria-label={t("openProject")} disabled={busy} onClick={onImport}>
             <StudioIcon name="folder-open" />
           </button>
         </span>
@@ -288,9 +251,7 @@ export function ResourceExplorer({
           )}
         </>
       ) : (
-        <p className="tree-empty">
-          {t("noAssets")}
-        </p>
+        <p className="tree-empty">{t("noAssets")}</p>
       )}
     </aside>
   );

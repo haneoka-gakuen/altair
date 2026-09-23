@@ -25,9 +25,7 @@ export const rebaseStudioDrafts = async (
     return baseline !== undefined && document.text !== baseline;
   });
   const mutations = [
-    ...session
-      .snapshot()
-      .scenes.map(({ sceneId }) => session.clearScene(sceneId)),
+    ...session.snapshot().scenes.map(({ sceneId }) => session.clearScene(sceneId)),
     ...pending.map((document) =>
       session.updateScene({
         sceneId: document.id,

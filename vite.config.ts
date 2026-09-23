@@ -22,6 +22,7 @@ export default defineConfig({
         index: source("index.ts"),
         host: source("host.ts"),
         model: source("model.ts"),
+        documents: source("documents-entry.ts"),
         plugins: source("plugins.ts"),
         protocol: source("protocol.ts"),
         "resource-browser": source("resource-browser.ts"),
@@ -31,7 +32,7 @@ export default defineConfig({
     },
     minify: false,
     rollupOptions: {
-      external: ["semver"],
+      external: ["semver", "yaml"],
       output: {
         chunkFileNames: "chunks/[name]-[hash].js",
       },

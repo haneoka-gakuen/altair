@@ -51,9 +51,7 @@ interface FieldEditorProps {
 }
 
 const objectValue = (value: JsonValue | undefined): JsonObject | undefined =>
-  value && typeof value === "object" && !Array.isArray(value)
-    ? value
-    : undefined;
+  value && typeof value === "object" && !Array.isArray(value) ? value : undefined;
 
 const displayText = (value: JsonValue | undefined): string => {
   if (typeof value === "string") return value;
@@ -65,9 +63,7 @@ const displayText = (value: JsonValue | undefined): string => {
 
 const sameOption = (left: JsonValue | undefined, right: JsonValue): boolean =>
   JSON.stringify(left) === JSON.stringify(right) ||
-  (typeof left === "string" &&
-    (typeof right === "number" || typeof right === "boolean") &&
-    left === String(right));
+  (typeof left === "string" && (typeof right === "number" || typeof right === "boolean") && left === String(right));
 
 const candidateList = (
   field: AltairCommandFieldSchema,
@@ -87,10 +83,7 @@ function JsonField({
   onFocus,
   value,
 }: Pick<FieldEditorProps, "field" | "onChange" | "onFocus" | "value">) {
-  const serialized = useMemo(
-    () => (value === undefined ? "" : JSON.stringify(value, null, 2)),
-    [value],
-  );
+  const serialized = useMemo(() => (value === undefined ? "" : JSON.stringify(value, null, 2)), [value]);
   const [text, setText] = useState(serialized);
   const [error, setError] = useState("");
 
@@ -110,9 +103,7 @@ function JsonField({
       setError("");
       onChange(parsed);
     } catch (parseError) {
-      setError(
-        parseError instanceof Error ? parseError.message : String(parseError),
-      );
+      setError(parseError instanceof Error ? parseError.message : String(parseError));
     }
   };
 
@@ -138,19 +129,9 @@ function JsonField({
   );
 }
 
-function LocalizedListField({
-  field,
-  locale,
-  locales,
-  onChange,
-  onFocus,
-  value,
-}: FieldEditorProps) {
+function LocalizedListField({ field, locale, locales, onChange, onFocus, value }: FieldEditorProps) {
   return (
-    <fieldset
-      className="visual-field visual-field-wide visual-structured-field"
-      onFocusCapture={onFocus}
-    >
+    <fieldset className="visual-field visual-field-wide visual-structured-field" onFocusCapture={onFocus}>
       <legend>{field.label}</legend>
       <div className="visual-locales">
         {locales.map((item) => (
@@ -164,21 +145,11 @@ function LocalizedListField({
                 aria-label={`${field.label} — ${item.label}`}
                 lang={item.key}
                 onChange={(event) => {
-                  onChange(
-                    replaceVisualLocalizedValueForLocale(
-                      value,
-                      item.key,
-                      event.target.value,
-                    ),
-                  );
+                  onChange(replaceVisualLocalizedValueForLocale(value, item.key, event.target.value));
                 }}
                 placeholder={visualFieldPlaceholder(field)}
                 rows={3}
-                style={
-                  item.fonts?.length
-                    ? { fontFamily: item.fonts.join(", ") }
-                    : undefined
-                }
+                style={item.fonts?.length ? { fontFamily: item.fonts.join(", ") } : undefined}
                 value={visualLocalizedValueForLocale(value, item.key)}
               />
             ) : (
@@ -186,20 +157,10 @@ function LocalizedListField({
                 aria-label={`${field.label} — ${item.label}`}
                 lang={item.key}
                 onChange={(event) => {
-                  onChange(
-                    replaceVisualLocalizedValueForLocale(
-                      value,
-                      item.key,
-                      event.target.value,
-                    ),
-                  );
+                  onChange(replaceVisualLocalizedValueForLocale(value, item.key, event.target.value));
                 }}
                 placeholder={visualFieldPlaceholder(field)}
-                style={
-                  item.fonts?.length
-                    ? { fontFamily: item.fonts.join(", ") }
-                    : undefined
-                }
+                style={item.fonts?.length ? { fontFamily: item.fonts.join(", ") } : undefined}
                 value={visualLocalizedValueForLocale(value, item.key)}
               />
             )}
@@ -210,18 +171,10 @@ function LocalizedListField({
   );
 }
 
-function Vector3Field({
-  field,
-  onChange,
-  onFocus,
-  value,
-}: FieldEditorProps) {
+function Vector3Field({ field, onChange, onFocus, value }: FieldEditorProps) {
   const vector = visualVector3(value);
   return (
-    <fieldset
-      className="visual-field visual-field-wide visual-structured-field"
-      onFocusCapture={onFocus}
-    >
+    <fieldset className="visual-field visual-field-wide visual-structured-field" onFocusCapture={onFocus}>
       <legend>{field.label}</legend>
       <div className="visual-vector">
         {(["x", "y", "z"] as const).map((axis) => (
@@ -246,35 +199,18 @@ function Vector3Field({
   );
 }
 
-function MultiSelectField({
-  field,
-  onChange,
-  onFocus,
-  value,
-}: FieldEditorProps) {
+function MultiSelectField({ field, onChange, onFocus, value }: FieldEditorProps) {
   const options = field.options ?? [];
   const selected = Array.isArray(value) ? value : [];
   if (!options.length) {
-    return (
-      <JsonField
-        field={field}
-        onChange={onChange}
-        onFocus={onFocus}
-        value={value}
-      />
-    );
+    return <JsonField field={field} onChange={onChange} onFocus={onFocus} value={value} />;
   }
   return (
-    <fieldset
-      className="visual-field visual-field-wide visual-structured-field"
-      onFocusCapture={onFocus}
-    >
+    <fieldset className="visual-field visual-field-wide visual-structured-field" onFocusCapture={onFocus}>
       <legend>{field.label}</legend>
       <div className="visual-check-grid">
         {options.map((option, optionIndex) => {
-          const checked = selected.some((item) =>
-            sameOption(item, option.value),
-          );
+          const checked = selected.some((item) => sameOption(item, option.value));
           return (
             <label key={`${optionIndex}-${option.label}`}>
               <input
@@ -282,9 +218,7 @@ function MultiSelectField({
                 onChange={(event) => {
                   const next = event.target.checked
                     ? [...selected, option.value]
-                    : selected.filter(
-                        (item) => !sameOption(item, option.value),
-                      );
+                    : selected.filter((item) => !sameOption(item, option.value));
                   onChange(next);
                 }}
                 type="checkbox"
@@ -306,38 +240,18 @@ const choiceText = (value: JsonValue | undefined, locale: string): string => {
     return value.find((item): item is string => typeof item === "string") ?? "";
   }
   const record = objectValue(value);
-  return (
-    (Object.values(record ?? {}).find(
-      (item): item is string => typeof item === "string",
-    ) ?? "")
-  );
+  return Object.values(record ?? {}).find((item): item is string => typeof item === "string") ?? "";
 };
 
-const replaceChoiceText = (
-  value: JsonValue | undefined,
-  locale: string,
-  text: string,
-): JsonValue => {
+const replaceChoiceText = (value: JsonValue | undefined, locale: string, text: string): JsonValue => {
   return replaceVisualLocalizedValueForLocale(value, locale, text);
 };
 
-function ChoiceListField({
-  field,
-  locale,
-  onChange,
-  onFocus,
-  value,
-}: FieldEditorProps) {
+function ChoiceListField({ field, locale, onChange, onFocus, value }: FieldEditorProps) {
   const rows = Array.isArray(value) ? value : [];
   const changeRow = (
     rowIndex: number,
-    key:
-      | "choiceValue"
-      | "text"
-      | "textId"
-      | "nextKey"
-      | "visibleWhen"
-      | "enabledWhen",
+    key: "choiceValue" | "text" | "textId" | "nextKey" | "visibleWhen" | "enabledWhen",
     nextValue: JsonValue | undefined,
   ): void => {
     const next = [...rows];
@@ -349,10 +263,7 @@ function ChoiceListField({
     onChange(next);
   };
   return (
-    <fieldset
-      className="visual-field visual-field-wide visual-structured-field"
-      onFocusCapture={onFocus}
-    >
+    <fieldset className="visual-field visual-field-wide visual-structured-field" onFocusCapture={onFocus}>
       <legend>{field.label}</legend>
       <div className="visual-choice-list">
         {rows.map((item, rowIndex) => {
@@ -383,15 +294,7 @@ function ChoiceListField({
                 <input
                   aria-label={`${field.label} ${rowIndex + 1} text`}
                   onChange={(event) =>
-                    changeRow(
-                      rowIndex,
-                      "text",
-                      replaceChoiceText(
-                        row.text,
-                        locale,
-                        event.target.value,
-                      ),
-                    )
+                    changeRow(rowIndex, "text", replaceChoiceText(row.text, locale, event.target.value))
                   }
                   value={choiceText(row.text, locale)}
                 />
@@ -400,18 +303,14 @@ function ChoiceListField({
                 <span>Destination</span>
                 <input
                   aria-label={`${field.label} ${rowIndex + 1} destination`}
-                  onChange={(event) =>
-                    changeRow(rowIndex, "nextKey", event.target.value)
-                  }
+                  onChange={(event) => changeRow(rowIndex, "nextKey", event.target.value)}
                   value={displayText(row.nextKey)}
                 />
               </label>
               <button
                 aria-label={`Remove choice ${rowIndex + 1}`}
                 className="icon-button"
-                onClick={() =>
-                  onChange(rows.filter((_, index) => index !== rowIndex))
-                }
+                onClick={() => onChange(rows.filter((_, index) => index !== rowIndex))}
                 title="Remove choice"
                 type="button"
               >
@@ -422,13 +321,7 @@ function ChoiceListField({
                   <span>Text key</span>
                   <input
                     aria-label={`${field.label} ${rowIndex + 1} text key`}
-                    onChange={(event) =>
-                      changeRow(
-                        rowIndex,
-                        "textId",
-                        event.target.value || undefined,
-                      )
-                    }
+                    onChange={(event) => changeRow(rowIndex, "textId", event.target.value || undefined)}
                     placeholder="Optional localization key"
                     value={displayText(row.textId)}
                   />
@@ -437,13 +330,7 @@ function ChoiceListField({
                   <span>Visible when</span>
                   <input
                     aria-label={`${field.label} ${rowIndex + 1} visibility condition`}
-                    onChange={(event) =>
-                      changeRow(
-                        rowIndex,
-                        "visibleWhen",
-                        event.target.value || undefined,
-                      )
-                    }
+                    onChange={(event) => changeRow(rowIndex, "visibleWhen", event.target.value || undefined)}
                     placeholder="Optional expression"
                     value={displayText(row.visibleWhen)}
                   />
@@ -452,13 +339,7 @@ function ChoiceListField({
                   <span>Enabled when</span>
                   <input
                     aria-label={`${field.label} ${rowIndex + 1} availability condition`}
-                    onChange={(event) =>
-                      changeRow(
-                        rowIndex,
-                        "enabledWhen",
-                        event.target.value || undefined,
-                      )
-                    }
+                    onChange={(event) => changeRow(rowIndex, "enabledWhen", event.target.value || undefined)}
                     placeholder="Optional expression"
                     value={displayText(row.enabledWhen)}
                   />
@@ -476,10 +357,7 @@ function ChoiceListField({
             return typeof choiceValue === "number" ? [choiceValue] : [];
           });
           const nextValue = (used.length ? Math.max(...used) : 0) + 1;
-          onChange([
-            ...rows,
-            { choiceValue: nextValue, text: "", nextKey: "" },
-          ]);
+          onChange([...rows, { choiceValue: nextValue, text: "", nextKey: "" }]);
         }}
         type="button"
       >
@@ -490,24 +368,11 @@ function ChoiceListField({
   );
 }
 
-function ResourceListField({
-  field,
-  onChange,
-  onFocus,
-  resourceCandidates,
-  value,
-}: FieldEditorProps) {
-  const resources = Array.isArray(value)
-    ? value.map(displayText)
-    : value === undefined
-      ? []
-      : [displayText(value)];
+function ResourceListField({ field, onChange, onFocus, resourceCandidates, value }: FieldEditorProps) {
+  const resources = Array.isArray(value) ? value.map(displayText) : value === undefined ? [] : [displayText(value)];
   const candidates = candidateList(field, resourceCandidates);
   return (
-    <fieldset
-      className="visual-field visual-field-wide visual-structured-field"
-      onFocusCapture={onFocus}
-    >
+    <fieldset className="visual-field visual-field-wide visual-structured-field" onFocusCapture={onFocus}>
       <legend>{field.label}</legend>
       <div className="visual-resource-list">
         {resources.map((resource, index) => (
@@ -525,8 +390,7 @@ function ResourceListField({
                 }}
                 value={resource}
               >
-                {resource &&
-                !candidates.some(({ value: candidate }) => candidate === resource) ? (
+                {resource && !candidates.some(({ value: candidate }) => candidate === resource) ? (
                   <option value={resource}>{resource}</option>
                 ) : null}
                 {candidates.map((candidate) => (
@@ -539,9 +403,7 @@ function ResourceListField({
             <button
               aria-label={`Remove ${field.label} ${index + 1}`}
               className="icon-button"
-              onClick={() =>
-                onChange(resources.filter((_, itemIndex) => itemIndex !== index))
-              }
+              onClick={() => onChange(resources.filter((_, itemIndex) => itemIndex !== index))}
               title="Remove resource"
               type="button"
             >
@@ -564,24 +426,12 @@ function ResourceListField({
 }
 
 function FieldEditor(props: FieldEditorProps) {
-  const {
-    field,
-    locale,
-    locales,
-    onChange,
-    onFocus,
-    resourceCandidates,
-    value,
-  } =
-    props;
+  const { field, locale, locales, onChange, onFocus, resourceCandidates, value } = props;
   const id = useId();
   const nativeKind = visualFieldNativeKind(field);
   const placeholder = visualFieldPlaceholder(field);
 
-  if (
-    nativeKind === "localized-list" ||
-    field.kind === "localized-text"
-  ) {
+  if (nativeKind === "localized-list" || field.kind === "localized-text") {
     return <LocalizedListField {...props} />;
   }
   if (nativeKind === "vector3") return <Vector3Field {...props} />;
@@ -590,23 +440,13 @@ function FieldEditor(props: FieldEditorProps) {
   if (nativeKind === "resource-list") return <ResourceListField {...props} />;
   if (
     field.kind === "json" ||
-    ![
-      "string",
-      "number",
-      "boolean",
-      "select",
-      "resource",
-      "localized-text",
-    ].includes(field.kind)
+    !["string", "number", "boolean", "select", "resource", "localized-text"].includes(field.kind)
   ) {
     return <JsonField {...props} />;
   }
   if (field.kind === "boolean") {
     return (
-      <label
-        className="visual-field visual-field-boolean"
-        htmlFor={id}
-      >
+      <label className="visual-field visual-field-boolean" htmlFor={id}>
         <input
           checked={value === true}
           id={id}
@@ -620,9 +460,7 @@ function FieldEditor(props: FieldEditorProps) {
   }
   if (field.kind === "select") {
     const options = field.options ?? [];
-    const selected = options.findIndex(({ value: candidate }) =>
-      sameOption(value, candidate),
-    );
+    const selected = options.findIndex(({ value: candidate }) => sameOption(value, candidate));
     return (
       <label className="visual-field" htmlFor={id}>
         <span>{field.label}</span>
@@ -642,10 +480,7 @@ function FieldEditor(props: FieldEditorProps) {
         >
           <option value="">Select…</option>
           {options.map((option, optionIndex) => (
-            <option
-              key={`${optionIndex}-${option.label}`}
-              value={optionIndex}
-            >
+            <option key={`${optionIndex}-${option.label}`} value={optionIndex}>
               {option.label}
             </option>
           ))}
@@ -661,18 +496,13 @@ function FieldEditor(props: FieldEditorProps) {
         <span>{field.label}</span>
         <select
           id={id}
-          onChange={(event) =>
-            onChange(
-              event.target.value || (field.required ? "" : undefined),
-            )
-          }
+          onChange={(event) => onChange(event.target.value || (field.required ? "" : undefined))}
           onFocus={onFocus}
           required={field.required}
           value={current}
         >
           <option value="">None</option>
-          {current &&
-          !candidates.some(({ value: candidate }) => candidate === current) ? (
+          {current && !candidates.some(({ value: candidate }) => candidate === current) ? (
             <option value={current}>{current}</option>
           ) : null}
           {candidates.map((candidate) => (
@@ -692,9 +522,7 @@ function FieldEditor(props: FieldEditorProps) {
         inputMode={field.kind === "number" ? "decimal" : undefined}
         onChange={(event) => {
           if (field.kind !== "number") {
-            onChange(
-              event.target.value || (field.required ? "" : undefined),
-            );
+            onChange(event.target.value || (field.required ? "" : undefined));
             return;
           }
           const next = event.target.value.trim();
@@ -733,19 +561,10 @@ export function VisualSentenceCard({
   onRun,
   onSelect,
 }: VisualSentenceCardProps) {
-  const title =
-    schema?.name ??
-    schema?.sourceNames?.[0] ??
-    command.source?.command ??
-    "Extension command";
-  const description =
-    schema?.category ??
-    (command.command === null ? "Source extension required" : "Command");
+  const title = schema?.name ?? schema?.sourceNames?.[0] ?? command.source?.command ?? "Extension command";
+  const description = schema?.category ?? (command.command === null ? "Source extension required" : "Command");
   const fields = visualFieldsFor(command, schema, advService);
-  const updateField = (
-    field: AltairCommandFieldSchema,
-    value: JsonValue | undefined,
-  ): void => {
+  const updateField = (field: AltairCommandFieldSchema, value: JsonValue | undefined): void => {
     onChange(replaceVisualFieldValue(command, field, value, advService));
   };
 
@@ -754,18 +573,12 @@ export function VisualSentenceCard({
       aria-label={title}
       className={active ? "sentence active" : "sentence"}
       onDragOver={(event) => {
-        if (
-          Array.from(event.dataTransfer.types).includes(
-            "text/x-altair-command-index",
-          )
-        ) {
+        if (Array.from(event.dataTransfer.types).includes("text/x-altair-command-index")) {
           event.preventDefault();
         }
       }}
       onDrop={(event) => {
-        const source = event.dataTransfer.getData(
-          "text/x-altair-command-index",
-        );
+        const source = event.dataTransfer.getData("text/x-altair-command-index");
         if (!/^(?:0|[1-9]\d*)$/u.test(source)) return;
         event.preventDefault();
         const sourceIndex = Number(source);
@@ -778,27 +591,15 @@ export function VisualSentenceCard({
         aria-label={`Select ${title}`}
         className="command-select"
         draggable
-        onDragEnd={(event) =>
-          event.currentTarget
-            .closest(".sentence")
-            ?.classList.remove("dragging")
-        }
+        onDragEnd={(event) => event.currentTarget.closest(".sentence")?.classList.remove("dragging")}
         onDragStart={(event) => {
           event.dataTransfer.effectAllowed = "move";
-          event.dataTransfer.setData(
-            "text/x-altair-command-index",
-            String(index),
-          );
-          event.currentTarget
-            .closest(".sentence")
-            ?.classList.add("dragging");
+          event.dataTransfer.setData("text/x-altair-command-index", String(index));
+          event.currentTarget.closest(".sentence")?.classList.add("dragging");
         }}
         onClick={onSelect}
         onKeyDown={(event) => {
-          if (
-            !event.altKey ||
-            (event.key !== "ArrowUp" && event.key !== "ArrowDown")
-          ) {
+          if (!event.altKey || (event.key !== "ArrowUp" && event.key !== "ArrowDown")) {
             return;
           }
           event.preventDefault();
@@ -816,26 +617,13 @@ export function VisualSentenceCard({
       </button>
 
       <div className="sentence-actions">
-        <button
-          aria-label={`Insert command before ${title}`}
-          onClick={onInsertBefore}
-          title="Insert before"
-        >
+        <button aria-label={`Insert command before ${title}`} onClick={onInsertBefore} title="Insert before">
           <StudioIcon name="insert" />
         </button>
-        <button
-          aria-label={`Run ${title}`}
-          disabled={!canRun}
-          onClick={onRun}
-          title="Run from this command"
-        >
+        <button aria-label={`Run ${title}`} disabled={!canRun} onClick={onRun} title="Run from this command">
           <StudioIcon name="play" />
         </button>
-        <button
-          aria-label={`Delete ${title}`}
-          onClick={onRemove}
-          title="Delete command"
-        >
+        <button aria-label={`Delete ${title}`} onClick={onRemove} title="Delete command">
           <StudioIcon name="trash" />
         </button>
       </div>

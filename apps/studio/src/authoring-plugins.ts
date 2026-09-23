@@ -46,9 +46,7 @@ export interface StudioAuthoringPluginHostResult {
 }
 
 export interface StudioAuthoringPluginBroker {
-  load(
-    request: StudioAuthoringPluginHostRequest,
-  ): Promise<StudioAuthoringPluginHostResult>;
+  load(request: StudioAuthoringPluginHostRequest): Promise<StudioAuthoringPluginHostResult>;
 }
 
 declare global {
@@ -68,8 +66,7 @@ export interface StudioAuthoringPluginPlan {
   readonly key: string;
 }
 
-export interface StudioPlannedAuthoringPlugin
-  extends StudioBuiltinAuthoringPlugin {
+export interface StudioPlannedAuthoringPlugin extends StudioBuiltinAuthoringPlugin {
   readonly configuration?: JsonObject;
   readonly permissions: readonly string[];
 }
@@ -80,11 +77,7 @@ export interface LoadedStudioAuthoringPlugins {
   dispose(): Promise<void>;
 }
 
-const builtin = (
-  id: string,
-  version: string,
-  load: () => Promise<AltairPlugin>,
-): StudioBuiltinAuthoringPlugin =>
+const builtin = (id: string, version: string, load: () => Promise<AltairPlugin>): StudioBuiltinAuthoringPlugin =>
   Object.freeze({
     manifest: Object.freeze({ id, version }),
     load,
@@ -92,32 +85,25 @@ const builtin = (
 
 const builtins = new Map<string, StudioBuiltinAuthoringPlugin>(
   [
+    builtin("haneoka.altair-models", "0.1.0", async () => {
+      const { altairModelsPlugin } = await import("@haneoka/altair-plugin-models");
+      return altairModelsPlugin;
+    }),
     builtin("haneoka.altair-adv", "0.1.0", async () => {
-      const { altairAdvPlugin } = await import(
-        "@haneoka/altair-plugin-adv"
-      );
+      const { altairAdvPlugin } = await import("@haneoka/altair-plugin-adv");
       return altairAdvPlugin;
     }),
     builtin("haneoka.altair-flow", "0.1.0", async () => {
-      const { altairFlowPlugin } = await import(
-        "@haneoka/altair-plugin-flow"
-      );
+      const { altairFlowPlugin } = await import("@haneoka/altair-plugin-flow");
       return altairFlowPlugin;
     }),
     builtin("haneoka.altair-history", "0.1.0", async () => {
-      const { altairHistoryPlugin } = await import(
-        "@haneoka/altair-plugin-history"
-      );
+      const { altairHistoryPlugin } = await import("@haneoka/altair-plugin-history");
       return altairHistoryPlugin;
     }),
     builtin("haneoka.altair-drafts", "0.1.0", async () => {
-      const {
-        altairDraftsPlugin,
-        createAltairDraftsPlugin,
-        createAltairIndexedDbDraftPersistence,
-      } = await import(
-        "@haneoka/altair-plugin-drafts"
-      );
+      const { altairDraftsPlugin, createAltairDraftsPlugin, createAltairIndexedDbDraftPersistence } =
+        await import("@haneoka/altair-plugin-drafts");
       return typeof globalThis.indexedDB === "undefined"
         ? altairDraftsPlugin
         : createAltairDraftsPlugin({
@@ -128,42 +114,30 @@ const builtins = new Map<string, StudioBuiltinAuthoringPlugin>(
           });
     }),
     builtin("haneoka.altair-marketplace", "0.1.0", async () => {
-      const { altairMarketplacePlugin } = await import(
-        "@haneoka/altair-plugin-marketplace"
-      );
+      const { altairMarketplacePlugin } = await import("@haneoka/altair-plugin-marketplace");
       return altairMarketplacePlugin;
     }),
     builtin("haneoka.altair-prose", "0.1.0", async () => {
-      const { altairProsePlugin } = await import(
-        "@haneoka/altair-plugin-prose"
-      );
+      const { altairProsePlugin } = await import("@haneoka/altair-plugin-prose");
       return altairProsePlugin;
     }),
     builtin("haneoka.altair-vega-preview", "0.1.0", async () => {
-      const { altairVegaPreviewPlugin } = await import(
-        "@haneoka/altair-plugin-vega-preview"
-      );
+      const { altairVegaPreviewPlugin } = await import("@haneoka/altair-plugin-vega-preview");
       return altairVegaPreviewPlugin;
     }),
     builtin("haneoka.altair-webgal", "0.1.0", async () => {
-      const { altairWebGalPlugin } = await import(
-        "@haneoka/altair-plugin-webgal"
-      );
+      const { altairWebGalPlugin } = await import("@haneoka/altair-plugin-webgal");
       return altairWebGalPlugin;
     }),
     builtin("haneoka.altair-workspace-browser", "0.1.0", async () => {
-      const { altairWorkspaceBrowserPlugin } = await import(
-        "@haneoka/altair-plugin-workspace-browser"
-      );
+      const { altairWorkspaceBrowserPlugin } = await import("@haneoka/altair-plugin-workspace-browser");
       return altairWorkspaceBrowserPlugin;
     }),
   ].map((entry) => [entry.manifest.id, entry]),
 );
 
-export const hasStudioBuiltinAuthoringPlugin = (
-  id: string,
-  version: string,
-): boolean => builtins.get(id)?.manifest.version === version;
+export const hasStudioBuiltinAuthoringPlugin = (id: string, version: string): boolean =>
+  builtins.get(id)?.manifest.version === version;
 
 const diagnostic = (
   severity: "error" | "warning",
@@ -183,22 +157,20 @@ const stableKey = (
   environment: AltairPluginTargetEnvironment,
   brokerAvailable: boolean,
 ): string => {
-  const value = JSON.stringify(
-    {
-      plugins: plugins
-        .filter(({ enabled }) => enabled !== false)
-        .map(({ id, version, permissions, configuration }) => ({
-          id,
-          version,
-          permissions,
-          configuration,
-        }))
-        .sort((left, right) => left.id.localeCompare(right.id)),
-      catalog,
-      environment,
-      brokerAvailable,
-    },
-  );
+  const value = JSON.stringify({
+    plugins: plugins
+      .filter(({ enabled }) => enabled !== false)
+      .map(({ id, version, permissions, configuration }) => ({
+        id,
+        version,
+        permissions,
+        configuration,
+      }))
+      .sort((left, right) => left.id.localeCompare(right.id)),
+    catalog,
+    environment,
+    brokerAvailable,
+  });
   let hash = 0x811c9dc5;
   for (let index = 0; index < value.length; index += 1) {
     hash ^= value.charCodeAt(index);
@@ -219,33 +191,21 @@ export const createStudioAuthoringPluginPlan = (
     environment,
   );
   const diagnostics = resolution.diagnostics.map((entry) =>
-    diagnostic(
-      entry.severity,
-      `studio.authoring.plugin.${entry.code}`,
-      entry.pluginId,
-      entry.message,
-    ),
+    diagnostic(entry.severity, `studio.authoring.plugin.${entry.code}`, entry.pluginId, entry.message),
   );
   const installed = new Map(plugins.map((entry) => [entry.id, entry]));
   const authoringEntries = resolution.entries.filter(
-    (entry) =>
-      altairPluginAuthoringExtension(catalog, entry)?.scope === "authoring",
+    (entry) => altairPluginAuthoringExtension(catalog, entry)?.scope === "authoring",
   );
-  const authoringPluginIds = new Set(
-    authoringEntries.map(({ id }) => id),
-  );
+  const authoringPluginIds = new Set(authoringEntries.map(({ id }) => id));
   const selectedBuiltins: StudioPlannedAuthoringPlugin[] = [];
-  const hostEntries: Array<
-    StudioAuthoringPluginHostRequest["requested"][number]
-  > = [];
+  const hostEntries: Array<StudioAuthoringPluginHostRequest["requested"][number]> = [];
   for (const entry of authoringEntries) {
     const projectPlugin = installed.get(entry.id);
     if (!projectPlugin || projectPlugin.enabled === false) continue;
     const extension = altairPluginAuthoringExtension(catalog, entry);
     const requiredPermissions = extension?.permissions ?? [];
-    const missing = requiredPermissions.filter(
-      (permission) => !projectPlugin.permissions?.includes(permission),
-    );
+    const missing = requiredPermissions.filter((permission) => !projectPlugin.permissions?.includes(permission));
     if (missing.length) {
       diagnostics.push(
         diagnostic(
@@ -272,12 +232,8 @@ export const createStudioAuthoringPluginPlan = (
         selectedBuiltins.push(
           Object.freeze({
             ...trusted,
-            ...(projectPlugin.configuration === undefined
-              ? {}
-              : { configuration: projectPlugin.configuration }),
-            permissions: Object.freeze([
-              ...(projectPlugin.permissions ?? []),
-            ]),
+            ...(projectPlugin.configuration === undefined ? {} : { configuration: projectPlugin.configuration }),
+            permissions: Object.freeze([...(projectPlugin.permissions ?? [])]),
           }),
         );
       }
@@ -286,9 +242,7 @@ export const createStudioAuthoringPluginPlan = (
     hostEntries.push({
       id: entry.id,
       version: entry.version,
-      ...(projectPlugin.configuration === undefined
-        ? {}
-        : { configuration: projectPlugin.configuration }),
+      ...(projectPlugin.configuration === undefined ? {} : { configuration: projectPlugin.configuration }),
       permissions: Object.freeze([...(projectPlugin.permissions ?? [])]),
       source: entry.source,
     });
@@ -307,9 +261,7 @@ export const createStudioAuthoringPluginPlan = (
   }
   return Object.freeze({
     builtins: Object.freeze(selectedBuiltins),
-    hostEntries: Object.freeze(
-      brokerAvailable ? hostEntries : [],
-    ),
+    hostEntries: Object.freeze(brokerAvailable ? hostEntries : []),
     diagnostics: Object.freeze(diagnostics),
     key: stableKey(
       plugins.filter(({ id }) => authoringPluginIds.has(id)),
@@ -320,9 +272,8 @@ export const createStudioAuthoringPluginPlan = (
   });
 };
 
-export const studioAuthoringPluginBroker = ():
-  | StudioAuthoringPluginBroker
-  | undefined => window.__ALTAIR_AUTHORING_PLUGIN_HOST__;
+export const studioAuthoringPluginBroker = (): StudioAuthoringPluginBroker | undefined =>
+  window.__ALTAIR_AUTHORING_PLUGIN_HOST__;
 
 export const loadStudioAuthoringPlugins = async (
   plan: StudioAuthoringPluginPlan,
@@ -337,9 +288,7 @@ export const loadStudioAuthoringPlugins = async (
       const plugin = await descriptor.load();
       assertIdentity(plugin, descriptor.manifest);
       await host.install(plugin, {
-        ...(descriptor.configuration === undefined
-          ? {}
-          : { configuration: descriptor.configuration }),
+        ...(descriptor.configuration === undefined ? {} : { configuration: descriptor.configuration }),
         permissions: descriptor.permissions,
       });
       loaded.push(descriptor.manifest);
@@ -354,13 +303,9 @@ export const loadStudioAuthoringPlugins = async (
       const plugins = [...result.plugins];
       assertExactPlugins(plan.hostEntries, plugins);
       for (const plugin of plugins) {
-        const activation = plan.hostEntries.find(
-          ({ id }) => id === plugin.manifest.id,
-        )!;
+        const activation = plan.hostEntries.find(({ id }) => id === plugin.manifest.id)!;
         await host.install(plugin, {
-          ...(activation.configuration === undefined
-            ? {}
-            : { configuration: activation.configuration }),
+          ...(activation.configuration === undefined ? {} : { configuration: activation.configuration }),
           permissions: activation.permissions,
         });
         loaded.push({
@@ -385,27 +330,14 @@ export const loadStudioAuthoringPlugins = async (
  * integrity, environment and version therefore cannot remain stale.
  */
 export const reconcileStudioAuthoringPlugins = async (
-  current: LoadedStudioAuthoringPlugins,
+  _current: LoadedStudioAuthoringPlugins,
   plan: StudioAuthoringPluginPlan,
   broker: StudioAuthoringPluginBroker | undefined,
   signal: AbortSignal,
 ): Promise<LoadedStudioAuthoringPlugins> => {
-  const revokesCapabilities = plan.diagnostics.some(
-    ({ severity }) => severity === "error",
-  );
-  if (revokesCapabilities) {
-    await current.dispose();
-    signal.throwIfAborted();
-    return loadStudioAuthoringPlugins(plan, broker, signal);
-  }
-  const next = await loadStudioAuthoringPlugins(
-    plan,
-    broker,
-    signal,
-  );
+  const next = await loadStudioAuthoringPlugins(plan, broker, signal);
   try {
     signal.throwIfAborted();
-    await current.dispose();
     return next;
   } catch (error) {
     await next.dispose().catch(() => undefined);
@@ -413,20 +345,11 @@ export const reconcileStudioAuthoringPlugins = async (
   }
 };
 
-const identity = (value: StudioAuthoringPluginReceipt): string =>
-  `${value.id}@${value.version}`;
+const identity = (value: StudioAuthoringPluginReceipt): string => `${value.id}@${value.version}`;
 
-const assertIdentity = (
-  plugin: AltairPlugin,
-  expected: StudioAuthoringPluginReceipt,
-): void => {
-  if (
-    plugin.manifest.id !== expected.id ||
-    plugin.manifest.version !== expected.version
-  ) {
-    throw new TypeError(
-      `Authoring plugin loaded ${identity(plugin.manifest)}, expected ${identity(expected)}`,
-    );
+const assertIdentity = (plugin: AltairPlugin, expected: StudioAuthoringPluginReceipt): void => {
+  if (plugin.manifest.id !== expected.id || plugin.manifest.version !== expected.version) {
+    throw new TypeError(`Authoring plugin loaded ${identity(plugin.manifest)}, expected ${identity(expected)}`);
   }
 };
 

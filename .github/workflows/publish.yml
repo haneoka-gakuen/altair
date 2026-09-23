@@ -102,6 +102,11 @@ jobs:
           persist-credentials: false
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          repository: haneoka-gakuen/vega-renderer-three
+          path: altair/.dependencies/vega-renderer-three
+          persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
           repository: haneoka-gakuen/vega-shell-default
           path: altair/.dependencies/vega-shell-default
           persist-credentials: false
@@ -114,6 +119,21 @@ jobs:
         with:
           repository: haneoka-gakuen/vega-ui-portable
           path: altair/.dependencies/vega-ui-portable
+          persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: haneoka-gakuen/altair-plugin-models
+          path: altair/.dependencies/altair-plugin-models
+          persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: haneoka-gakuen/vega-plugin-composite
+          path: altair/.dependencies/vega-plugin-composite
+          persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: haneoka-gakuen/vega-plugin-cubism
+          path: altair/.dependencies/vega-plugin-cubism
           persist-credentials: false
       - name: Set up pnpm
         uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
@@ -135,7 +155,7 @@ jobs:
 
       - name: Install release dependencies
         working-directory: altair
-        run: pnpm install --no-frozen-lockfile --filter @haneoka/altair... --filter @haneoka/altair-preview-client... --filter @haneoka/vega...
+        run: pnpm install --no-frozen-lockfile --filter @haneoka/altair... --filter @haneoka/altair-preview-client... --filter @haneoka/altair-ui-react... --filter @haneoka/vega...
 
       - name: Build Vega protocol
         working-directory: altair
@@ -143,7 +163,7 @@ jobs:
 
       - name: Check packages
         working-directory: altair
-        run: pnpm check:core && pnpm --filter @haneoka/altair-preview-client check
+        run: pnpm check:core && pnpm --filter @haneoka/altair-preview-client check && pnpm --filter @haneoka/altair-ui-react typecheck && pnpm --filter @haneoka/altair-ui-react build
 
       - name: Publish authoring toolkit
         working-directory: altair
@@ -158,6 +178,17 @@ jobs:
 
       - name: Publish preview client
         working-directory: altair/packages/preview-client
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          package_name=$(node -p "require('./package.json').name.replaceAll('/', '-')")
+          package_dir="$RUNNER_TEMP/$package_name"
+          mkdir -p "$package_dir"
+          pnpm pack --pack-destination "$package_dir"
+          npm publish "$package_dir"/*.tgz --access public --provenance
+
+      - name: Publish React extension UI
+        working-directory: altair/packages/ui-react
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |

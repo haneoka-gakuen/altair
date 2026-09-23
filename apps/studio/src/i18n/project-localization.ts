@@ -1,10 +1,6 @@
-import {
-  cloneStoryValue,
-  type StoryProject,
-} from "@haneoka/altair";
+import { cloneStoryValue, type StoryProject } from "@haneoka/altair";
 
-export const PROJECT_LOCALIZATION_EXTENSION_KEY =
-  "org.haneoka.altair.localization";
+export const PROJECT_LOCALIZATION_EXTENSION_KEY = "org.haneoka.altair.localization";
 
 export interface ProjectLanguage {
   readonly locale: string;
@@ -41,10 +37,7 @@ export type ProjectLocalizationAction =
 
 export class ProjectLocalizationError extends TypeError {
   constructor(
-    readonly code:
-      | "invalid-locale"
-      | "duplicate-locale"
-      | "missing-locale",
+    readonly code: "invalid-locale" | "duplicate-locale" | "missing-locale",
     message: string,
   ) {
     super(message);
@@ -84,16 +77,10 @@ const GRANDFATHERED = new Set([
 export const canonicalizeProjectLocale = (value: string): string => {
   const trimmed = value.trim().replace(/_/gu, "-");
   if (!trimmed) {
-    throw new ProjectLocalizationError(
-      "invalid-locale",
-      "A language tag is required",
-    );
+    throw new ProjectLocalizationError("invalid-locale", "A language tag is required");
   }
   const lower = trimmed.toLowerCase();
-  if (
-    GRANDFATHERED.has(lower) ||
-    /^x(?:-[a-z0-9]{1,8})+$/u.test(lower)
-  ) {
+  if (GRANDFATHERED.has(lower) || /^x(?:-[a-z0-9]{1,8})+$/u.test(lower)) {
     return lower;
   }
   try {
@@ -101,10 +88,7 @@ export const canonicalizeProjectLocale = (value: string): string => {
     if (!canonical) throw new RangeError("empty language tag");
     return canonical;
   } catch {
-    throw new ProjectLocalizationError(
-      "invalid-locale",
-      `'${value}' is not a valid BCP 47 language tag`,
-    );
+    throw new ProjectLocalizationError("invalid-locale", `'${value}' is not a valid BCP 47 language tag`);
   }
 };
 
@@ -126,9 +110,7 @@ export const splitFontPreferences = (value: string): readonly string[] =>
       .filter(Boolean),
   );
 
-export const createProjectLocalization = (
-  locale?: string,
-): ProjectLocalization => {
+export const createProjectLocalization = (locale?: string): ProjectLocalization => {
   if (!locale) {
     return Object.freeze({
       version: 1,
@@ -161,10 +143,7 @@ const language = (
     fonts: Object.freeze([...fonts]),
   });
 
-export const normalizeProjectLocalization = (
-  value: unknown,
-  legacyLocale?: string,
-): ProjectLocalization => {
+export const normalizeProjectLocalization = (value: unknown, legacyLocale?: string): ProjectLocalization => {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     return createProjectLocalization(legacyLocale);
   }
@@ -203,7 +182,12 @@ export const normalizeProjectLocalization = (
         })
       : [];
     const fonts = Array.isArray(entry.fonts)
-      ? unique(entry.fonts.filter((font): font is string => typeof font === "string").map((font) => font.trim()).filter(Boolean))
+      ? unique(
+          entry.fonts
+            .filter((font): font is string => typeof font === "string")
+            .map((font) => font.trim())
+            .filter(Boolean),
+        )
       : [];
     parsedLanguages.push(language(locale, unique(fallbacks), fonts));
   }
@@ -211,9 +195,7 @@ export const normalizeProjectLocalization = (
   const languages = parsedLanguages.map((entry) =>
     language(
       entry.locale,
-        entry.fallbackLocales.filter(
-          (fallback) => fallback !== entry.locale && configured.has(fallback),
-        ),
+      entry.fallbackLocales.filter((fallback) => fallback !== entry.locale && configured.has(fallback)),
       entry.fonts,
     ),
   );
@@ -237,16 +219,10 @@ export const normalizeProjectLocalization = (
   });
 };
 
-export const addProjectLanguage = (
-  value: ProjectLocalization,
-  locale: string,
-): ProjectLocalization => {
+export const addProjectLanguage = (value: ProjectLocalization, locale: string): ProjectLocalization => {
   const canonical = canonicalizeProjectLocale(locale);
   if (value.languages.some((entry) => entry.locale === canonical)) {
-    throw new ProjectLocalizationError(
-      "duplicate-locale",
-      `${canonical} is already configured`,
-    );
+    throw new ProjectLocalizationError("duplicate-locale", `${canonical} is already configured`);
   }
   return Object.freeze({
     version: 1,
@@ -255,16 +231,10 @@ export const addProjectLanguage = (
   });
 };
 
-export const removeProjectLanguage = (
-  value: ProjectLocalization,
-  locale: string,
-): ProjectLocalization => {
+export const removeProjectLanguage = (value: ProjectLocalization, locale: string): ProjectLocalization => {
   const index = value.languages.findIndex((entry) => entry.locale === locale);
   if (index < 0) {
-    throw new ProjectLocalizationError(
-      "missing-locale",
-      `${locale} is not configured`,
-    );
+    throw new ProjectLocalizationError("missing-locale", `${locale} is not configured`);
   }
   const remaining = value.languages
     .filter((entry) => entry.locale !== locale)
@@ -277,10 +247,7 @@ export const removeProjectLanguage = (
     );
   const defaultLocale =
     value.defaultLocale === locale
-      ? (remaining[index]?.locale ??
-        remaining[index - 1]?.locale ??
-        remaining[0]?.locale ??
-        null)
+      ? (remaining[index]?.locale ?? remaining[index - 1]?.locale ?? remaining[0]?.locale ?? null)
       : value.defaultLocale;
   return Object.freeze({
     version: 1,
@@ -296,10 +263,7 @@ export const moveProjectLanguage = (
 ): ProjectLocalization => {
   const from = value.languages.findIndex((entry) => entry.locale === locale);
   if (from < 0) {
-    throw new ProjectLocalizationError(
-      "missing-locale",
-      `${locale} is not configured`,
-    );
+    throw new ProjectLocalizationError("missing-locale", `${locale} is not configured`);
   }
   const to = Math.max(0, Math.min(value.languages.length - 1, from + offset));
   if (from === to) return value;
@@ -312,15 +276,9 @@ export const moveProjectLanguage = (
   });
 };
 
-export const setDefaultProjectLanguage = (
-  value: ProjectLocalization,
-  locale: string,
-): ProjectLocalization => {
+export const setDefaultProjectLanguage = (value: ProjectLocalization, locale: string): ProjectLocalization => {
   if (!value.languages.some((entry) => entry.locale === locale)) {
-    throw new ProjectLocalizationError(
-      "missing-locale",
-      `${locale} is not configured`,
-    );
+    throw new ProjectLocalizationError("missing-locale", `${locale} is not configured`);
   }
   return Object.freeze({ ...value, defaultLocale: locale });
 };
@@ -332,23 +290,16 @@ export const setProjectLanguageFallbacks = (
 ): ProjectLocalization => {
   const configured = new Set(value.languages.map((entry) => entry.locale));
   if (!configured.has(locale)) {
-    throw new ProjectLocalizationError(
-      "missing-locale",
-      `${locale} is not configured`,
-    );
+    throw new ProjectLocalizationError("missing-locale", `${locale} is not configured`);
   }
   const normalized = unique(
-    fallbacks
-      .map(canonicalizeProjectLocale)
-      .filter((fallback) => fallback !== locale && configured.has(fallback)),
+    fallbacks.map(canonicalizeProjectLocale).filter((fallback) => fallback !== locale && configured.has(fallback)),
   );
   return Object.freeze({
     ...value,
     languages: Object.freeze(
       value.languages.map((entry) =>
-        entry.locale === locale
-          ? language(entry.locale, normalized, entry.fonts)
-          : entry,
+        entry.locale === locale ? language(entry.locale, normalized, entry.fonts) : entry,
       ),
     ),
   });
@@ -360,19 +311,14 @@ export const setProjectLanguageFonts = (
   fonts: readonly string[],
 ): ProjectLocalization => {
   if (!value.languages.some((entry) => entry.locale === locale)) {
-    throw new ProjectLocalizationError(
-      "missing-locale",
-      `${locale} is not configured`,
-    );
+    throw new ProjectLocalizationError("missing-locale", `${locale} is not configured`);
   }
   const normalized = unique(fonts.map((font) => font.trim()).filter(Boolean));
   return Object.freeze({
     ...value,
     languages: Object.freeze(
       value.languages.map((entry) =>
-        entry.locale === locale
-          ? language(entry.locale, entry.fallbackLocales, normalized)
-          : entry,
+        entry.locale === locale ? language(entry.locale, entry.fallbackLocales, normalized) : entry,
       ),
     ),
   });
@@ -392,11 +338,7 @@ export const reduceProjectLocalization = (
     case "default/set":
       return setDefaultProjectLanguage(value, action.locale);
     case "fallbacks/set":
-      return setProjectLanguageFallbacks(
-        value,
-        action.locale,
-        action.fallbacks,
-      );
+      return setProjectLanguageFallbacks(value, action.locale, action.fallbacks);
     case "fonts/set":
       return setProjectLanguageFonts(value, action.locale, action.fonts);
     case "replace":
@@ -404,13 +346,8 @@ export const reduceProjectLocalization = (
   }
 };
 
-export const projectLocaleFallbackChain = (
-  value: ProjectLocalization,
-  locale: string,
-): readonly string[] => {
-  const configured = new Map(
-    value.languages.map((entry) => [entry.locale, entry]),
-  );
+export const projectLocaleFallbackChain = (value: ProjectLocalization, locale: string): readonly string[] => {
+  const configured = new Map(value.languages.map((entry) => [entry.locale, entry]));
   const output: string[] = [];
   const seen = new Set<string>();
   const visit = (tag: string): void => {
@@ -426,36 +363,29 @@ export const projectLocaleFallbackChain = (
   return Object.freeze(output);
 };
 
-export const readProjectLocalization = (
-  project: StoryProject,
-): ProjectLocalization =>
-  normalizeProjectLocalization(
-    project.extensions[PROJECT_LOCALIZATION_EXTENSION_KEY],
-    project.meta.locale,
-  );
+export const readProjectLocalization = (project: StoryProject): ProjectLocalization =>
+  normalizeProjectLocalization(project.extensions[PROJECT_LOCALIZATION_EXTENSION_KEY], project.meta.locale);
 
-export const writeProjectLocalization = (
-  project: StoryProject,
-  settings: ProjectLocalization,
-): StoryProject => {
+export const writeProjectLocalization = (project: StoryProject, settings: ProjectLocalization): StoryProject => {
   const normalized = normalizeProjectLocalization(settings);
-  const next = cloneStoryValue(project);
-  next.extensions[PROJECT_LOCALIZATION_EXTENSION_KEY] =
-    cloneStoryValue({
-      version: normalized.version,
-      defaultLocale: normalized.defaultLocale,
-      languages: normalized.languages.map((entry) => ({
-        locale: entry.locale,
-        fallbackLocales: [...entry.fallbackLocales],
-        fonts: [...entry.fonts],
-      })),
-    });
-  if (normalized.defaultLocale) {
-    next.meta.locale = normalized.defaultLocale;
-  } else {
-    delete next.meta.locale;
-  }
-  return next;
+  const localization = cloneStoryValue({
+    version: normalized.version,
+    defaultLocale: normalized.defaultLocale,
+    languages: normalized.languages.map((entry) => ({
+      locale: entry.locale,
+      fallbackLocales: [...entry.fallbackLocales],
+      fonts: [...entry.fonts],
+    })),
+  });
+  const { locale: _locale, ...metaWithoutLocale } = project.meta;
+  return {
+    ...project,
+    meta: normalized.defaultLocale ? { ...metaWithoutLocale, locale: normalized.defaultLocale } : metaWithoutLocale,
+    extensions: {
+      ...project.extensions,
+      [PROJECT_LOCALIZATION_EXTENSION_KEY]: localization,
+    },
+  };
 };
 
 export class ProjectLocalizationController {

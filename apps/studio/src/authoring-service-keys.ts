@@ -11,35 +11,20 @@ import type { AltairWebGalService } from "@haneoka/altair-plugin-webgal";
  * Structural keys keep Studio's initial bundle independent from optional
  * implementation modules. The broker loads implementations only on demand.
  */
-export const studioMarketplaceServiceKey =
-  defineAltairService<AltairMarketplaceService>(
-    "haneoka.altair.marketplace",
-  );
+export const studioMarketplaceServiceKey = defineAltairService<AltairMarketplaceService>("haneoka.altair.marketplace");
 
-export const studioAdvServiceKey =
-  defineAltairService<AltairAdvService>("haneoka.altair.adv");
+export const studioAdvServiceKey = defineAltairService<AltairAdvService>("haneoka.altair.adv");
 
-export const studioVegaPreviewServiceKey =
-  defineAltairService<AltairVegaPreviewService>(
-    "haneoka.altair.services.vega-preview",
-  );
+export const studioVegaPreviewServiceKey = defineAltairService<AltairVegaPreviewService>(
+  "haneoka.altair.services.vega-preview",
+);
 
-export const studioBrowserWorkspaceServiceKey =
-  defineAltairService<AltairBrowserWorkspaceService>(
-    "haneoka.altair.workspace.browser",
-  );
+export const studioBrowserWorkspaceServiceKey = defineAltairService<AltairBrowserWorkspaceService>(
+  "haneoka.altair.workspace.browser",
+);
 
-export const studioWebGalServiceKey =
-  defineAltairService<AltairWebGalService>(
-    "haneoka.altair.webgal",
-  );
+export const studioWebGalServiceKey = defineAltairService<AltairWebGalService>("haneoka.altair.webgal");
 
-export const studioHistoryServiceKey =
-  defineAltairService<AltairHistoryService>(
-    "haneoka.altair.history",
-  );
+export const studioHistoryServiceKey = defineAltairService<AltairHistoryService>("haneoka.altair.history");
 
-export const studioDraftServiceKey =
-  defineAltairService<AltairDraftService>(
-    "haneoka.altair.drafts",
-  );
+export const studioDraftServiceKey = defineAltairService<AltairDraftService>("haneoka.altair.drafts");

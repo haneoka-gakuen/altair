@@ -7,10 +7,7 @@ import {
   type VegaPreviewIdentity,
   type VegaPreviewTransform,
 } from "@haneoka/altair-preview-client";
-import type {
-  AltairPreviewSession,
-  JsonObject,
-} from "@haneoka/altair";
+import type { AltairPreviewSession, JsonObject } from "@haneoka/altair";
 
 export interface AltairStudioEmbeddedPreviewConfig {
   /**
@@ -60,13 +57,9 @@ export class StudioPreviewBridge {
 
   async connect(target: Window, config: AltairStudioEmbeddedPreviewConfig): Promise<void> {
     this.close();
-    const client = bootstrapAltairPreview(
-      target,
-      config.targetOrigin,
-      config.identity,
-      config.token,
-      { timeoutMs: 8_000 },
-    );
+    const client = bootstrapAltairPreview(target, config.targetOrigin, config.identity, config.token, {
+      timeoutMs: 8_000,
+    });
     await this.adoptClient(client);
   }
 
@@ -105,28 +98,18 @@ export class StudioPreviewBridge {
   }
 
   get connected(): boolean {
-    return Boolean(
-      this.session ||
-        (this.client?.capabilities && !this.client.isClosed),
-    );
+    return Boolean(this.session || (this.client?.capabilities && !this.client.isClosed));
   }
 
   onEvent(listener: (event: VegaPreviewEvent) => void): () => void {
     if (this.session) {
-      return (
-        this.session.onEvent?.((event) =>
-          listener(event as unknown as VegaPreviewEvent),
-        ) ?? (() => undefined)
-      );
+      return this.session.onEvent?.((event) => listener(event as unknown as VegaPreviewEvent)) ?? (() => undefined);
     }
     return this.requireClient().onEvent(listener);
   }
 
   async load(story: VegaJsonValue, commandIndex: number, signal?: AbortSignal): Promise<void> {
-    const response = await this.request(
-      { name: "runtime.load", story, commandIndex },
-      signal,
-    );
+    const response = await this.request({ name: "runtime.load", story, commandIndex }, signal);
     if (response.status === "superseded") throw new Error("Preview load was superseded by a newer revision");
   }
 
@@ -151,18 +134,12 @@ export class StudioPreviewBridge {
   }
 
   async seek(commandIndex: number, signal?: AbortSignal): Promise<void> {
-    const response = await this.request(
-      { name: "runtime.seek", commandIndex },
-      signal,
-    );
+    const response = await this.request({ name: "runtime.seek", commandIndex }, signal);
     if (response.status === "superseded") return;
   }
 
   async snapshot(signal?: AbortSignal): Promise<VegaJsonValue | undefined> {
-    const response = await this.request(
-      { name: "runtime.snapshot" },
-      signal,
-    );
+    const response = await this.request({ name: "runtime.snapshot" }, signal);
     return response.status === "executed" ? response.result : undefined;
   }
 
@@ -175,83 +152,46 @@ export class StudioPreviewBridge {
   }
 
   async runScene(commandIndex = 0, signal?: AbortSignal): Promise<void> {
-    await this.request(
-      { name: "editor.run-scene", commandIndex },
-      signal,
-    );
+    await this.request({ name: "editor.run-scene", commandIndex }, signal);
   }
 
   async runFrom(commandIndex: number, signal?: AbortSignal): Promise<void> {
-    await this.request(
-      { name: "editor.run-from", commandIndex },
-      signal,
-    );
+    await this.request({ name: "editor.run-from", commandIndex }, signal);
   }
 
-  async runSnippet(
-    commands: readonly VegaJsonValue[],
-    label?: string,
-    signal?: AbortSignal,
-  ): Promise<void> {
-    await this.request(
-      { name: "editor.run-snippet", commands, ...(label ? { label } : {}) },
-      signal,
-    );
+  async runSnippet(commands: readonly VegaJsonValue[], label?: string, signal?: AbortSignal): Promise<void> {
+    await this.request({ name: "editor.run-snippet", commands, ...(label ? { label } : {}) }, signal);
   }
 
   async continue(signal?: AbortSignal): Promise<void> {
-    await this.request(
-      { name: "debug.continue" },
-      signal,
-    );
+    await this.request({ name: "debug.continue" }, signal);
   }
 
   async step(signal?: AbortSignal): Promise<void> {
-    await this.request(
-      { name: "debug.step" },
-      signal,
-    );
+    await this.request({ name: "debug.step" }, signal);
   }
 
-  async setBreakpoints(
-    breakpoints: readonly VegaPreviewBreakpoint[],
-    signal?: AbortSignal,
-  ): Promise<void> {
-    await this.request(
-      { name: "debug.breakpoints.set", breakpoints },
-      signal,
-    );
+  async setBreakpoints(breakpoints: readonly VegaPreviewBreakpoint[], signal?: AbortSignal): Promise<void> {
+    await this.request({ name: "debug.breakpoints.set", breakpoints }, signal);
   }
 
   async variables(signal?: AbortSignal): Promise<VegaJsonValue | undefined> {
-    const response = await this.request(
-      { name: "debug.variables" },
-      signal,
-    );
+    const response = await this.request({ name: "debug.variables" }, signal);
     return response.status === "executed" ? response.result : undefined;
   }
 
   async stageSnapshot(signal?: AbortSignal): Promise<VegaJsonValue | undefined> {
-    const response = await this.request(
-      { name: "stage.snapshot" },
-      signal,
-    );
+    const response = await this.request({ name: "stage.snapshot" }, signal);
     return response.status === "executed" ? response.result : undefined;
   }
 
   async referenceFrame(target: string, signal?: AbortSignal): Promise<VegaJsonValue | undefined> {
-    const response = await this.request(
-      { name: "stage.reference-frame", target },
-      signal,
-    );
+    const response = await this.request({ name: "stage.reference-frame", target }, signal);
     return response.status === "executed" ? response.result : undefined;
   }
 
   async stageTransform(target: string, signal?: AbortSignal): Promise<VegaJsonValue | undefined> {
-    const response = await this.request(
-      { name: "stage.transform.get", target },
-      signal,
-    );
+    const response = await this.request({ name: "stage.transform.get", target }, signal);
     return response.status === "executed" ? response.result : undefined;
   }
 
@@ -287,21 +227,10 @@ export class StudioPreviewBridge {
   ): ReturnType<AltairPreviewClient["request"]> {
     if (this.session) {
       return this.session
-        .request(
-          command as unknown as JsonObject,
-          signal ? { signal } : {},
-        )
-        .then(
-          (response) =>
-            response as unknown as Awaited<
-              ReturnType<AltairPreviewClient["request"]>
-            >,
-        );
+        .request(command as unknown as JsonObject, signal ? { signal } : {})
+        .then((response) => response as unknown as Awaited<ReturnType<AltairPreviewClient["request"]>>);
     }
-    return this.requireClient().request(
-      command,
-      signal ? { signal } : {},
-    );
+    return this.requireClient().request(command, signal ? { signal } : {});
   }
 
   private requireClient(): AltairPreviewClient {
@@ -313,9 +242,7 @@ export class StudioPreviewBridge {
 }
 
 const record = (value: VegaJsonValue): Record<string, VegaJsonValue> | undefined =>
-  value && typeof value === "object" && !Array.isArray(value)
-    ? (value as Record<string, VegaJsonValue>)
-    : undefined;
+  value && typeof value === "object" && !Array.isArray(value) ? (value as Record<string, VegaJsonValue>) : undefined;
 
 const finite = (value: VegaJsonValue | undefined, path: string): number => {
   if (typeof value !== "number" || !Number.isFinite(value)) {
@@ -340,11 +267,8 @@ export const parseStudioPreviewTransform = (value: VegaJsonValue): VegaPreviewTr
   const position = point(parsed.position, "transform.position");
   const scale = point(parsed.scale, "transform.scale");
   const rotationDegrees =
-    parsed.rotationDegrees === undefined
-      ? undefined
-      : finite(parsed.rotationDegrees, "transform.rotationDegrees");
-  const opacity =
-    parsed.opacity === undefined ? undefined : finite(parsed.opacity, "transform.opacity");
+    parsed.rotationDegrees === undefined ? undefined : finite(parsed.rotationDegrees, "transform.rotationDegrees");
+  const opacity = parsed.opacity === undefined ? undefined : finite(parsed.opacity, "transform.opacity");
   if (opacity !== undefined && (opacity < 0 || opacity > 1)) {
     throw new RangeError("transform.opacity must be between 0 and 1");
   }

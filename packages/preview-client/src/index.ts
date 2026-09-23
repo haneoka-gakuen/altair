@@ -74,11 +74,7 @@ const sameIdentity = (left: VegaPreviewIdentity, right: VegaPreviewIdentity): bo
 const abortError = (signal: AbortSignal): Error => {
   const reason = signal.reason;
   const error = new Error(
-    reason instanceof Error
-      ? reason.message
-      : reason === undefined
-        ? "Preview request aborted"
-        : String(reason),
+    reason instanceof Error ? reason.message : reason === undefined ? "Preview request aborted" : String(reason),
     { cause: reason },
   );
   error.name = "AbortError";
@@ -164,17 +160,11 @@ export class AltairPreviewClient {
     });
   }
 
-  async request(
-    command: VegaPreviewCommand,
-    options: AltairPreviewRequestOptions = {},
-  ): Promise<VegaPreviewResponse> {
+  async request(command: VegaPreviewCommand, options: AltairPreviewRequestOptions = {}): Promise<VegaPreviewResponse> {
     if (this.closed) throw new Error("Altair preview client is closed");
     if (options.signal?.aborted) throw abortError(options.signal);
     if (this.capabilitiesValue && !this.capabilitiesValue.commands.includes(command.name)) {
-      throw new AltairPreviewRequestError(
-        "unsupported",
-        `Vega preview runtime does not support ${command.name}`,
-      );
+      throw new AltairPreviewRequestError("unsupported", `Vega preview runtime does not support ${command.name}`);
     }
     const id = this.createRequestId();
     if (!id || this.pending.has(id)) throw new Error(`Preview request ID is empty or duplicated: ${id}`);
@@ -250,10 +240,7 @@ export class AltairPreviewClient {
   ) {
     if (!sceneId.trim()) throw new TypeError("Preview scene ID must not be empty");
     if (!sceneRevision.trim()) throw new TypeError("Preview scene revision must not be empty");
-    if (
-      commandIndex !== undefined &&
-      (!Number.isSafeInteger(commandIndex) || commandIndex < 0)
-    ) {
+    if (commandIndex !== undefined && (!Number.isSafeInteger(commandIndex) || commandIndex < 0)) {
       throw new RangeError("Preview command index must be a non-negative integer");
     }
     return this.request(
@@ -282,21 +269,11 @@ export class AltairPreviewClient {
     return this.request({ name: "editor.run-from", commandIndex }, options);
   }
 
-  async runSnippet(
-    commands: readonly VegaJsonValue[],
-    label?: string,
-    options: AltairPreviewRequestOptions = {},
-  ) {
-    return this.request(
-      { name: "editor.run-snippet", commands, ...(label ? { label } : {}) },
-      options,
-    );
+  async runSnippet(commands: readonly VegaJsonValue[], label?: string, options: AltairPreviewRequestOptions = {}) {
+    return this.request({ name: "editor.run-snippet", commands, ...(label ? { label } : {}) }, options);
   }
 
-  async setBreakpoints(
-    breakpoints: readonly VegaPreviewBreakpoint[],
-    options: AltairPreviewRequestOptions = {},
-  ) {
+  async setBreakpoints(breakpoints: readonly VegaPreviewBreakpoint[], options: AltairPreviewRequestOptions = {}) {
     return this.request({ name: "debug.breakpoints.set", breakpoints }, options);
   }
 
@@ -384,8 +361,7 @@ export class AltairPreviewClient {
     }
   };
 
-  private readonly onMessageError = () =>
-    this.close("Vega preview transport failed to deserialize a message");
+  private readonly onMessageError = () => this.close("Vega preview transport failed to deserialize a message");
 
   private rejectPending(id: string, error: Error): void {
     const pending = this.pending.get(id);

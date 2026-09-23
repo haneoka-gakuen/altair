@@ -11,14 +11,7 @@ export interface SceneTabsProps {
   readonly onOpen: (sceneId: string) => void;
 }
 
-export function SceneTabs({
-  documents,
-  openSceneIds,
-  project,
-  selectedSceneId,
-  onClose,
-  onOpen,
-}: SceneTabsProps) {
+export function SceneTabs({ documents, openSceneIds, project, selectedSceneId, onClose, onOpen }: SceneTabsProps) {
   return (
     <div aria-label="Open scene files" className="scene-tabs" role="tablist">
       {openSceneIds.map((sceneId) => {

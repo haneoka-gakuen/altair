@@ -1,10 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import type { JsonObject, JsonValue } from "@haneoka/altair";
-import {
-  extractRuntimeVariables,
-  formatRuntimeValue,
-  runtimeScalarSummary,
-} from "./runtime-state";
+import { extractRuntimeVariables, formatRuntimeValue, runtimeScalarSummary } from "./runtime-state";
 import { StudioIcon } from "./StudioIcon";
 
 export interface DebugBreakpoint {
@@ -78,9 +74,7 @@ export function DebugPanel({
   const [transformError, setTransformError] = useState("");
   const variables = useMemo(() => extractRuntimeVariables(snapshot), [snapshot]);
   const filteredVariables = variables.filter((variable) =>
-    `${variable.scope} ${variable.name} ${variable.path}`
-      .toLowerCase()
-      .includes(filter.trim().toLowerCase()),
+    `${variable.scope} ${variable.name} ${variable.path}`.toLowerCase().includes(filter.trim().toLowerCase()),
   );
   const summary = runtimeScalarSummary(snapshot);
 
@@ -150,7 +144,9 @@ export function DebugPanel({
       {mode === "console" ? (
         <div className="console-view">
           <div className="debug-section-heading">
-            <span>{logs.length} runtime/editor event{logs.length === 1 ? "" : "s"}</span>
+            <span>
+              {logs.length} runtime/editor event{logs.length === 1 ? "" : "s"}
+            </span>
             <button disabled={!logs.length} onClick={onClearLogs} title="Clear event log">
               <StudioIcon name="trash" />
               Clear
@@ -189,9 +185,7 @@ export function DebugPanel({
             </label>
           </header>
           {snapshot === null ? (
-            <div className="debug-empty compact">
-              Connect Vega and capture a snapshot to inspect variables.
-            </div>
+            <div className="debug-empty compact">Connect Vega and capture a snapshot to inspect variables.</div>
           ) : filteredVariables.length ? (
             <div className="variable-table" role="table" aria-rowcount={filteredVariables.length}>
               <div className="variable-row variable-heading" role="row">
@@ -226,11 +220,7 @@ export function DebugPanel({
             </div>
             <label>
               Target
-              <input
-                onChange={(event) => setStageTarget(event.target.value)}
-                spellCheck={false}
-                value={stageTarget}
-              />
+              <input onChange={(event) => setStageTarget(event.target.value)} spellCheck={false} value={stageTarget} />
             </label>
             <button
               disabled={!connected || stage.busy || !stageTarget.trim()}

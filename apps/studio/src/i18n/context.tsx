@@ -1,27 +1,12 @@
-import {
-  createContext,
-  useContext,
-  useEffect,
-  useMemo,
-  useState,
-  type ReactNode,
-} from "react";
-import {
-  resolveStudioUiLocale,
-  studioMessage,
-  type StudioUiLocale,
-  type StudioUiMessageKey,
-} from "./catalogs";
+import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
+import { resolveStudioUiLocale, studioMessage, type StudioUiLocale, type StudioUiMessageKey } from "./catalogs";
 
 const STORAGE_KEY = "org.haneoka.altair.ui-language";
 
 interface StudioI18nValue {
   readonly locale: StudioUiLocale;
   readonly setLocale: (locale: StudioUiLocale) => void;
-  readonly t: (
-    key: StudioUiMessageKey,
-    values?: Readonly<Record<string, string>>,
-  ) => string;
+  readonly t: (key: StudioUiMessageKey, values?: Readonly<Record<string, string>>) => string;
 }
 
 const StudioI18nContext = createContext<StudioI18nValue | null>(null);
@@ -36,11 +21,7 @@ const initialLocale = (): StudioUiLocale => {
   }
 };
 
-export function StudioI18nProvider({
-  children,
-}: {
-  readonly children: ReactNode;
-}) {
+export function StudioI18nProvider({ children }: { readonly children: ReactNode }) {
   const [locale, setLocale] = useState<StudioUiLocale>(initialLocale);
   useEffect(() => {
     document.documentElement.lang = locale;
@@ -58,19 +39,13 @@ export function StudioI18nProvider({
     }),
     [locale],
   );
-  return (
-    <StudioI18nContext.Provider value={value}>
-      {children}
-    </StudioI18nContext.Provider>
-  );
+  return <StudioI18nContext.Provider value={value}>{children}</StudioI18nContext.Provider>;
 }
 
 export const useStudioI18n = (): StudioI18nValue => {
   const value = useContext(StudioI18nContext);
   if (!value) {
-    throw new ReferenceError(
-      "useStudioI18n must be used inside StudioI18nProvider",
-    );
+    throw new ReferenceError("useStudioI18n must be used inside StudioI18nProvider");
   }
   return value;
 };

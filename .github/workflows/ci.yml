@@ -117,6 +117,11 @@ jobs:
           repository: haneoka-gakuen/vega-renderer-pixi
           path: altair/.dependencies/vega-renderer-pixi
           persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: haneoka-gakuen/vega-renderer-three
+          path: altair/.dependencies/vega-renderer-three
+          persist-credentials: false
 
       - name: Check out Haneoka theme
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -151,6 +156,21 @@ jobs:
           repository: haneoka-gakuen/vega-plugin-richtext
           path: altair/.dependencies/vega-plugin-richtext
           persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: haneoka-gakuen/altair-plugin-models
+          path: altair/.dependencies/altair-plugin-models
+          persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: haneoka-gakuen/vega-plugin-composite
+          path: altair/.dependencies/vega-plugin-composite
+          persist-credentials: false
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          repository: haneoka-gakuen/vega-plugin-cubism
+          path: altair/.dependencies/vega-plugin-cubism
+          persist-credentials: false
       - name: Set up pnpm
         uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
         with:
@@ -182,9 +202,12 @@ jobs:
         run: |
           pnpm --filter @haneoka/vega-catalog-official build
           pnpm --filter @haneoka/vega-renderer-pixi build
+          pnpm --filter @haneoka/vega-renderer-three build
           pnpm --filter @haneoka/vega-plugin-richtext build
           pnpm --filter @haneoka/vega-theme-haneoka build
           pnpm --filter @haneoka/vega-plugin-webgal build
+          pnpm --filter @haneoka/vega-plugin-cubism build
+          pnpm --filter @haneoka/vega-plugin-composite build
           pnpm --filter @haneoka/vega-shell-default build
           pnpm --filter @haneoka/vega-ui-portable build
 
@@ -192,12 +215,14 @@ jobs:
         working-directory: altair
         run: |
           pnpm run build:core
+          pnpm --filter @haneoka/altair-ui-react build
           pnpm --filter @haneoka/altair-preview-client build
 
       - name: Build trusted official authoring plugins
         working-directory: altair
         run: |
           pnpm --filter @haneoka/altair-plugin-adv build
+          pnpm --filter @haneoka/altair-plugin-models build
           pnpm --filter @haneoka/altair-plugin-flow build
           pnpm --filter @haneoka/altair-plugin-history build
           pnpm --filter @haneoka/altair-plugin-drafts build

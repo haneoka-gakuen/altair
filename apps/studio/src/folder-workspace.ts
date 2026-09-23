@@ -1,15 +1,6 @@
-import {
-  type StoryProject,
-  type StoryProjectPlugin,
-} from "@haneoka/altair";
-import {
-  parseStoryProjectJson,
-  serializeStoryProjectJson,
-} from "@haneoka/altair-plugin-adv/project-json";
-import type {
-  AltairWebGalService,
-  WebGalAuthoringWorkspaceFile,
-} from "@haneoka/altair-plugin-webgal";
+import { serializeAuthoredText, parseAuthoredText, type StoryProject, type StoryProjectPlugin } from "@haneoka/altair";
+import { parseStoryProjectJson } from "@haneoka/altair-plugin-adv/project-json";
+import type { AltairWebGalService, WebGalAuthoringWorkspaceFile } from "@haneoka/altair-plugin-webgal";
 import type {
   AltairBrowserWorkspaceService,
   AltairBrowserWorkspaceSnapshot,
@@ -41,14 +32,8 @@ export interface StudioObjectUrlEnvironment {
 }
 
 const browserObjectUrlEnvironment = (): StudioObjectUrlEnvironment => {
-  if (
-    typeof URL.createObjectURL !== "function" ||
-    typeof URL.revokeObjectURL !== "function"
-  ) {
-    throw new DOMException(
-      "Object URLs are unavailable",
-      "NotSupportedError",
-    );
+  if (typeof URL.createObjectURL !== "function" || typeof URL.revokeObjectURL !== "function") {
+    throw new DOMException("Object URLs are unavailable", "NotSupportedError");
   }
   return {
     createObjectURL: (file) => URL.createObjectURL(file),
@@ -56,20 +41,14 @@ const browserObjectUrlEnvironment = (): StudioObjectUrlEnvironment => {
   };
 };
 
-const projectSnapshotForFiles = async (
-  files: readonly StudioProjectFile[],
-): Promise<StoryProject | undefined> => {
-  const entry = files.find(({ path }) =>
-    /^(?:\.altair\/)?altair\.project\.json$/iu.test(path),
-  );
+const projectSnapshotForFiles = async (files: readonly StudioProjectFile[]): Promise<StoryProject | undefined> => {
+  const entry = files.find(({ path }) => /^snapshot\.yaml$/iu.test(path));
   if (!entry) return undefined;
   try {
-    return parseStoryProjectJson(await entry.file.text());
+    return parseStoryProjectJson(parseAuthoredText(await entry.file.text()));
   } catch (error) {
     throw new TypeError(
-      `${entry.path} is not a valid Altair project snapshot: ${
-        error instanceof Error ? error.message : String(error)
-      }`,
+      `${entry.path} is not a valid project snapshot: ${error instanceof Error ? error.message : String(error)}`,
     );
   }
 };
@@ -80,12 +59,7 @@ const materializeFiles = async (
   snapshot: AltairBrowserWorkspaceSnapshot,
 ): Promise<readonly StudioProjectFile[]> =>
   Promise.all(
-    snapshot.files.map(async ({ path }) =>
-      source.createAuthoringWorkspaceFile(
-        path,
-        await service.file(path),
-      ),
-    ),
+    snapshot.files.map(async ({ path }) => source.createAuthoringWorkspaceFile(path, await service.file(path))),
   );
 
 /** Maps the browser-workspace plugin contract into Studio's view model. */
@@ -98,15 +72,8 @@ export const workspaceFromBrowserService = async (
     throw new TypeError("Browser workspace has no active project");
   }
   const files = await materializeFiles(service, source, snapshot);
-  const documents = (
-    await Promise.all(
-      files.map((file) =>
-        source.sourceDocumentFromWorkspaceFile(file),
-      ),
-    )
-  ).filter(
-    (document): document is StudioSourceDocument =>
-      document !== undefined,
+  const documents = (await Promise.all(files.map((file) => source.sourceDocumentFromWorkspaceFile(file)))).filter(
+    (document): document is StudioSourceDocument => document !== undefined,
   );
   const projectSnapshot = await projectSnapshotForFiles(files);
   return {
@@ -126,22 +93,14 @@ export const workspaceFromBrowserService = async (
   };
 };
 
-export const refreshFolderWorkspace = async (
-  workspace: StudioFolderWorkspace,
-): Promise<StudioFolderWorkspace> =>
-  workspaceFromBrowserService(
-    workspace.service,
-    workspace.source,
-    await workspace.service.refresh(),
-  );
+export const refreshFolderWorkspace = async (workspace: StudioFolderWorkspace): Promise<StudioFolderWorkspace> =>
+  workspaceFromBrowserService(workspace.service, workspace.source, await workspace.service.refresh());
 
 export const writeStudioDocument = async (
   workspace: StudioFolderWorkspace,
   document: StudioSourceDocument,
 ): Promise<boolean> => {
-  const source = workspace.files.find(
-    (entry) => entry.path === document.sourcePath,
-  );
+  const source = workspace.files.find((entry) => entry.path === document.sourcePath);
   if (!source || !workspace.writable) return false;
   await workspace.service.write(source.path, document.text);
   return true;
@@ -152,11 +111,7 @@ export const writeStudioProjectSnapshot = async (
   project: StoryProject,
 ): Promise<boolean> => {
   if (!workspace.writable) return false;
-  await workspace.service.write(
-    "altair.project.json",
-    serializeStoryProjectJson(project),
-    { create: true },
-  );
+  await workspace.service.write("snapshot.yaml", serializeAuthoredText(project), { create: true });
   return true;
 };
 

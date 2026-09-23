@@ -1,9 +1,6 @@
 import { useState } from "react";
 import { StudioIcon } from "../StudioIcon";
-import {
-  STUDIO_UI_LOCALE_OPTIONS,
-  projectLocaleDisplayName,
-} from "./catalogs";
+import { STUDIO_UI_LOCALE_OPTIONS, projectLocaleDisplayName } from "./catalogs";
 import { useStudioI18n } from "./context";
 import {
   addProjectLanguage,
@@ -24,12 +21,7 @@ export interface LanguageSettingsPanelProps {
   readonly disabled?: boolean;
 }
 
-export function LanguageSettingsPanel({
-  settings,
-  onChange,
-  onClose,
-  disabled = false,
-}: LanguageSettingsPanelProps) {
+export function LanguageSettingsPanel({ settings, onChange, onClose, disabled = false }: LanguageSettingsPanelProps) {
   const { locale: uiLocale, setLocale: setUiLocale, t } = useStudioI18n();
   const [candidate, setCandidate] = useState("");
   const [error, setError] = useState("");
@@ -42,9 +34,7 @@ export function LanguageSettingsPanel({
     } catch (cause) {
       const code = (cause as ProjectLocalizationError).code;
       setError(
-        code === "duplicate-locale"
-          ? t("languageAlreadyAdded", { locale: candidate.trim() })
-          : t("invalidLanguageTag"),
+        code === "duplicate-locale" ? t("languageAlreadyAdded", { locale: candidate.trim() }) : t("invalidLanguageTag"),
       );
     }
   };
@@ -62,24 +52,14 @@ export function LanguageSettingsPanel({
           <h2 id="project-language-heading">{t("title")}</h2>
           <p>{t("description")}</p>
         </div>
-        <button
-          aria-label={t("close")}
-          onClick={onClose}
-          title={t("close")}
-          type="button"
-        >
+        <button aria-label={t("close")} onClick={onClose} title={t("close")} type="button">
           <StudioIcon name="close" />
         </button>
       </header>
 
       <label className="language-settings-ui">
         <span>{t("interfaceLanguage")}</span>
-        <select
-          onChange={(event) =>
-            setUiLocale(event.target.value as typeof uiLocale)
-          }
-          value={uiLocale}
-        >
+        <select onChange={(event) => setUiLocale(event.target.value as typeof uiLocale)} value={uiLocale}>
           {STUDIO_UI_LOCALE_OPTIONS.map(({ locale, label }) => (
             <option key={locale} value={locale}>
               {label}
@@ -110,7 +90,11 @@ export function LanguageSettingsPanel({
           <span>{t("add")}</span>
         </button>
       </form>
-      {error && <p className="language-settings-error" role="alert">{error}</p>}
+      {error && (
+        <p className="language-settings-error" role="alert">
+          {error}
+        </p>
+      )}
 
       {settings.languages.length ? (
         <ol className="project-language-list">
@@ -131,11 +115,7 @@ export function LanguageSettingsPanel({
                   ) : (
                     <button
                       disabled={disabled}
-                      onClick={() =>
-                        onChange(
-                          setDefaultProjectLanguage(settings, entry.locale),
-                        )
-                      }
+                      onClick={() => onChange(setDefaultProjectLanguage(settings, entry.locale))}
                       type="button"
                     >
                       {t("makeDefault")}
@@ -144,11 +124,7 @@ export function LanguageSettingsPanel({
                   <button
                     aria-label={t("moveUp", { locale: name })}
                     disabled={disabled || index === 0}
-                    onClick={() =>
-                      onChange(
-                        moveProjectLanguage(settings, entry.locale, -1),
-                      )
-                    }
+                    onClick={() => onChange(moveProjectLanguage(settings, entry.locale, -1))}
                     title={t("moveUp", { locale: name })}
                     type="button"
                   >
@@ -156,14 +132,8 @@ export function LanguageSettingsPanel({
                   </button>
                   <button
                     aria-label={t("moveDown", { locale: name })}
-                    disabled={
-                      disabled || index === settings.languages.length - 1
-                    }
-                    onClick={() =>
-                      onChange(
-                        moveProjectLanguage(settings, entry.locale, 1),
-                      )
-                    }
+                    disabled={disabled || index === settings.languages.length - 1}
+                    onClick={() => onChange(moveProjectLanguage(settings, entry.locale, 1))}
                     title={t("moveDown", { locale: name })}
                     type="button"
                   >
@@ -172,9 +142,7 @@ export function LanguageSettingsPanel({
                   <button
                     aria-label={t("removeLanguage", { locale: name })}
                     disabled={disabled}
-                    onClick={() =>
-                      onChange(removeProjectLanguage(settings, entry.locale))
-                    }
+                    onClick={() => onChange(removeProjectLanguage(settings, entry.locale))}
                     title={t("removeLanguage", { locale: name })}
                     type="button"
                   >
@@ -190,35 +158,17 @@ export function LanguageSettingsPanel({
                       .map((fallback) => (
                         <label key={fallback.locale}>
                           <input
-                            checked={entry.fallbackLocales.includes(
-                              fallback.locale,
-                            )}
+                            checked={entry.fallbackLocales.includes(fallback.locale)}
                             disabled={disabled}
                             onChange={(event) => {
                               const next = event.target.checked
-                                ? [
-                                    ...entry.fallbackLocales,
-                                    fallback.locale,
-                                  ]
-                                : entry.fallbackLocales.filter(
-                                    (locale) => locale !== fallback.locale,
-                                  );
-                              onChange(
-                                setProjectLanguageFallbacks(
-                                  settings,
-                                  entry.locale,
-                                  next,
-                                ),
-                              );
+                                ? [...entry.fallbackLocales, fallback.locale]
+                                : entry.fallbackLocales.filter((locale) => locale !== fallback.locale);
+                              onChange(setProjectLanguageFallbacks(settings, entry.locale, next));
                             }}
                             type="checkbox"
                           />
-                          <span>
-                            {projectLocaleDisplayName(
-                              fallback.locale,
-                              uiLocale,
-                            )}
-                          </span>
+                          <span>{projectLocaleDisplayName(fallback.locale, uiLocale)}</span>
                         </label>
                       ))}
                   </div>
@@ -231,11 +181,7 @@ export function LanguageSettingsPanel({
                     key={`${entry.locale}:${entry.fonts.join("\0")}`}
                     onBlur={(event) =>
                       onChange(
-                        setProjectLanguageFonts(
-                          settings,
-                          entry.locale,
-                          splitFontPreferences(event.target.value),
-                        ),
+                        setProjectLanguageFonts(settings, entry.locale, splitFontPreferences(event.target.value)),
                       )
                     }
                     placeholder={t("fontPlaceholder")}

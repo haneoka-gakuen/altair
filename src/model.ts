@@ -1,3 +1,4 @@
+import { isVegaCommandType } from "@haneoka/vega-protocol";
 import type { VegaProjectPlugin } from "@haneoka/vega-protocol";
 
 /** Current canonical, plugin-extensible project envelope. */
@@ -27,7 +28,7 @@ export interface StorySourceLocation {
  */
 export interface StoryProjectCommand {
   id: string;
-  command: number | null;
+  command: number | string | null;
   fields: JsonObject;
   source?: StorySourceLocation;
   extensions: JsonObject;
@@ -123,11 +124,7 @@ export const cloneStoryValue = <T>(value: T): T => {
 };
 
 const isJsonValue = (value: unknown, active = new Set<object>()): value is JsonValue => {
-  if (
-    value === null ||
-    typeof value === "string" ||
-    typeof value === "boolean"
-  ) {
+  if (value === null || typeof value === "string" || typeof value === "boolean") {
     return true;
   }
   if (typeof value === "number") return Number.isFinite(value);
@@ -142,10 +139,7 @@ const isJsonValue = (value: unknown, active = new Set<object>()): value is JsonV
 };
 
 const isJsonObject = (value: unknown): value is JsonObject =>
-  Boolean(value) &&
-  typeof value === "object" &&
-  !Array.isArray(value) &&
-  isJsonValue(value);
+  Boolean(value) && typeof value === "object" && !Array.isArray(value) && isJsonValue(value);
 
 /**
  * Validate only the canonical StoryProject envelope.
@@ -153,21 +147,14 @@ const isJsonObject = (value: unknown): value is JsonObject =>
  * Command semantics, resource references, source formats, and runtime fields
  * are intentionally outside this assertion and belong to installed plugins.
  */
-export function assertStoryProjectProtocol(
-  value: unknown,
-): asserts value is StoryProject {
+export function assertStoryProjectProtocol(value: unknown): asserts value is StoryProject {
   if (!isJsonObject(value)) {
     throw new TypeError("Altair story project must be a JSON object");
   }
   if (value.version !== STORY_PROJECT_VERSION) {
-    throw new TypeError(
-      `Altair story project version must be ${STORY_PROJECT_VERSION}`,
-    );
+    throw new TypeError(`Altair story project version must be ${STORY_PROJECT_VERSION}`);
   }
-  if (
-    !isJsonObject(value.meta) ||
-    typeof value.meta.title !== "string"
-  ) {
+  if (!isJsonObject(value.meta) || typeof value.meta.title !== "string") {
     throw new TypeError("Altair story project metadata is invalid");
   }
   if (
@@ -202,35 +189,23 @@ export function assertStoryProjectProtocol(
         typeof command.id !== "string" ||
         !command.id.trim() ||
         (command.command !== null &&
-          (typeof command.command !== "number" ||
-            !Number.isSafeInteger(command.command) ||
-            command.command < 0)) ||
+          !isVegaCommandType(command.command) &&
+          (typeof command.command !== "number" || !Number.isSafeInteger(command.command) || command.command < 0)) ||
         !isJsonObject(command.fields) ||
         !isJsonObject(command.extensions)
       ) {
-        throw new TypeError(
-          `Altair story project scene '${scene.id}' contains an invalid command`,
-        );
+        throw new TypeError(`Altair story project scene '${scene.id}' contains an invalid command`);
       }
       if (objectIds.has(command.id)) {
-        throw new TypeError(
-          `Altair story project duplicates object '${command.id}'`,
-        );
+        throw new TypeError(`Altair story project duplicates object '${command.id}'`);
       }
       objectIds.add(command.id);
     }
   }
   if (!sceneIds.has(value.entrySceneId)) {
-    throw new TypeError(
-      `Altair story project entry scene '${value.entrySceneId}' does not exist`,
-    );
+    throw new TypeError(`Altair story project entry scene '${value.entrySceneId}' does not exist`);
   }
-  for (const key of [
-    "assets",
-    "runtime",
-    "storyFields",
-    "extensions",
-  ] as const) {
+  for (const key of ["assets", "runtime", "storyFields", "extensions"] as const) {
     if (!isJsonObject(value[key])) {
       throw new TypeError(`Altair story project ${key} must be a JSON object`);
     }
@@ -251,9 +226,7 @@ export function assertStoryProjectProtocol(
   }
 }
 
-const createStoryProjectMeta = (
-  meta: Partial<StoryProjectMeta>,
-): StoryProjectMeta => ({
+const createStoryProjectMeta = (meta: Partial<StoryProjectMeta>): StoryProjectMeta => ({
   ...Object.fromEntries(
     Object.entries(meta)
       .filter(([, value]) => value !== undefined)

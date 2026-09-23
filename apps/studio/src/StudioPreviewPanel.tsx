@@ -4,10 +4,7 @@ import type { AltairStudioEmbeddedPreviewConfig } from "./preview-bridge";
 import { StudioIcon } from "./StudioIcon";
 import { useStudioI18n } from "./i18n";
 
-export type StudioPreviewStatus =
-  | "connecting"
-  | "connected"
-  | "error";
+export type StudioPreviewStatus = "connecting" | "connected" | "error";
 
 export interface StudioPreviewPanelProps {
   readonly configuration?: AltairStudioEmbeddedPreviewConfig;
@@ -57,7 +54,9 @@ export function StudioPreviewPanel({
   const runtimeUnavailable = status !== "connected" || runtimeBusy;
   return (
     <section aria-labelledby="preview-heading" className="preview-panel">
-      <h2 className="sr-only" id="preview-heading">{t("preview")}</h2>
+      <h2 className="sr-only" id="preview-heading">
+        {t("preview")}
+      </h2>
       <div className="preview-toolbar">
         <span>Vega runtime</span>
         <small aria-live="polite" role="status">
@@ -66,10 +65,7 @@ export function StudioPreviewPanel({
         <button
           aria-label={t("openRuntime")}
           disabled={!configuration}
-          onClick={() =>
-            configuration &&
-            window.open(configuration.runtimeUrl, "_blank", "noopener,noreferrer")
-          }
+          onClick={() => configuration && window.open(configuration.runtimeUrl, "_blank", "noopener,noreferrer")}
         >
           <StudioIcon name="external" />
         </button>
@@ -89,13 +85,13 @@ export function StudioPreviewPanel({
             title="Vega runtime preview"
           />
         ) : (
-          <div
-            aria-label="Bundled Vega runtime"
-            className="preview-runtime"
-            ref={runtimeMountRef}
-          />
+          <div aria-label="Bundled Vega runtime" className="preview-runtime" ref={runtimeMountRef} />
         )}
-        {previewError && <div className="preview-error" role="alert">{previewError}</div>}
+        {previewError && (
+          <div className="preview-error" role="alert">
+            {previewError}
+          </div>
+        )}
       </div>
       <div className="preview-controls">
         <button disabled={runtimeUnavailable} onClick={onRunScene}>

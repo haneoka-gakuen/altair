@@ -18,54 +18,34 @@ export interface VisualResourceCandidate {
 }
 
 const object = (value: JsonValue | undefined): JsonObject | undefined =>
-  value && typeof value === "object" && !Array.isArray(value)
-    ? value
-    : undefined;
+  value && typeof value === "object" && !Array.isArray(value) ? value : undefined;
 
-const metadataString = (
-  field: AltairCommandFieldSchema,
-  key: string,
-): string | undefined => {
+const metadataString = (field: AltairCommandFieldSchema, key: string): string | undefined => {
   const value = field.metadata?.[key];
   return typeof value === "string" && value ? value : undefined;
 };
 
-const metadataInteger = (
-  field: AltairCommandFieldSchema,
-  key: string,
-): number | undefined => {
+const metadataInteger = (field: AltairCommandFieldSchema, key: string): number | undefined => {
   const value = field.metadata?.[key];
-  return typeof value === "number" &&
-    Number.isSafeInteger(value) &&
-    value >= 0
-    ? value
-    : undefined;
+  return typeof value === "number" && Number.isSafeInteger(value) && value >= 0 ? value : undefined;
 };
 
-const metadataBoolean = (
-  field: AltairCommandFieldSchema,
-  key: string,
-): boolean | undefined => {
+const metadataBoolean = (field: AltairCommandFieldSchema, key: string): boolean | undefined => {
   const value = field.metadata?.[key];
   return typeof value === "boolean" ? value : undefined;
 };
 
-export const visualFieldNativeKind = (
-  field: AltairCommandFieldSchema,
-): string => metadataString(field, "nativeKind") ?? field.kind;
+export const visualFieldNativeKind = (field: AltairCommandFieldSchema): string =>
+  metadataString(field, "nativeKind") ?? field.kind;
 
-export const visualFieldPlaceholder = (
-  field: AltairCommandFieldSchema,
-): string | undefined => metadataString(field, "placeholder");
+export const visualFieldPlaceholder = (field: AltairCommandFieldSchema): string | undefined =>
+  metadataString(field, "placeholder");
 
 const advFieldDescriptor = (
   command: StoryProjectCommand,
   field: AltairCommandFieldSchema,
   service?: AltairAdvService,
-) =>
-  service
-    ?.commandFieldDescriptors(command)
-    .find(({ key }) => key === field.key);
+) => service?.commandFieldDescriptors(command).find(({ key }) => key === field.key);
 
 /**
  * Filters present-only schema hints through the owning plugin service. A
@@ -90,45 +70,23 @@ export const visualFieldsFor = (
       const kind: AltairCommandFieldSchema["kind"] =
         nativeKind === "text"
           ? "string"
-          : [
-                "localized-list",
-                "vector3",
-                "multi-select",
-                "choice-list",
-                "resource-list",
-              ].includes(nativeKind)
+          : ["localized-list", "vector3", "multi-select", "choice-list", "resource-list"].includes(nativeKind)
             ? "json"
             : nativeKind;
       return {
         key: descriptor.key,
         label: descriptor.label,
         kind,
-        ...(descriptor.required === undefined
-          ? {}
-          : { required: descriptor.required }),
-        ...(descriptor.resource === undefined
-          ? {}
-          : { resourceKind: descriptor.resource }),
-        ...(descriptor.choices === undefined
-          ? {}
-          : { options: descriptor.choices }),
+        ...(descriptor.required === undefined ? {} : { required: descriptor.required }),
+        ...(descriptor.resource === undefined ? {} : { resourceKind: descriptor.resource }),
+        ...(descriptor.choices === undefined ? {} : { options: descriptor.choices }),
         metadata: {
           nativeKind,
-          ...(descriptor.sourceKey === undefined
-            ? {}
-            : { sourceKey: descriptor.sourceKey }),
-          ...(descriptor.parameterIndex === undefined
-            ? {}
-            : { parameterIndex: descriptor.parameterIndex }),
-          ...(descriptor.parameterEncoding === undefined
-            ? {}
-            : { parameterEncoding: descriptor.parameterEncoding }),
-          ...(descriptor.presentOnly === undefined
-            ? {}
-            : { presentOnly: descriptor.presentOnly }),
-          ...(descriptor.placeholder === undefined
-            ? {}
-            : { placeholder: descriptor.placeholder }),
+          ...(descriptor.sourceKey === undefined ? {} : { sourceKey: descriptor.sourceKey }),
+          ...(descriptor.parameterIndex === undefined ? {} : { parameterIndex: descriptor.parameterIndex }),
+          ...(descriptor.parameterEncoding === undefined ? {} : { parameterEncoding: descriptor.parameterEncoding }),
+          ...(descriptor.presentOnly === undefined ? {} : { presentOnly: descriptor.presentOnly }),
+          ...(descriptor.placeholder === undefined ? {} : { placeholder: descriptor.placeholder }),
         },
       };
     });
@@ -175,11 +133,7 @@ export const replaceVisualFieldValue = (
   if (descriptor && service) {
     return {
       ...command,
-      fields: service.replaceStoryCommandFieldValue(
-        command.fields,
-        descriptor,
-        value,
-      ),
+      fields: service.replaceStoryCommandFieldValue(command.fields, descriptor, value),
     };
   }
 
@@ -190,17 +144,14 @@ export const replaceVisualFieldValue = (
     if (value === undefined) delete fields[sourceKey];
     else fields[sourceKey] = cloneStoryValue(value);
   } else {
-    const parameters = Array.isArray(fields[sourceKey])
-      ? [...fields[sourceKey]]
-      : [];
+    const parameters = Array.isArray(fields[sourceKey]) ? [...fields[sourceKey]] : [];
     while (parameters.length <= parameterIndex) parameters.push("");
     const encoded =
       metadataString(field, "parameterEncoding") === "string" &&
       (typeof value === "number" || typeof value === "boolean")
         ? String(value)
         : value;
-    parameters[parameterIndex] =
-      encoded === undefined ? "" : cloneStoryValue(encoded);
+    parameters[parameterIndex] = encoded === undefined ? "" : cloneStoryValue(encoded);
     while (parameters.at(-1) === "") parameters.pop();
     if (parameters.length) fields[sourceKey] = parameters;
     else delete fields[sourceKey];
@@ -242,38 +193,27 @@ export interface VisualLocaleOption {
 export const visualLocaleSlot = (locale?: string): number | undefined =>
   LOCALE_INDEX.get(locale?.trim().toLowerCase() ?? "");
 
-const legacyLocalizedRecord = (
-  value: JsonValue | undefined,
-  scalarLocale: string,
-): JsonObject => {
+const legacyLocalizedRecord = (value: JsonValue | undefined, scalarLocale: string): JsonObject => {
   if (object(value)) return { ...object(value) };
   if (Array.isArray(value)) {
     return Object.fromEntries(
       VISUAL_LOCALES.flatMap(({ key }, index) => {
         const candidate = value[index];
-        return typeof candidate === "string" && candidate
-          ? [[key, candidate] as const]
-          : [];
+        return typeof candidate === "string" && candidate ? [[key, candidate] as const] : [];
       }),
     );
   }
-  return typeof value === "string" && value
-    ? { [scalarLocale]: value }
-    : {};
+  return typeof value === "string" && value ? { [scalarLocale]: value } : {};
 };
 
-export const visualLocalizedValueForLocale = (
-  value: JsonValue | undefined,
-  locale: string,
-): string => {
+export const visualLocalizedValueForLocale = (value: JsonValue | undefined, locale: string): string => {
   const record = object(value);
   if (record) {
     const direct = record[locale];
     if (typeof direct === "string") return direct;
     const normalized = locale.trim().toLowerCase();
     const matching = Object.entries(record).find(
-      ([key, candidate]) =>
-        key.toLowerCase() === normalized && typeof candidate === "string",
+      ([key, candidate]) => key.toLowerCase() === normalized && typeof candidate === "string",
     )?.[1];
     return typeof matching === "string" ? matching : "";
   }
@@ -295,9 +235,7 @@ export const replaceVisualLocalizedValueForLocale = (
   const slot = visualLocaleSlot(locale);
   if (slot !== undefined) {
     if (typeof value === "string" && slot === 0) return text;
-    const next = Array.isArray(value)
-      ? [...value]
-      : [typeof value === "string" ? value : ""];
+    const next = Array.isArray(value) ? [...value] : [typeof value === "string" ? value : ""];
     while (next.length < VISUAL_LOCALES.length) next.push("");
     next[slot] = text;
     return next;
@@ -308,10 +246,7 @@ export const replaceVisualLocalizedValueForLocale = (
   };
 };
 
-export const visualLocalizedListValue = (
-  value: JsonValue | undefined,
-  localeIndex: number,
-): string => {
+export const visualLocalizedListValue = (value: JsonValue | undefined, localeIndex: number): string => {
   if (Array.isArray(value)) {
     const candidate = value[localeIndex];
     return typeof candidate === "string" ? candidate : "";
@@ -339,9 +274,7 @@ export const replaceVisualLocalizedListValue = (
       [VISUAL_LOCALES[localeIndex]?.key ?? String(localeIndex)]: text,
     };
   } else {
-    const values = Array.isArray(previous)
-      ? [...previous]
-      : [typeof previous === "string" ? previous : ""];
+    const values = Array.isArray(previous) ? [...previous] : [typeof previous === "string" ? previous : ""];
     while (values.length < VISUAL_LOCALES.length) values.push("");
     values[localeIndex] = text;
     next = values;
@@ -356,16 +289,11 @@ export interface VisualVector3 {
 }
 
 const finiteNumber = (value: JsonValue | undefined): number => {
-  const result =
-    typeof value === "number" || typeof value === "string"
-      ? Number(value)
-      : Number.NaN;
+  const result = typeof value === "number" || typeof value === "string" ? Number(value) : Number.NaN;
   return Number.isFinite(result) ? result : 0;
 };
 
-export const visualVector3 = (
-  value: JsonValue | undefined,
-): VisualVector3 => {
+export const visualVector3 = (value: JsonValue | undefined): VisualVector3 => {
   if (Array.isArray(value)) {
     return {
       x: finiteNumber(value[0]),
@@ -400,15 +328,9 @@ export const commandSchemaFor = (
   command: StoryProjectCommand,
   schemas: readonly AltairCommandSchemaContribution[],
 ): AltairCommandSchemaContribution | undefined =>
-  schemas.find(
-    ({ opcodes }) =>
-      command.command !== null && opcodes?.includes(command.command),
-  ) ??
+  schemas.find(({ opcodes }) => typeof command.command === "number" && opcodes?.includes(command.command)) ??
   schemas.find(({ sourceNames }) =>
-    sourceNames?.some(
-      (name) =>
-        name.toLowerCase() === command.source?.command?.toLowerCase(),
-    ),
+    sourceNames?.some((name) => name.toLowerCase() === command.source?.command?.toLowerCase()),
   );
 
 export const authorableCommandSchemas = (
@@ -430,34 +352,20 @@ export const filterCommandSchemas = (
   const normalizedQuery = query.trim().toLowerCase();
   const normalizedCategory = category.trim().toLowerCase();
   return authorableCommandSchemas(schemas).filter((schema) => {
-    if (
-      normalizedCategory &&
-      (schema.category ?? "other").toLowerCase() !== normalizedCategory
-    ) {
+    if (normalizedCategory && (schema.category ?? "other").toLowerCase() !== normalizedCategory) {
       return false;
     }
     if (!normalizedQuery) return true;
-    return [
-      schema.name,
-      schema.id,
-      schema.category,
-      ...(schema.sourceNames ?? []),
-    ]
+    return [schema.name, schema.id, schema.category, ...(schema.sourceNames ?? [])]
       .filter((value): value is string => typeof value === "string")
       .some((value) => value.toLowerCase().includes(normalizedQuery));
   });
 };
 
-export const commandSchemaCategories = (
-  schemas: readonly AltairCommandSchemaContribution[],
-): readonly string[] =>
-  [
-    ...new Set(
-      authorableCommandSchemas(schemas).map(
-        ({ category }) => category?.trim() || "other",
-      ),
-    ),
-  ].sort((left, right) => left.localeCompare(right));
+export const commandSchemaCategories = (schemas: readonly AltairCommandSchemaContribution[]): readonly string[] =>
+  [...new Set(authorableCommandSchemas(schemas).map(({ category }) => category?.trim() || "other"))].sort(
+    (left, right) => left.localeCompare(right),
+  );
 
 const resourceKinds = (file: StudioProjectFile): readonly string[] => {
   const kinds = new Set<string>([file.resourceKind, file.kind]);
@@ -476,32 +384,31 @@ export const visualResourceCandidates = (
   sourceReferences: readonly string[] = [],
 ): readonly VisualResourceCandidate[] => {
   const seen = new Set<string>();
-  const appendFileCandidates = (
-    file: StudioProjectFile,
-    value: string,
-  ): readonly VisualResourceCandidate[] =>
+  const appendFileCandidates = (file: StudioProjectFile, value: string): readonly VisualResourceCandidate[] =>
     resourceKinds(file).flatMap((kind) => {
       const usage = "usage" in file ? file.usage : undefined;
       const key = `${kind}\u0000${usage ?? ""}\u0000${value}`;
       if (!value || seen.has(key)) return [];
       seen.add(key);
-      return [{
-        kind,
-        label: file.displayPath || file.name,
-        ...(usage ? { usage } : {}),
-        value,
-      }];
+      return [
+        {
+          kind,
+          label: file.displayPath || file.name,
+          ...(usage ? { usage } : {}),
+          value,
+        },
+      ];
     });
   const typed = files.flatMap((file) => {
     if (file.kind === "scene" || file.kind === "other") return [];
-    const value =
-      file.resourceKey ||
-      file.logicalPath.replace(/^game\//iu, "") ||
-      file.path;
+    const value = file.resourceKey || file.logicalPath.replace(/^game\//iu, "") || file.path;
     return appendFileCandidates(file, value);
   });
   const normalizeReference = (value: string): string =>
-    value.trim().replaceAll("\\", "/").replace(/^(?:\.\/|game\/)+/iu, "");
+    value
+      .trim()
+      .replaceAll("\\", "/")
+      .replace(/^(?:\.\/|game\/)+/iu, "");
   const filesByAlias = new Map<string, StudioProjectFile>();
   for (const file of files) {
     for (const alias of [
@@ -527,10 +434,21 @@ export const visualResourceCandidates = (
   return [...typed, ...aliases];
 };
 
-const sceneFor = (project: StoryProject, sceneId: string) => {
-  const scene = project.scenes.find(({ id }) => id === sceneId);
-  if (!scene) throw new ReferenceError(`Unknown Altair scene '${sceneId}'`);
-  return scene;
+const sceneIndexFor = (project: StoryProject, sceneId: string): number => {
+  const index = project.scenes.findIndex(({ id }) => id === sceneId);
+  if (index < 0) throw new ReferenceError(`Unknown Altair scene '${sceneId}'`);
+  return index;
+};
+
+const replaceSceneCommands = (
+  project: StoryProject,
+  sceneIndex: number,
+  commands: StoryProject["scenes"][number]["commands"],
+): StoryProject => {
+  const scene = project.scenes[sceneIndex]!;
+  const scenes = [...project.scenes];
+  scenes[sceneIndex] = { ...scene, commands };
+  return { ...project, scenes };
 };
 
 export const replaceProjectCommand = (
@@ -539,14 +457,17 @@ export const replaceProjectCommand = (
   commandId: string,
   nextCommand: StoryProjectCommand,
 ): StoryProject => {
-  const next = cloneStoryValue(project);
-  const scene = sceneFor(next, sceneId);
+  const sceneIndex = sceneIndexFor(project, sceneId);
+  const scene = project.scenes[sceneIndex]!;
   const index = scene.commands.findIndex(({ id }) => id === commandId);
   if (index < 0) {
     throw new ReferenceError(`Unknown Altair command '${commandId}'`);
   }
-  scene.commands[index] = cloneStoryValue(nextCommand);
-  return next;
+  const commands = [...scene.commands];
+  // Preserve the public immutable-update contract without cloning the whole
+  // project. A caller may keep and later mutate its draft command object.
+  commands[index] = cloneStoryValue(nextCommand);
+  return replaceSceneCommands(project, sceneIndex, commands);
 };
 
 export const insertProjectCommand = (
@@ -555,23 +476,22 @@ export const insertProjectCommand = (
   index: number,
   command: StoryProjectCommand,
 ): StoryProject => {
-  const next = cloneStoryValue(project);
-  const scene = sceneFor(next, sceneId);
+  const sceneIndex = sceneIndexFor(project, sceneId);
+  const scene = project.scenes[sceneIndex]!;
   const target = Math.max(0, Math.min(scene.commands.length, Math.round(index)));
-  scene.commands.splice(target, 0, cloneStoryValue(command));
-  return next;
+  const commands = [...scene.commands];
+  commands.splice(target, 0, cloneStoryValue(command));
+  return replaceSceneCommands(project, sceneIndex, commands);
 };
 
-export const removeProjectCommand = (
-  project: StoryProject,
-  sceneId: string,
-  commandId: string,
-): StoryProject => {
-  const next = cloneStoryValue(project);
-  const scene = sceneFor(next, sceneId);
+export const removeProjectCommand = (project: StoryProject, sceneId: string, commandId: string): StoryProject => {
+  const sceneIndex = sceneIndexFor(project, sceneId);
+  const scene = project.scenes[sceneIndex]!;
   const index = scene.commands.findIndex(({ id }) => id === commandId);
-  if (index >= 0) scene.commands.splice(index, 1);
-  return next;
+  if (index < 0) return project;
+  const commands = [...scene.commands];
+  commands.splice(index, 1);
+  return replaceSceneCommands(project, sceneIndex, commands);
 };
 
 export const moveProjectCommand = (
@@ -580,18 +500,13 @@ export const moveProjectCommand = (
   fromIndex: number,
   toIndex: number,
 ): StoryProject => {
-  const next = cloneStoryValue(project);
-  const scene = sceneFor(next, sceneId);
-  const from = Math.max(
-    0,
-    Math.min(scene.commands.length - 1, Math.round(fromIndex)),
-  );
-  const to = Math.max(
-    0,
-    Math.min(scene.commands.length - 1, Math.round(toIndex)),
-  );
-  if (from === to) return next;
-  const [command] = scene.commands.splice(from, 1);
-  if (command) scene.commands.splice(to, 0, command);
-  return next;
+  const sceneIndex = sceneIndexFor(project, sceneId);
+  const scene = project.scenes[sceneIndex]!;
+  const from = Math.max(0, Math.min(scene.commands.length - 1, Math.round(fromIndex)));
+  const to = Math.max(0, Math.min(scene.commands.length - 1, Math.round(toIndex)));
+  if (from === to) return project;
+  const commands = [...scene.commands];
+  const [command] = commands.splice(from, 1);
+  if (command) commands.splice(to, 0, command);
+  return replaceSceneCommands(project, sceneIndex, commands);
 };

@@ -1,7 +1,4 @@
-import {
-  type StoryDiagnostic,
-  type StoryProject,
-} from "@haneoka/altair";
+import { type StoryDiagnostic, type StoryProject } from "@haneoka/altair";
 import {
   altairPluginAuthoringExtension,
   createAltairPluginLock,
@@ -45,9 +42,7 @@ export interface StudioPreviewPluginHostResult {
 }
 
 export interface StudioPreviewPluginHost {
-  load(
-    request: StudioPreviewPluginHostRequest,
-  ): Promise<StudioPreviewPluginHostResult>;
+  load(request: StudioPreviewPluginHostRequest): Promise<StudioPreviewPluginHostResult>;
 }
 
 export interface StudioPreviewPluginPlan {
@@ -57,6 +52,7 @@ export interface StudioPreviewPluginPlan {
   readonly hostEntries: readonly LockedPlugin[];
   /** Theme selected by the trusted bundled runtime profile. */
   readonly theme?: string;
+  readonly renderBackend?: string;
   readonly diagnostics: readonly StoryDiagnostic[];
   readonly key: string;
 }
@@ -100,9 +96,7 @@ const studioBuiltin = (
 ): StudioBuiltinPreviewPlugin =>
   Object.freeze({
     manifest: Object.freeze({ id, version }),
-    ...(previewTheme
-      ? { previewTheme: Object.freeze({ ...previewTheme }) }
-      : {}),
+    ...(previewTheme ? { previewTheme: Object.freeze({ ...previewTheme }) } : {}),
     load,
   });
 
@@ -112,38 +106,48 @@ const createStudioBuiltinPlugins = (): readonly StudioBuiltinPreviewPlugin[] =>
       PORTABLE_UI_PLUGIN_ID,
       PORTABLE_UI_PLUGIN_VERSION,
       async () => {
-        const { vegaPortableUiPlugin } = await import(
-          "@haneoka/vega-ui-portable"
-        );
+        const { vegaPortableUiPlugin } = await import("@haneoka/vega-ui-portable");
         return vegaPortableUiPlugin;
       },
       { id: "portable", priority: 100 },
     ),
     studioBuiltin("haneoka.renderer-pixi", "0.1.0", async () => {
-      const { createPixiRendererPlugin } = await import(
-        "@haneoka/vega-renderer-pixi"
-      );
+      const { createPixiRendererPlugin } = await import("@haneoka/vega-renderer-pixi");
       return createPixiRendererPlugin();
     }),
+    studioBuiltin("haneoka.renderer-three", "0.1.0", async () => {
+      const [{ createThreeRendererPlugin }, { HANEOKA_POST_TEXTURE_ASSETS }] = await Promise.all([
+        import("@haneoka/vega-renderer-three"),
+        import("@haneoka/vega-theme-haneoka"),
+      ]);
+      return createThreeRendererPlugin({ postTextureAssets: HANEOKA_POST_TEXTURE_ASSETS });
+    }),
     studioBuiltin(RICH_TEXT_PLUGIN_ID, RICH_TEXT_PLUGIN_VERSION, async () => {
-      const { createVegaRichTextPlugin } = await import(
-        "@haneoka/vega-plugin-richtext"
-      );
+      const { createVegaRichTextPlugin } = await import("@haneoka/vega-plugin-richtext");
       return createVegaRichTextPlugin();
     }),
-    studioBuiltin("haneoka.webgal-runtime", "0.1.0", async () => {
-      const { createWebGalCompatibilityPlugin } = await import(
-        "@haneoka/vega-plugin-webgal"
-      );
-      return createWebGalCompatibilityPlugin();
+    studioBuiltin("haneoka.composite", "0.1.0", async () => {
+      const { createCompositePlugin } = await import("@haneoka/vega-plugin-composite");
+      return createCompositePlugin();
     }),
+    studioBuiltin("haneoka.cubism", "0.1.0", async () => {
+      const { createStudioCubismPlugin } = await import("./cubism-preview");
+      return createStudioCubismPlugin();
+    }),
+    studioBuiltin(
+      "haneoka.webgal-runtime",
+      "0.1.0",
+      async () => {
+        const { createWebGalCompatibilityPlugin } = await import("@haneoka/vega-plugin-webgal");
+        return createWebGalCompatibilityPlugin();
+      },
+      { id: "webgal", priority: 150 },
+    ),
     studioBuiltin(
       "haneoka.vega-shell-default",
       "0.1.0",
       async () => {
-        const { vegaDefaultShell } = await import(
-          "@haneoka/vega-shell-default"
-        );
+        const { vegaDefaultShell } = await import("@haneoka/vega-shell-default");
         return vegaDefaultShell;
       },
       { id: "default", priority: 0 },
@@ -152,9 +156,7 @@ const createStudioBuiltinPlugins = (): readonly StudioBuiltinPreviewPlugin[] =>
       "haneoka.theme",
       "0.1.0",
       async () => {
-        const { vegaHaneokaTheme } = await import(
-          "@haneoka/vega-theme-haneoka"
-        );
+        const { vegaHaneokaTheme } = await import("@haneoka/vega-theme-haneoka");
         return vegaHaneokaTheme;
       },
       { id: "haneoka", priority: 200 },
@@ -162,16 +164,11 @@ const createStudioBuiltinPlugins = (): readonly StudioBuiltinPreviewPlugin[] =>
   ]);
 
 const builtinPlugins = new Map<string, StudioBuiltinPreviewPlugin>(
-  createStudioBuiltinPlugins().map((plugin) => [
-    plugin.manifest.id,
-    plugin,
-  ]),
+  createStudioBuiltinPlugins().map((plugin) => [plugin.manifest.id, plugin]),
 );
 
-export const hasStudioBuiltinPreviewPlugin = (
-  id: string,
-  version: string,
-): boolean => builtinPlugins.get(id)?.manifest.version === version;
+export const hasStudioBuiltinPreviewPlugin = (id: string, version: string): boolean =>
+  builtinPlugins.get(id)?.manifest.version === version;
 
 const pluginDiagnostic = (
   severity: "error" | "warning",
@@ -185,10 +182,7 @@ const pluginDiagnostic = (
   message,
 });
 
-const stableKey = (
-  destination: StudioPreviewPluginDestination,
-  lock: AltairPluginLock | null,
-): string => {
+const stableKey = (destination: StudioPreviewPluginDestination, lock: AltairPluginLock | null): string => {
   const value = `${destination}:${JSON.stringify(lock)}`;
   let hash = 0x811c9dc5;
   for (let index = 0; index < value.length; index += 1) {
@@ -219,18 +213,10 @@ const exactBuiltin = (
   return { plugin };
 };
 
-const selectBuiltinPreviewTheme = (
-  plugins: readonly StudioBuiltinPreviewPlugin[],
-): string | undefined =>
+const selectBuiltinPreviewTheme = (plugins: readonly StudioBuiltinPreviewPlugin[]): string | undefined =>
   plugins
-    .flatMap((plugin) =>
-      plugin.previewTheme ? [plugin.previewTheme] : [],
-    )
-    .sort(
-      (left, right) =>
-        right.priority - left.priority ||
-        left.id.localeCompare(right.id),
-    )[0]?.id;
+    .flatMap((plugin) => (plugin.previewTheme ? [plugin.previewTheme] : []))
+    .sort((left, right) => right.priority - left.priority || left.id.localeCompare(right.id))[0]?.id;
 
 export const createStudioPreviewPluginPlan = (
   project: Pick<StoryProject, "plugins">,
@@ -240,17 +226,13 @@ export const createStudioPreviewPluginPlan = (
   hostAvailable: boolean,
 ): StudioPreviewPluginPlan => {
   const resolved = createAltairPluginLock(project, catalog, environment);
-  const diagnostics: StoryDiagnostic[] = resolved.diagnostics.map(
-    ({ severity, code, pluginId, message }) =>
-      pluginDiagnostic(severity, `studio.preview.plugin.${code}`, pluginId, message),
+  const diagnostics: StoryDiagnostic[] = resolved.diagnostics.map(({ severity, code, pluginId, message }) =>
+    pluginDiagnostic(severity, `studio.preview.plugin.${code}`, pluginId, message),
   );
   for (const diagnostic of resolved.diagnostics) {
     if (diagnostic.code !== "permission-review-required") continue;
     const entry = resolved.entries.find(({ id }) => id === diagnostic.pluginId);
-    if (
-      !entry ||
-      altairPluginAuthoringExtension(catalog, entry)?.scope === "authoring"
-    ) {
+    if (!entry || altairPluginAuthoringExtension(catalog, entry)?.scope === "authoring") {
       continue;
     }
     diagnostics.push(
@@ -295,40 +277,43 @@ export const createStudioPreviewPluginPlan = (
    */
   if (
     destination === "bundled" &&
-    !resolved.lock?.plugins.some(({ capabilities }) =>
-      capabilities?.includes("ui-slot"),
-    ) &&
-    !builtins.some(
-      ({ manifest }) => manifest.id === PORTABLE_UI_PLUGIN_ID,
-    )
+    !resolved.lock?.plugins.some(({ capabilities }) => capabilities?.includes("ui-slot")) &&
+    !builtins.some(({ manifest }) => manifest.id === PORTABLE_UI_PLUGIN_ID)
   ) {
-    if (
-      !builtins.some(
-        ({ manifest }) => manifest.id === RICH_TEXT_PLUGIN_ID,
-      )
-    ) {
+    if (!builtins.some(({ manifest }) => manifest.id === RICH_TEXT_PLUGIN_ID)) {
       builtins.push(builtinPlugins.get(RICH_TEXT_PLUGIN_ID)!);
     }
     builtins.push(builtinPlugins.get(PORTABLE_UI_PLUGIN_ID)!);
   }
 
-  const theme =
-    destination === "bundled"
-      ? selectBuiltinPreviewTheme(builtins)
+  // Studio's default preview is the same Three backend used by the game
+  // host. Preserve explicitly selected renderer plugins and remote profiles.
+  const defaultThree =
+    destination === "bundled" &&
+    !builtins.some(
+      ({ manifest }) => manifest.id === "haneoka.renderer-pixi" || manifest.id === "haneoka.renderer-three",
+    ) &&
+    !hostEntries.some(({ capabilities }) => capabilities?.includes("render"));
+  if (defaultThree) builtins.push(builtinPlugins.get("haneoka.renderer-three")!);
+  const renderBackend = builtins.some(({ manifest }) => manifest.id === "haneoka.renderer-three")
+    ? "vega-three-webgl2"
+    : builtins.some(({ manifest }) => manifest.id === "haneoka.webgal-runtime")
+      ? "webgal-pixi"
       : undefined;
+  const theme = destination === "bundled" ? selectBuiltinPreviewTheme(builtins) : undefined;
   return {
     destination,
     lock: resolved.lock,
     builtins: Object.freeze(builtins),
     hostEntries: Object.freeze(hostEntries),
     ...(theme ? { theme } : {}),
+    ...(renderBackend ? { renderBackend } : {}),
     diagnostics: Object.freeze(diagnostics),
     key: stableKey(destination, resolved.lock),
   };
 };
 
-const receiptKey = ({ id, version }: StudioPreviewPluginReceipt): string =>
-  `${id}@${version}`;
+const receiptKey = ({ id, version }: StudioPreviewPluginReceipt): string => `${id}@${version}`;
 
 const validateExactReceipts = (
   expected: readonly LockedPlugin[],
@@ -352,10 +337,7 @@ const validateExactReceipts = (
   }
 };
 
-const orderPlugins = (
-  plugins: readonly VegaPlugin[],
-  lock: AltairPluginLock,
-): readonly VegaPlugin[] => {
+const orderPlugins = (plugins: readonly VegaPlugin[], lock: AltairPluginLock): readonly VegaPlugin[] => {
   const byId = new Map(plugins.map((plugin) => [plugin.manifest.id, plugin]));
   const locked = new Map(lock.plugins.map((entry) => [entry.id, entry]));
   const ordered: VegaPlugin[] = [];
@@ -388,25 +370,17 @@ export const loadStudioPreviewPlugins = async (
   signal: AbortSignal,
 ): Promise<LoadedStudioPreviewPlugins> => {
   if (plan.destination !== destination) {
-    throw new Error(
-      `Preview plugin plan targets ${plan.destination}, not ${destination}`,
-    );
+    throw new Error(`Preview plugin plan targets ${plan.destination}, not ${destination}`);
   }
   const blocking = plan.diagnostics.filter(({ severity }) => severity === "error");
   if (blocking.length || !plan.lock) {
-    throw new Error(
-      blocking.map(({ message }) => message).join("; ") ||
-        "Preview plugin lock could not be resolved",
-    );
+    throw new Error(blocking.map(({ message }) => message).join("; ") || "Preview plugin lock could not be resolved");
   }
   if (signal.aborted) throw signal.reason;
   const officialPlugins = await Promise.all(
     plan.builtins.map(async (builtin) => {
       const plugin = await builtin.load();
-      if (
-        plugin.manifest.id !== builtin.manifest.id ||
-        plugin.manifest.version !== builtin.manifest.version
-      ) {
+      if (plugin.manifest.id !== builtin.manifest.id || plugin.manifest.version !== builtin.manifest.version) {
         throw new Error(
           `Bundled plugin ${builtin.manifest.id}@${builtin.manifest.version} loaded ` +
             `${plugin.manifest.id}@${plugin.manifest.version}`,
@@ -447,30 +421,18 @@ export const loadStudioPreviewPlugins = async (
     }
     ids.add(plugin.manifest.id);
   }
-  const ordered =
-    destination === "bundled"
-      ? orderPlugins(plugins, plan.lock)
-      : Object.freeze<VegaPlugin[]>([]);
-  const officialIds = new Set(
-    officialPlugins.map(({ manifest }) => manifest.id),
-  );
+  const ordered = destination === "bundled" ? orderPlugins(plugins, plan.lock) : Object.freeze<VegaPlugin[]>([]);
+  const officialIds = new Set(officialPlugins.map(({ manifest }) => manifest.id));
   return {
-    officialPlugins: Object.freeze(
-      ordered.filter(({ manifest }) => officialIds.has(manifest.id)),
-    ),
-    plugins: Object.freeze(
-      ordered.filter(({ manifest }) => !officialIds.has(manifest.id)),
-    ),
+    officialPlugins: Object.freeze(ordered.filter(({ manifest }) => officialIds.has(manifest.id))),
+    plugins: Object.freeze(ordered.filter(({ manifest }) => !officialIds.has(manifest.id))),
     loaded: Object.freeze([
       ...officialPlugins
-        .filter(({ manifest }) =>
-          plan.lock?.plugins.some(({ id }) => id === manifest.id),
-        )
+        .filter(({ manifest }) => plan.lock?.plugins.some(({ id }) => id === manifest.id))
         .map(({ manifest }) => ({ id: manifest.id, version: manifest.version })),
       ...receipts,
     ]),
   };
 };
 
-export const studioPreviewPluginHost = (): StudioPreviewPluginHost | undefined =>
-  window.__ALTAIR_VEGA_PLUGIN_HOST__;
+export const studioPreviewPluginHost = (): StudioPreviewPluginHost | undefined => window.__ALTAIR_VEGA_PLUGIN_HOST__;

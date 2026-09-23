@@ -8,6 +8,10 @@ export const STUDIO_PLUGIN_CATALOG = Object.freeze({
   extensions: {
     altair: {
       entries: {
+        "haneoka.altair-models@0.1.0": {
+          scope: "authoring",
+          permissions: ["project.read", "project.write"],
+        },
         "haneoka.altair-adv@0.1.0": {
           scope: "authoring",
           permissions: [],
@@ -53,9 +57,7 @@ export const STUDIO_PLUGIN_CATALOG = Object.freeze({
   },
 } as const) satisfies AltairPluginCatalog;
 
-export const DEFAULT_STUDIO_PROJECT_PLUGINS:
-  readonly StoryProjectPlugin[] =
-  createAltairFullPresetProjectPlugins();
+export const DEFAULT_STUDIO_PROJECT_PLUGINS: readonly StoryProjectPlugin[] = createAltairFullPresetProjectPlugins();
 
 export const STUDIO_PLUGIN_ENVIRONMENT = {
   altairVersion: "0.1.0",

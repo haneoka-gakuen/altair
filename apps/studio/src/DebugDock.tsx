@@ -1,34 +1,15 @@
-import {
-  type CSSProperties,
-  type KeyboardEvent,
-  type PointerEvent,
-  type ReactNode,
-  useRef,
-} from "react";
+import { type CSSProperties, type KeyboardEvent, type PointerEvent, type ReactNode, useRef } from "react";
 
 export const MIN_DEBUG_DOCK_HEIGHT = 140;
 export const DEFAULT_DEBUG_DOCK_HEIGHT = 260;
 
 export const debugDockMaxHeight = (viewportHeight: number): number => {
-  const available =
-    viewportHeight -
-    52 -
-    Math.min(280, viewportHeight * 0.38) -
-    Math.min(120, viewportHeight * 0.2);
-  return Math.max(
-    MIN_DEBUG_DOCK_HEIGHT,
-    Math.min(viewportHeight * 0.65, available),
-  );
+  const available = viewportHeight - 52 - Math.min(280, viewportHeight * 0.38) - Math.min(120, viewportHeight * 0.2);
+  return Math.max(MIN_DEBUG_DOCK_HEIGHT, Math.min(viewportHeight * 0.65, available));
 };
 
-export const clampDebugDockHeight = (
-  value: number,
-  viewportHeight: number,
-): number =>
-  Math.max(
-    MIN_DEBUG_DOCK_HEIGHT,
-    Math.min(debugDockMaxHeight(viewportHeight), value),
-  );
+export const clampDebugDockHeight = (value: number, viewportHeight: number): number =>
+  Math.max(MIN_DEBUG_DOCK_HEIGHT, Math.min(debugDockMaxHeight(viewportHeight), value));
 
 export interface DebugDockProps {
   readonly children: ReactNode;
@@ -37,12 +18,7 @@ export interface DebugDockProps {
   readonly viewportHeight: number;
 }
 
-export function DebugDock({
-  children,
-  height,
-  onHeightChange,
-  viewportHeight,
-}: DebugDockProps) {
+export function DebugDock({ children, height, onHeightChange, viewportHeight }: DebugDockProps) {
   const dragRef = useRef<
     | {
         readonly pointerId: number;
@@ -64,10 +40,7 @@ export function DebugDock({
   };
 
   return (
-    <div
-      className="debug-dock"
-      style={{ "--debug-dock-height": `${height}px` } as CSSProperties}
-    >
+    <div className="debug-dock" style={{ "--debug-dock-height": `${height}px` } as CSSProperties}>
       <div
         aria-label="Resize debugger"
         aria-orientation="horizontal"
@@ -92,12 +65,7 @@ export function DebugDock({
         onPointerMove={(event) => {
           const drag = dragRef.current;
           if (!drag || drag.pointerId !== event.pointerId) return;
-          onHeightChange(
-            clampDebugDockHeight(
-              drag.startHeight + drag.startY - event.clientY,
-              viewportHeight,
-            ),
-          );
+          onHeightChange(clampDebugDockHeight(drag.startHeight + drag.startY - event.clientY, viewportHeight));
         }}
         onPointerUp={(event) => {
           if (dragRef.current?.pointerId !== event.pointerId) return;

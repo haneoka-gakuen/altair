@@ -1,10 +1,4 @@
-export const STUDIO_UI_LOCALES = [
-  "en",
-  "ja",
-  "zh-CN",
-  "zh-TW",
-  "ko",
-] as const;
+export const STUDIO_UI_LOCALES = ["en", "ja", "zh-CN", "zh-TW", "ko"] as const;
 
 export type StudioUiLocale = (typeof STUDIO_UI_LOCALES)[number];
 
@@ -14,8 +8,7 @@ const en = {
   close: "Close",
   defaultLanguage: "Default language",
   delete: "Delete",
-  description:
-    "Add every language the game will ship. The list is not limited to the interface languages.",
+  description: "Add every language the game will ship. The list is not limited to the interface languages.",
   fallbackHint: "Used in this order when a translation is missing.",
   fallbackLanguages: "Fallback languages",
   flow: "Flow",
@@ -25,15 +18,13 @@ const en = {
   languageTag: "Language tag",
   languages: "Languages",
   chooseProjectLanguage: "Choose the project language",
-  chooseProjectLanguageHint:
-    "Set the languages this work actually uses before editing localized text.",
+  chooseProjectLanguageHint: "Set the languages this work actually uses before editing localized text.",
   setProjectLanguages: "Set project languages",
   livePreview: "Live preview",
   makeDefault: "Make default",
   moveDown: "Move {locale} down",
   moveUp: "Move {locale} up",
-  noAssets:
-    "Open a project folder to browse images, audio, video, and other assets.",
+  noAssets: "Open a project folder to browse images, audio, video, and other assets.",
   noLanguages: "No project languages yet.",
   openProject: "Open project",
   preferredFonts: "Preferred fonts",
@@ -87,8 +78,7 @@ const ja: StudioUiCatalog = {
   close: "閉じる",
   defaultLanguage: "既定の言語",
   delete: "削除",
-  description:
-    "ゲームに収録する言語を追加します。UI の対応言語数には制限されません。",
+  description: "ゲームに収録する言語を追加します。UI の対応言語数には制限されません。",
   fallbackHint: "翻訳がない場合、この順番で参照します。",
   fallbackLanguages: "フォールバック言語",
   flow: "フロー",
@@ -98,15 +88,13 @@ const ja: StudioUiCatalog = {
   languageTag: "言語タグ",
   languages: "言語",
   chooseProjectLanguage: "作品の言語を選択",
-  chooseProjectLanguageHint:
-    "多言語テキストを編集する前に、この作品で使用する言語を設定してください。",
+  chooseProjectLanguageHint: "多言語テキストを編集する前に、この作品で使用する言語を設定してください。",
   setProjectLanguages: "作品の言語を設定",
   livePreview: "ライブプレビュー",
   makeDefault: "既定にする",
   moveDown: "{locale} を下へ",
   moveUp: "{locale} を上へ",
-  noAssets:
-    "プロジェクトフォルダーを開くと、画像・音声・動画などを参照できます。",
+  noAssets: "プロジェクトフォルダーを開くと、画像・音声・動画などを参照できます。",
   noLanguages: "プロジェクト言語はまだありません。",
   openProject: "プロジェクトを開く",
   preferredFonts: "優先フォント",
@@ -291,8 +279,7 @@ const ko: StudioUiCatalog = {
   close: "닫기",
   defaultLanguage: "기본 언어",
   delete: "삭제",
-  description:
-    "게임에 포함할 모든 언어를 추가하세요. 프로젝트 언어 수는 UI 언어 수에 제한되지 않습니다.",
+  description: "게임에 포함할 모든 언어를 추가하세요. 프로젝트 언어 수는 UI 언어 수에 제한되지 않습니다.",
   fallbackHint: "번역이 없을 때 이 순서로 대체합니다.",
   fallbackLanguages: "대체 언어",
   flow: "흐름",
@@ -302,15 +289,13 @@ const ko: StudioUiCatalog = {
   languageTag: "언어 태그",
   languages: "언어",
   chooseProjectLanguage: "작품 언어 선택",
-  chooseProjectLanguageHint:
-    "다국어 콘텐츠를 편집하기 전에 이 작품에서 실제로 사용할 언어를 설정하세요.",
+  chooseProjectLanguageHint: "다국어 콘텐츠를 편집하기 전에 이 작품에서 실제로 사용할 언어를 설정하세요.",
   setProjectLanguages: "작품 언어 설정",
   livePreview: "실시간 미리보기",
   makeDefault: "기본값으로",
   moveDown: "{locale} 아래로",
   moveUp: "{locale} 위로",
-  noAssets:
-    "프로젝트 폴더를 열어 이미지, 오디오, 비디오 등의 에셋을 찾아보세요.",
+  noAssets: "프로젝트 폴더를 열어 이미지, 오디오, 비디오 등의 에셋을 찾아보세요.",
   noLanguages: "프로젝트 언어가 아직 없습니다.",
   openProject: "프로젝트 열기",
   preferredFonts: "선호 글꼴",
@@ -355,9 +340,7 @@ const ko: StudioUiCatalog = {
   webgalSourceEditor: "WebGAL 소스 편집기",
 };
 
-export const STUDIO_UI_CATALOGS: Readonly<
-  Record<StudioUiLocale, StudioUiCatalog>
-> = Object.freeze({
+export const STUDIO_UI_CATALOGS: Readonly<Record<StudioUiLocale, StudioUiCatalog>> = Object.freeze({
   en,
   ja,
   "zh-CN": zhCN,
@@ -376,22 +359,14 @@ export const STUDIO_UI_LOCALE_OPTIONS: readonly {
   { locale: "ko", label: "한국어" },
 ]);
 
-export const resolveStudioUiLocale = (
-  candidates: string | readonly string[] | null | undefined,
-): StudioUiLocale => {
-  const values =
-    typeof candidates === "string"
-      ? [candidates]
-      : candidates ?? [];
+export const resolveStudioUiLocale = (candidates: string | readonly string[] | null | undefined): StudioUiLocale => {
+  const values = typeof candidates === "string" ? [candidates] : (candidates ?? []);
   for (const candidate of values) {
     const normalized = candidate.replace(/_/gu, "-").toLowerCase();
     if (normalized === "ja" || normalized.startsWith("ja-")) return "ja";
     if (normalized === "ko" || normalized.startsWith("ko-")) return "ko";
     if (normalized === "zh" || normalized.startsWith("zh-")) {
-      if (
-        normalized.includes("-hant") ||
-        /-(tw|hk|mo)(?:-|$)/u.test(normalized)
-      ) {
+      if (normalized.includes("-hant") || /-(tw|hk|mo)(?:-|$)/u.test(normalized)) {
         return "zh-TW";
       }
       return "zh-CN";
@@ -406,20 +381,11 @@ export const studioMessage = (
   key: StudioUiMessageKey,
   values: Readonly<Record<string, string>> = {},
 ): string =>
-  STUDIO_UI_CATALOGS[locale][key].replace(
-    /\{([^}]+)\}/gu,
-    (_match, name: string) => values[name] ?? `{${name}}`,
-  );
+  STUDIO_UI_CATALOGS[locale][key].replace(/\{([^}]+)\}/gu, (_match, name: string) => values[name] ?? `{${name}}`);
 
-export const projectLocaleDisplayName = (
-  locale: string,
-  uiLocale: StudioUiLocale,
-): string => {
+export const projectLocaleDisplayName = (locale: string, uiLocale: StudioUiLocale): string => {
   try {
-    return (
-      new Intl.DisplayNames([uiLocale], { type: "language" }).of(locale) ??
-      locale
-    );
+    return new Intl.DisplayNames([uiLocale], { type: "language" }).of(locale) ?? locale;
   } catch {
     return locale;
   }

@@ -1,7 +1,4 @@
-import type {
-  StoryDiagnostic,
-  StoryProject,
-} from "@haneoka/altair";
+import type { StoryDiagnostic, StoryProject } from "@haneoka/altair";
 
 export interface StudioSourceDocument {
   readonly id: string;
@@ -21,14 +18,9 @@ export const updateStudioDocument = (
   documents: readonly StudioSourceDocument[],
   id: string,
   text: string,
-): StudioSourceDocument[] =>
-  documents.map((document) => (document.id === id ? { ...document, text } : document));
+): StudioSourceDocument[] => documents.map((document) => (document.id === id ? { ...document, text } : document));
 
-export const moveStudioSourceLine = (
-  source: string,
-  fromLine: number,
-  toLine: number,
-): string => {
+export const moveStudioSourceLine = (source: string, fromLine: number, toLine: number): string => {
   const newline = source.includes("\r\n") ? "\r\n" : "\n";
   const lines = source.split(/\r?\n/);
   const from = Math.max(0, Math.min(lines.length - 1, Math.round(fromLine) - 1));
@@ -40,10 +32,7 @@ export const moveStudioSourceLine = (
   return lines.join(newline);
 };
 
-export const removeStudioSourceLine = (
-  source: string,
-  line: number,
-): string => {
+export const removeStudioSourceLine = (source: string, line: number): string => {
   const newline = source.includes("\r\n") ? "\r\n" : "\n";
   const lines = source.split(/\r?\n/);
   if (!lines.length) return source;

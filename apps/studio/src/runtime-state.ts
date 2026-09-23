@@ -48,9 +48,7 @@ export const extractRuntimeVariables = (snapshot: JsonValue | undefined | null):
   };
   walk(snapshot, [], 0);
   return variables.sort((left, right) =>
-    left.scope === right.scope
-      ? left.name.localeCompare(right.name)
-      : left.scope.localeCompare(right.scope),
+    left.scope === right.scope ? left.name.localeCompare(right.name) : left.scope.localeCompare(right.scope),
   );
 };
 

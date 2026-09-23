@@ -1,13 +1,15 @@
 /// <reference lib="dom" />
 
+import type { AltairDocumentCommand } from "./documents.js";
+import type {
+  AltairDocumentEditorContribution,
+  AltairEditorWorkspace,
+  AltairPropertyEditorContribution,
+} from "./editor.js";
+export * from "./editor.js";
 import type { AltairAiProvider } from "./ai-protocol.js";
 import type { StoryDiagnostic } from "./diagnostics.js";
-import type {
-  JsonObject,
-  JsonValue,
-  StoryProject,
-  StoryProjectCommand,
-} from "./model.js";
+import type { JsonObject, JsonValue, StoryProject, StoryProjectCommand } from "./model.js";
 import type { ResourceBrowserProvider } from "./resource-browser.js";
 
 export type {
@@ -28,9 +30,7 @@ export interface AltairServiceKey<T> {
   readonly __type?: T;
 }
 
-export const defineAltairService = <T>(
-  id: string,
-): AltairServiceKey<T> => {
+export const defineAltairService = <T>(id: string): AltairServiceKey<T> => {
   if (typeof id !== "string" || !id.trim()) {
     throw new TypeError("Altair service id must not be empty");
   }
@@ -51,9 +51,7 @@ export interface AltairContributionOptions {
   readonly singletonPort?: string;
 }
 
-export interface AltairContributionSelection<
-  T extends AltairContribution = AltairContribution,
-> {
+export interface AltairContributionSelection<T extends AltairContribution = AltairContribution> {
   readonly owner: string;
   readonly kind: keyof AltairContributionMap;
   readonly contribution: T;
@@ -135,14 +133,7 @@ export interface AltairFormatContribution extends AltairContribution {
 }
 
 export type AltairCommandFieldKind =
-  | "string"
-  | "number"
-  | "boolean"
-  | "select"
-  | "resource"
-  | "localized-text"
-  | "json"
-  | (string & {});
+  "string" | "number" | "boolean" | "select" | "resource" | "localized-text" | "json" | (string & {});
 
 export interface AltairCommandFieldSchema {
   readonly key: string;
@@ -160,15 +151,13 @@ export interface AltairCommandFieldSchema {
 
 /** Declarative command metadata shared by source and visual editors. */
 export interface AltairCommandSchemaContribution extends AltairContribution {
+  readonly document?: AltairDocumentCommand;
   readonly category?: string;
   readonly opcodes?: readonly number[];
   readonly sourceNames?: readonly string[];
   readonly fields?: readonly AltairCommandFieldSchema[];
   readonly metadata?: JsonObject;
-  create?(
-    project: StoryProject,
-    context: AltairOperationContext,
-  ): StoryProjectCommand | Promise<StoryProjectCommand>;
+  create?(project: StoryProject, context: AltairOperationContext): StoryProjectCommand | Promise<StoryProjectCommand>;
 }
 
 export interface AltairEditorActionRequest {
@@ -209,17 +198,13 @@ export interface AltairCompilerPipelineResult {
   readonly diagnostics: readonly StoryDiagnostic[];
 }
 
-export interface AltairCompilerPassContribution
-  extends AltairContribution {
+export interface AltairCompilerPassContribution extends AltairContribution {
   /** Lower values execute first. Selection priority is independent. */
   readonly order?: number;
   apply(
     request: AltairCompilerPassRequest & { readonly signal: AbortSignal },
     context: AltairOperationContext,
-  ):
-    | AltairCompilerPassResult
-    | void
-    | Promise<AltairCompilerPassResult | void>;
+  ): AltairCompilerPassResult | void | Promise<AltairCompilerPassResult | void>;
 }
 
 export interface AltairValidatorContribution extends AltairContribution {
@@ -243,12 +228,8 @@ export interface AltairFlowGraph {
   readonly diagnostics: readonly unknown[];
 }
 
-export interface AltairFlowProviderContribution
-  extends AltairContribution {
-  build(
-    project: StoryProject,
-    context: AltairOperationContext,
-  ): AltairFlowGraph | Promise<AltairFlowGraph>;
+export interface AltairFlowProviderContribution extends AltairContribution {
+  build(project: StoryProject, context: AltairOperationContext): AltairFlowGraph | Promise<AltairFlowGraph>;
 }
 
 export interface AltairAssetRequest {
@@ -266,8 +247,7 @@ export interface AltairResolvedAsset {
   readonly metadata?: JsonObject;
 }
 
-export interface AltairAssetProviderContribution
-  extends AltairContribution {
+export interface AltairAssetProviderContribution extends AltairContribution {
   supports?(
     request: AltairAssetRequest & { readonly signal: AbortSignal },
     context: AltairOperationContext,
@@ -275,24 +255,19 @@ export interface AltairAssetProviderContribution
   resolve(
     request: AltairAssetRequest & { readonly signal: AbortSignal },
     context: AltairOperationContext,
-  ):
-    | AltairResolvedAsset
-    | undefined
-    | Promise<AltairResolvedAsset | undefined>;
+  ): AltairResolvedAsset | undefined | Promise<AltairResolvedAsset | undefined>;
 }
 
 export interface AltairPanelContext extends AltairOperationContext {
   readonly project?: StoryProject;
   readonly selection?: JsonObject;
+  readonly editor?: AltairEditorWorkspace;
 }
 
 /** DOM mounting is isolated to the optional panel contribution boundary. */
 export interface AltairPanelContribution extends AltairContribution {
   readonly slot: string;
-  mount(
-    host: HTMLElement,
-    context: AltairPanelContext,
-  ): AltairDisposable | Promise<AltairDisposable>;
+  mount(host: HTMLElement, context: AltairPanelContext): AltairDisposable | Promise<AltairDisposable>;
 }
 
 export interface AltairPreviewRequest {
@@ -304,16 +279,12 @@ export interface AltairPreviewRequest {
 
 export interface AltairPreviewSession {
   readonly capabilities?: readonly string[];
-  request(
-    command: JsonObject,
-    options?: { readonly signal?: AbortSignal },
-  ): Promise<JsonValue>;
+  request(command: JsonObject, options?: { readonly signal?: AbortSignal }): Promise<JsonValue>;
   onEvent?(listener: (event: JsonValue) => void): () => void;
   dispose(): void | Promise<void>;
 }
 
-export interface AltairPreviewProviderContribution
-  extends AltairContribution {
+export interface AltairPreviewProviderContribution extends AltairContribution {
   create(
     request: AltairPreviewRequest & { readonly signal: AbortSignal },
     context: AltairOperationContext,
@@ -321,6 +292,8 @@ export interface AltairPreviewProviderContribution
 }
 
 export interface AltairContributionMap {
+  readonly "document-editor": AltairDocumentEditorContribution;
+  readonly "property-editor": AltairPropertyEditorContribution;
   readonly format: AltairFormatContribution;
   readonly ai: AltairAiProvider;
   readonly validator: AltairValidatorContribution;

@@ -5,11 +5,7 @@ import type {
   WheelEvent as ReactWheelEvent,
 } from "react";
 import { useEffect, useMemo, useRef, useState } from "react";
-import type {
-  StoryFlowEdge,
-  StoryFlowGraph,
-  StoryFlowNode,
-} from "@haneoka/altair-plugin-flow";
+import type { StoryFlowEdge, StoryFlowGraph, StoryFlowNode } from "@haneoka/altair-plugin-flow";
 import { StudioIcon } from "./StudioIcon";
 
 export interface FlowViewProps {
@@ -46,50 +42,46 @@ const SCENE_GAP = 72;
 const ROW_HEIGHT = 96;
 
 const layoutGraph = (graph: StoryFlowGraph): FlowLayout => {
-  const sceneOrder = [
-    ...new Set(
-      graph.nodes.flatMap((node) =>
-        node.sceneId && node.kind !== "unresolved" ? [node.sceneId] : [],
-      ),
-    ),
-  ];
+  const nodesByScene = new Map<string, StoryFlowNode[]>();
+  const unresolved: StoryFlowNode[] = [];
+  let entryNode: StoryFlowNode | undefined;
+  let exitNode: StoryFlowNode | undefined;
+  for (const node of graph.nodes) {
+    if (node.id === graph.entryNodeId) entryNode = node;
+    if (node.id === graph.exitNodeId) exitNode = node;
+    if (node.kind === "unresolved") {
+      unresolved.push(node);
+      continue;
+    }
+    if (!node.sceneId) continue;
+    const sceneNodes = nodesByScene.get(node.sceneId) ?? [];
+    sceneNodes.push(node);
+    nodesByScene.set(node.sceneId, sceneNodes);
+  }
+  const sceneOrder = [...nodesByScene.keys()];
   const positions: PositionedNode[] = [];
   const canvasHeight = Math.max(
     430,
-    110 +
-      Math.max(
-        2,
-        ...sceneOrder.map(
-          (sceneId) =>
-            graph.nodes.filter(
-              (node) => node.sceneId === sceneId && node.kind !== "unresolved",
-            ).length,
-        ),
-      ) *
-        ROW_HEIGHT,
+    110 + Math.max(2, ...sceneOrder.map((sceneId) => nodesByScene.get(sceneId)?.length ?? 0)) * ROW_HEIGHT,
   );
-  positions.push({
-    node: graph.nodes.find(({ id }) => id === graph.entryNodeId)!,
-    x: 24,
-    y: 74,
-  });
-  positions.push({
-    node: graph.nodes.find(({ id }) => id === graph.exitNodeId)!,
-    x: 24,
-    y: canvasHeight - NODE_HEIGHT - 42,
-  });
+  if (entryNode) positions.push({ node: entryNode, x: 24, y: 74 });
+  if (exitNode) {
+    positions.push({
+      node: exitNode,
+      x: 24,
+      y: canvasHeight - NODE_HEIGHT - 42,
+    });
+  }
   const lanes = sceneOrder.map((sceneId, sceneIndex) => {
-    const nodes = graph.nodes
-      .filter((node) => node.sceneId === sceneId && node.kind !== "unresolved")
-      .sort((left, right) => {
-        const rank = (node: StoryFlowNode): number =>
-          node.kind === "scene-entry"
-            ? -1
-            : node.kind === "scene-exit"
-              ? Number.MAX_SAFE_INTEGER
-              : node.commandIndex ?? 0;
-        return rank(left) - rank(right);
-      });
+    const nodes = [...(nodesByScene.get(sceneId) ?? [])].sort((left, right) => {
+      const rank = (node: StoryFlowNode): number =>
+        node.kind === "scene-entry"
+          ? -1
+          : node.kind === "scene-exit"
+            ? Number.MAX_SAFE_INTEGER
+            : (node.commandIndex ?? 0);
+      return rank(left) - rank(right);
+    });
     const x = 260 + sceneIndex * (SCENE_WIDTH + SCENE_GAP);
     nodes.forEach((node, index) => positions.push({ node, x: x + 20, y: 66 + index * ROW_HEIGHT }));
     return {
@@ -99,16 +91,11 @@ const layoutGraph = (graph: StoryFlowGraph): FlowLayout => {
       width: SCENE_WIDTH,
     };
   });
-  const unresolved = graph.nodes.filter(({ kind }) => kind === "unresolved");
   const unresolvedX = 260 + sceneOrder.length * (SCENE_WIDTH + SCENE_GAP);
-  unresolved.forEach((node, index) =>
-    positions.push({ node, x: unresolvedX + 20, y: 66 + index * ROW_HEIGHT }),
-  );
+  unresolved.forEach((node, index) => positions.push({ node, x: unresolvedX + 20, y: 66 + index * ROW_HEIGHT }));
   const width = Math.max(
     720,
-    unresolved.length
-      ? unresolvedX + SCENE_WIDTH + 32
-      : 260 + sceneOrder.length * (SCENE_WIDTH + SCENE_GAP) + 32,
+    unresolved.length ? unresolvedX + SCENE_WIDTH + 32 : 260 + sceneOrder.length * (SCENE_WIDTH + SCENE_GAP) + 32,
   );
   return {
     width,
@@ -161,19 +148,15 @@ const edgeLabel = (edge: StoryFlowEdge): string => {
   return edge.label || edge.kind;
 };
 
-export function FlowView({
-  graph,
-  selectedNodeId,
-  selectedSceneId,
-  onSelectNode,
-  onSelectScene,
-}: FlowViewProps) {
+export function FlowView({ graph, selectedNodeId, selectedSceneId, onSelectNode, onSelectScene }: FlowViewProps) {
   const baseLayout = useMemo(() => layoutGraph(graph), [graph]);
-  const [nodeOffsets, setNodeOffsets] = useState<
-    Readonly<Record<string, { readonly x: number; readonly y: number }>>
-  >({});
+  const [nodeOffsets, setNodeOffsets] = useState<Readonly<Record<string, { readonly x: number; readonly y: number }>>>(
+    {},
+  );
   const [viewport, setViewport] = useState({ x: 20, y: 18, scale: 1 });
   const scrollRef = useRef<HTMLDivElement>(null);
+  const pointerFrameRef = useRef<number | undefined>(undefined);
+  const pendingPointerRef = useRef<{ readonly clientX: number; readonly clientY: number } | undefined>(undefined);
   const interaction = useRef<
     | {
         readonly kind: "pan";
@@ -197,9 +180,7 @@ export function FlowView({
   const layout = useMemo<FlowLayout>(() => {
     const nodes = baseLayout.nodes.map((item) => {
       const offset = nodeOffsets[item.node.id];
-      return offset
-        ? { ...item, x: item.x + offset.x, y: item.y + offset.y }
-        : item;
+      return offset ? { ...item, x: item.x + offset.x, y: item.y + offset.y } : item;
     });
     return {
       ...baseLayout,
@@ -208,18 +189,38 @@ export function FlowView({
     };
   }, [baseLayout, nodeOffsets]);
   const buttons = useRef(new Map<string, HTMLButtonElement>());
-  const selected = graph.nodes.find(({ id }) => id === selectedNodeId) ?? graph.nodes[0];
-  const outgoing = selected ? graph.edges.filter(({ from }) => from === selected.id) : [];
+  const graphIndexes = useMemo(() => {
+    const nodes = new Map(graph.nodes.map((node) => [node.id, node] as const));
+    const outgoing = new Map<string, StoryFlowEdge[]>();
+    let reachable = 0;
+    for (const node of graph.nodes) {
+      if (node.reachable) reachable += 1;
+    }
+    for (const edge of graph.edges) {
+      const edges = outgoing.get(edge.from) ?? [];
+      edges.push(edge);
+      outgoing.set(edge.from, edges);
+    }
+    return { nodes, outgoing, reachable };
+  }, [graph]);
+  const selected = graphIndexes.nodes.get(selectedNodeId) ?? graph.nodes[0];
+  const outgoing = selected ? (graphIndexes.outgoing.get(selected.id) ?? []) : [];
 
   useEffect(() => {
     const valid = new Set(graph.nodes.map(({ id }) => id));
-    setNodeOffsets((current) =>
-      Object.fromEntries(Object.entries(current).filter(([id]) => valid.has(id))),
-    );
+    setNodeOffsets((current) => Object.fromEntries(Object.entries(current).filter(([id]) => valid.has(id))));
   }, [graph]);
 
-  const clampScale = (value: number): number =>
-    Math.max(0.35, Math.min(2.2, value));
+  useEffect(
+    () => () => {
+      if (pointerFrameRef.current !== undefined) {
+        cancelAnimationFrame(pointerFrameRef.current);
+      }
+    },
+    [],
+  );
+
+  const clampScale = (value: number): number => Math.max(0.35, Math.min(2.2, value));
 
   const setScaleAroundCenter = (scale: number): void => {
     const element = scrollRef.current;
@@ -242,10 +243,7 @@ export function FlowView({
     const element = scrollRef.current;
     if (!element) return;
     const scale = clampScale(
-      Math.min(
-        (element.clientWidth - 40) / baseLayout.width,
-        (element.clientHeight - 40) / baseLayout.height,
-      ),
+      Math.min((element.clientWidth - 40) / baseLayout.width, (element.clientHeight - 40) / baseLayout.height),
     );
     setViewport({ x: 20, y: 20, scale });
   };
@@ -264,10 +262,7 @@ export function FlowView({
     event.currentTarget.setPointerCapture(event.pointerId);
   };
 
-  const beginNodeDrag = (
-    event: ReactPointerEvent<HTMLButtonElement>,
-    item: PositionedNode,
-  ): void => {
+  const beginNodeDrag = (event: ReactPointerEvent<HTMLButtonElement>, item: PositionedNode): void => {
     if (event.button !== 0) return;
     event.stopPropagation();
     const offset = nodeOffsets[item.node.id] ?? { x: 0, y: 0 };
@@ -283,11 +278,11 @@ export function FlowView({
     event.currentTarget.setPointerCapture(event.pointerId);
   };
 
-  const movePointer = (event: ReactPointerEvent<HTMLDivElement>): void => {
+  const applyPointerMove = (clientX: number, clientY: number): void => {
     const active = interaction.current;
-    if (!active || active.pointerId !== event.pointerId) return;
-    const deltaX = event.clientX - active.startX;
-    const deltaY = event.clientY - active.startY;
+    if (!active) return;
+    const deltaX = clientX - active.startX;
+    const deltaY = clientY - active.startY;
     if (active.kind === "pan") {
       setViewport((current) => ({
         ...current,
@@ -303,24 +298,41 @@ export function FlowView({
       [active.nodeId]: {
         x: Math.max(
           -base.x,
-          Math.min(
-            baseLayout.width - NODE_WIDTH - base.x,
-            active.originX + deltaX / viewport.scale,
-          ),
+          Math.min(baseLayout.width - NODE_WIDTH - base.x, active.originX + deltaX / viewport.scale),
         ),
         y: Math.max(
           -base.y,
-          Math.min(
-            baseLayout.height - NODE_HEIGHT - base.y,
-            active.originY + deltaY / viewport.scale,
-          ),
+          Math.min(baseLayout.height - NODE_HEIGHT - base.y, active.originY + deltaY / viewport.scale),
         ),
       },
     }));
   };
 
+  const movePointer = (event: ReactPointerEvent<HTMLDivElement>): void => {
+    const active = interaction.current;
+    if (!active || active.pointerId !== event.pointerId) return;
+    pendingPointerRef.current = {
+      clientX: event.clientX,
+      clientY: event.clientY,
+    };
+    if (pointerFrameRef.current !== undefined) return;
+    pointerFrameRef.current = requestAnimationFrame(() => {
+      pointerFrameRef.current = undefined;
+      const pending = pendingPointerRef.current;
+      pendingPointerRef.current = undefined;
+      if (pending) applyPointerMove(pending.clientX, pending.clientY);
+    });
+  };
+
   const endPointer = (event: ReactPointerEvent<HTMLDivElement>): void => {
     if (interaction.current?.pointerId !== event.pointerId) return;
+    if (pointerFrameRef.current !== undefined) {
+      cancelAnimationFrame(pointerFrameRef.current);
+      pointerFrameRef.current = undefined;
+    }
+    const pending = pendingPointerRef.current;
+    pendingPointerRef.current = undefined;
+    if (pending) applyPointerMove(pending.clientX, pending.clientY);
     interaction.current = null;
   };
 
@@ -330,9 +342,7 @@ export function FlowView({
     const pointerX = event.clientX - rect.left;
     const pointerY = event.clientY - rect.top;
     setViewport((current) => {
-      const scale = clampScale(
-        current.scale * (event.deltaY > 0 ? 0.9 : 1.1),
-      );
+      const scale = clampScale(current.scale * (event.deltaY > 0 ? 0.9 : 1.1));
       const worldX = (pointerX - current.x) / current.scale;
       const worldY = (pointerY - current.y) / current.scale;
       return {
@@ -361,7 +371,10 @@ export function FlowView({
     const distance = (candidate: PositionedNode): number => {
       const dx = candidate.x - item.x;
       const dy = candidate.y - item.y;
-      return Math.hypot(dx, dy) + (event.key === "ArrowUp" || event.key === "ArrowDown" ? Math.abs(dx) * 2 : Math.abs(dy) * 2);
+      return (
+        Math.hypot(dx, dy) +
+        (event.key === "ArrowUp" || event.key === "ArrowDown" ? Math.abs(dx) * 2 : Math.abs(dy) * 2)
+      );
     };
     let next =
       event.key === "Home"
@@ -376,11 +389,7 @@ export function FlowView({
 
   const selectScene = (sceneId: string): void => {
     onSelectScene(sceneId);
-    focusNode(
-      layout.nodes.find(
-        ({ node }) => node.sceneId === sceneId && node.kind === "scene-entry",
-      )?.node,
-    );
+    focusNode(layout.nodes.find(({ node }) => node.sceneId === sceneId && node.kind === "scene-entry")?.node);
   };
 
   return (
@@ -397,7 +406,7 @@ export function FlowView({
           </button>
         ))}
         <span aria-live="polite">
-          {graph.nodes.filter(({ reachable }) => reachable).length}/{graph.nodes.length} reachable
+          {graphIndexes.reachable}/{graph.nodes.length} reachable
         </span>
       </div>
       <p className="sr-only" id="flow-keyboard-help">
@@ -422,19 +431,11 @@ export function FlowView({
           onPointerDown={(event) => event.stopPropagation()}
           role="group"
         >
-          <button
-            aria-label="Zoom out"
-            onClick={() => setScaleAroundCenter(viewport.scale / 1.2)}
-            title="Zoom out"
-          >
+          <button aria-label="Zoom out" onClick={() => setScaleAroundCenter(viewport.scale / 1.2)} title="Zoom out">
             <StudioIcon name="zoom-out" />
           </button>
           <span>{Math.round(viewport.scale * 100)}%</span>
-          <button
-            aria-label="Zoom in"
-            onClick={() => setScaleAroundCenter(viewport.scale * 1.2)}
-            title="Zoom in"
-          >
+          <button aria-label="Zoom in" onClick={() => setScaleAroundCenter(viewport.scale * 1.2)} title="Zoom in">
             <StudioIcon name="zoom-in" />
           </button>
           <button aria-label="Fit graph" onClick={fitGraph} title="Fit graph">
@@ -535,7 +536,9 @@ export function FlowView({
           <span>Outgoing flow</span>
           {outgoing.length ? (
             <ul>
-              {outgoing.map((edge) => <li key={edge.id}>{edgeLabel(edge)}</li>)}
+              {outgoing.map((edge) => (
+                <li key={edge.id}>{edgeLabel(edge)}</li>
+              ))}
             </ul>
           ) : (
             <small>No outgoing edge</small>

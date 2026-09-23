@@ -1,16 +1,7 @@
 import type { AltairCommandSchemaContribution } from "@haneoka/altair";
-import {
-  type KeyboardEvent as ReactKeyboardEvent,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-} from "react";
+import { type KeyboardEvent as ReactKeyboardEvent, useEffect, useMemo, useRef, useState } from "react";
 import { StudioIcon } from "./StudioIcon";
-import {
-  commandSchemaCategories,
-  filterCommandSchemas,
-} from "./visual-authoring";
+import { commandSchemaCategories, filterCommandSchemas } from "./visual-authoring";
 
 export interface CommandInsertDialogProps {
   readonly beforeLabel: string;
@@ -26,25 +17,14 @@ const categoryLabel = (category: string): string =>
     .map((part) => `${part[0]?.toUpperCase() ?? ""}${part.slice(1)}`)
     .join(" ");
 
-export function CommandInsertDialog({
-  beforeLabel,
-  schemas,
-  onCancel,
-  onSelect,
-}: CommandInsertDialogProps) {
+export function CommandInsertDialog({ beforeLabel, schemas, onCancel, onSelect }: CommandInsertDialogProps) {
   const [query, setQuery] = useState("");
   const [category, setCategory] = useState("");
   const backdropRef = useRef<HTMLDivElement>(null);
   const dialogRef = useRef<HTMLElement>(null);
   const searchRef = useRef<HTMLInputElement>(null);
-  const categories = useMemo(
-    () => commandSchemaCategories(schemas),
-    [schemas],
-  );
-  const results = useMemo(
-    () => filterCommandSchemas(schemas, query, category),
-    [category, query, schemas],
-  );
+  const categories = useMemo(() => commandSchemaCategories(schemas), [schemas]);
+  const results = useMemo(() => filterCommandSchemas(schemas, query, category), [category, query, schemas]);
 
   useEffect(() => {
     const backdrop = backdropRef.current;
@@ -61,18 +41,13 @@ export function CommandInsertDialog({
     searchRef.current?.focus();
     return () => {
       for (const [element, inert] of siblings) element.inert = inert;
-      if (
-        previousFocus instanceof HTMLElement &&
-        previousFocus.isConnected
-      ) {
+      if (previousFocus instanceof HTMLElement && previousFocus.isConnected) {
         previousFocus.focus();
       }
     };
   }, []);
 
-  const handleDialogKeyDown = (
-    event: ReactKeyboardEvent<HTMLElement>,
-  ): void => {
+  const handleDialogKeyDown = (event: ReactKeyboardEvent<HTMLElement>): void => {
     if (event.key === "Escape") {
       event.preventDefault();
       onCancel();
@@ -91,11 +66,7 @@ export function CommandInsertDialog({
     if (!first || !last) {
       event.preventDefault();
       dialog.focus();
-    } else if (
-      event.shiftKey &&
-      (document.activeElement === first ||
-        !dialog.contains(document.activeElement))
-    ) {
+    } else if (event.shiftKey && (document.activeElement === first || !dialog.contains(document.activeElement))) {
       event.preventDefault();
       last.focus();
     } else if (!event.shiftKey && document.activeElement === last) {
@@ -164,10 +135,7 @@ export function CommandInsertDialog({
             </select>
           </label>
         </div>
-        <ul
-          aria-label="Available commands"
-          className="command-picker-results"
-        >
+        <ul aria-label="Available commands" className="command-picker-results">
           {results.length ? (
             results.map((schema) => (
               <li key={schema.id}>
@@ -181,9 +149,7 @@ export function CommandInsertDialog({
               </li>
             ))
           ) : (
-            <li className="command-picker-empty">
-              No commands match this search.
-            </li>
+            <li className="command-picker-empty">No commands match this search.</li>
           )}
         </ul>
       </section>
