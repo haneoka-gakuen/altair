@@ -10,6 +10,7 @@ const packageJson = JSON.parse(readFileSync(resolve(root, "package.json"), "utf8
 const allowedExports = new Set([
   ".",
   "./host",
+  "./documents",
   "./model",
   "./package.json",
   "./plugins",
@@ -20,7 +21,7 @@ const unexpectedExports = Object.keys(packageJson.exports).filter((entry) => !al
 if (unexpectedExports.length) {
   throw new Error(`Altair core exposes non-kernel entry points: ${unexpectedExports.join(", ")}`);
 }
-const allowedDependencies = new Set(["@haneoka/vega-protocol", "semver"]);
+const allowedDependencies = new Set(["@haneoka/vega-protocol", "semver", "yaml"]);
 const unexpectedDependencies = Object.keys(packageJson.dependencies ?? {}).filter(
   (dependency) => !allowedDependencies.has(dependency),
 );
@@ -36,7 +37,9 @@ const packed = spawnSync("npm", ["pack", "--dry-run", "--ignore-scripts", "--jso
 if (packed.status !== 0) {
   throw new Error(`npm pack dry run failed:\n${packed.stderr || packed.stdout}`);
 }
-const report = JSON.parse(packed.stdout)[0];
+const reports = JSON.parse(packed.stdout);
+const report = Array.isArray(reports) ? reports[0] : reports[packageJson.name];
+if (!report?.files) throw new Error("npm pack did not return a file manifest for the core package");
 const paths = report.files.map(({ path }) => path);
 const forbiddenPath =
   /^dist\/(?:ai|commands|compile|control-flow|drafts|formats(?:\/|\.js)|history|project-plugins|resources|validation|vega(?:-project)?)(?:\.|\/|$)/u;
@@ -80,6 +83,20 @@ if (leakedExports.length) {
   throw new Error(`Altair root exports feature implementations: ${leakedExports.join(", ")}`);
 }
 const allowedRuntimeExports = new Set([
+  "ALTAIR_PROJECT_FORMAT",
+  "ALTAIR_SCENE_FORMAT",
+  "AltairDocumentRegistry",
+  "altairCommandTypeKey",
+  "authoredNodeLines",
+  "cloneAltairNodeGroup",
+  "formatAuthoredText",
+  "parseAltairCommandLibrary",
+  "parseAltairProjectDocument",
+  "parseAltairSceneDocument",
+  "parseAuthoredText",
+  "serializeAltairCommandLibrary",
+  "serializeAltairDocument",
+  "serializeAuthoredText",
   "ALTAIR_PLUGIN_API_VERSION",
   "ALTAIR_SUPPORTED_PLUGIN_API_VERSIONS",
   "AltairPluginHost",
