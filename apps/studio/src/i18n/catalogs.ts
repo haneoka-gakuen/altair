@@ -1,4 +1,4 @@
-export const STUDIO_UI_LOCALES = ["en", "ja", "zh-CN", "zh-TW", "ko"] as const;
+export const STUDIO_UI_LOCALES = ["ja", "en", "zh-TW", "zh-CN", "ko"] as const;
 
 export type StudioUiLocale = (typeof STUDIO_UI_LOCALES)[number];
 
@@ -352,10 +352,10 @@ export const STUDIO_UI_LOCALE_OPTIONS: readonly {
   readonly locale: StudioUiLocale;
   readonly label: string;
 }[] = Object.freeze([
-  { locale: "en", label: "English" },
   { locale: "ja", label: "日本語" },
-  { locale: "zh-CN", label: "简体中文" },
+  { locale: "en", label: "English" },
   { locale: "zh-TW", label: "繁體中文" },
+  { locale: "zh-CN", label: "简体中文" },
   { locale: "ko", label: "한국어" },
 ]);
 
