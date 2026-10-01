@@ -787,5 +787,6 @@
   "Asset pack version": "素材包版本",
   "Asset author": "素材作者",
   "Asset license": "素材许可",
-  "The project changed during import": "工程在导入期间发生变化，请重试。"
+  "The project changed during import": "工程在导入期间发生变化，请重试。",
+  "Play": "播放"
 }

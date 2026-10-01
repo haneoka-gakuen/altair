@@ -7,6 +7,7 @@ import { defineConfig, searchForWorkspaceRoot } from "vite";
 
 const studioRoot = fileURLToPath(new URL(".", import.meta.url));
 const studioRequire = createRequire(new URL("./package.json", import.meta.url));
+const studioPackage = JSON.parse(readFileSync(new URL("./package.json", import.meta.url), "utf8"));
 const packageFile = (entry: string): string => {
   let directory = dirname(entry);
   while (!existsSync(resolve(directory, "package.json"))) {
@@ -26,15 +27,12 @@ const pixiAliases = Object.fromEntries(
     return [name, resolve(dirname(metadata), manifest.module ?? manifest.main)];
   }),
 );
-const localVega = resolve(studioRoot, "../../.dependencies/vega/src");
-const localVegaProtocol = resolve(studioRoot, "../../.dependencies/vega/packages/protocol/src");
-const localWebGalPlugin = resolve(studioRoot, "../../.dependencies/altair-plugin-webgal/src/index.ts");
 
 export default defineConfig({
   base: "./",
   plugins: [react()],
   resolve: {
-    dedupe: ["three", "react", "react-dom"],
+    dedupe: Object.keys(studioPackage.dependencies),
     alias: Object.entries({
       ...pixiAliases,
       "@haneoka/altair/documents": resolve(studioRoot, "../../src/documents-entry.ts"),
@@ -44,24 +42,6 @@ export default defineConfig({
       "@haneoka/altair/protocol": resolve(studioRoot, "../../src/protocol.ts"),
       "@haneoka/altair": resolve(studioRoot, "../../src/index.ts"),
       "@haneoka/altair-preview-client": resolve(studioRoot, "../../packages/preview-client/src/index.ts"),
-      ...(existsSync(localVega)
-        ? {
-            "@haneoka/vega/engine": resolve(localVega, "engine-entry.ts"),
-            "@haneoka/vega/preview": resolve(localVega, "preview-entry.ts"),
-          }
-        : {}),
-      ...(existsSync(localWebGalPlugin)
-        ? {
-            "@haneoka/altair-plugin-webgal": localWebGalPlugin,
-          }
-        : {}),
-      ...(existsSync(localVegaProtocol)
-        ? {
-            "@haneoka/vega-protocol/opcodes": resolve(localVegaProtocol, "opcodes.ts"),
-            "@haneoka/vega-protocol/coordinates": resolve(localVegaProtocol, "coordinates.ts"),
-            "@haneoka/vega-protocol": resolve(localVegaProtocol, "index.ts"),
-          }
-        : {}),
     }).map(([specifier, replacement]) => ({
       find: new RegExp(`^${specifier.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`),
       replacement,

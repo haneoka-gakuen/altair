@@ -7,10 +7,13 @@
     "moduleResolution": "Bundler",
     "paths": {
       "@haneoka/altair": ["../../src/index.ts"],
-      "@haneoka/altair-plugin-webgal": ["../../.dependencies/altair-plugin-webgal/src/index.ts"],
       "@haneoka/altair-preview-client": ["../../packages/preview-client/src/index.ts"],
-      "@haneoka/vega/marketplace": ["./../../node_modules/@haneoka/vega/dist/marketplace/index.d.ts"],
-      "@haneoka/vega-protocol": ["./../../node_modules/@haneoka/vega-protocol/dist/index.d.ts"]
+      "@haneoka/vega-protocol": ["./../../node_modules/@haneoka/vega-protocol/dist/index.d.ts"],
+      "@haneoka/altair/documents": ["../../src/documents-entry.ts"],
+      "@haneoka/altair/model": ["../../src/model.ts"],
+      "@haneoka/altair/plugins": ["../../src/plugins.ts"],
+      "@haneoka/altair/protocol": ["../../src/protocol.ts"],
+      "@haneoka/altair/host": ["../../src/host.ts"]
     },
     "noEmit": true,
     "noUncheckedIndexedAccess": true,

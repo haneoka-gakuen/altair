@@ -18,12 +18,15 @@ export function Preview({ session }: { session: EditorSession }) {
     bridge = useRef(new StudioPreviewBridge());
   const [status, setStatus] = useState("Connecting preview"),
     [ready, setReady] = useState(false),
+    [synchronized, setSynchronized] = useState(false),
     [revision, setRevision] = useState(0);
   useEffect(() => {
     if (!projectReady) return;
     const controller = new AbortController();
     let service: AltairVegaPreviewService | undefined;
+    let unsubscribe: (() => void) | undefined;
     setReady(false);
+    setSynchronized(false);
     setStatus("Connecting preview");
     void (async () => {
       const identity = {
@@ -59,6 +62,10 @@ export function Preview({ session }: { session: EditorSession }) {
         return;
       }
       bridge.current.connectSession(preview);
+      unsubscribe = bridge.current.onEvent((event) => {
+        if (!controller.signal.aborted && event.event === "runtime.diagnostic" && event.level === "error")
+          setStatus(event.message);
+      });
       setReady(true);
       setStatus("Preview ready");
     })().catch((error) => {
@@ -66,6 +73,7 @@ export function Preview({ session }: { session: EditorSession }) {
     });
     return () => {
       controller.abort();
+      unsubscribe?.();
       bridge.current.close();
       void service?.dispose();
     };
@@ -73,6 +81,7 @@ export function Preview({ session }: { session: EditorSession }) {
   useEffect(() => {
     if (!ready || !state.compilation) return;
     const controller = new AbortController();
+    setSynchronized(false);
     const compilation = state.compilation;
     void bridge.current
       .syncScene(
@@ -82,8 +91,11 @@ export function Preview({ session }: { session: EditorSession }) {
         session.runtimeIndex(),
         controller.signal,
       )
-      .then(() => {
-        if (!controller.signal.aborted) setStatus("Preview synchronized");
+      .then((executed) => {
+        if (!controller.signal.aborted && executed) {
+          setSynchronized(true);
+          setStatus("Preview synchronized");
+        }
       })
       .catch((error) => {
         if (!controller.signal.aborted) setStatus(String(error));
@@ -113,14 +125,30 @@ export function Preview({ session }: { session: EditorSession }) {
       </div>
       <div className="preview-stage" ref={mount} />
       <div className="preview-toolbar">
-        <button disabled={!ready} onClick={() => run((b) => b.runScene(0))} title={tr("Run from the beginning")}>
+        <button
+          disabled={!ready || !synchronized || state.compiling}
+          onClick={() => run((b) => b.play())}
+          aria-label={tr("Play")}
+          title={tr("Play")}
+        >
           <Play size={14} />
         </button>
-        <button disabled={!ready} onClick={() => run((b) => b.runFrom(session.runtimeIndex()))}>
+        <button
+          disabled={!ready || !synchronized || state.compiling}
+          onClick={() => run((b) => b.runScene(0))}
+          aria-label={tr("Run from the beginning")}
+          title={tr("Run from the beginning")}
+        >
+          <RotateCcw size={14} />
+        </button>
+        <button
+          disabled={!ready || !synchronized || state.compiling}
+          onClick={() => run((b) => b.runFrom(session.runtimeIndex()))}
+        >
           <StepForward size={14} />
           {tr("Run from current statement")}
         </button>
-        <button disabled={!ready} onClick={() => run((b) => b.pause())} title={tr("Pause")}>
+        <button disabled={!ready} onClick={() => run((b) => b.pause())} aria-label={tr("Pause")} title={tr("Pause")}>
           <Pause size={14} />
         </button>
         <span title={state.error || tr(status)}>

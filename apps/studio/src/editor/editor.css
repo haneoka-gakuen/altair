@@ -367,8 +367,9 @@ a {
 }
 .preview-toolbar {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  height: 35px;
+  min-height: 35px;
   padding: 0 5px;
   gap: 2px;
   background: #fff;
@@ -378,6 +379,8 @@ a {
 .preview-toolbar button {
   font-size: 11px;
   padding: 5px;
+  max-width: 100%;
+  white-space: normal;
 }
 .preview-toolbar > span {
   margin-left: auto;
