@@ -1,0 +1,99 @@
+.workspace-mobile-pages {
+  display: none;
+}
+.editing-panel > .document-editor {
+  flex: 1;
+  min-height: 0;
+}
+.workspace-properties-page dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 900px) {
+  .workspace-panels {
+    display: block !important;
+    position: relative;
+    overflow: hidden;
+  }
+  .workspace-panels > [data-panel] {
+    position: absolute !important;
+    inset: 0;
+    width: 100% !important;
+    height: 100% !important;
+    min-width: 0 !important;
+    display: none !important;
+  }
+  .workspace[data-mobile-page="files"] .workspace-panels > #left,
+  .workspace[data-mobile-page="editor"] .workspace-panels > #editor,
+  .workspace[data-mobile-page="properties"] .workspace-panels > #inspector {
+    display: flex !important;
+  }
+  .workspace-panels > .resize-handle {
+    display: none;
+  }
+  .workspace-header {
+    height: auto;
+    flex-wrap: wrap;
+    padding-block: 6px;
+  }
+  .workspace-header .project-symbol,
+  .workspace-header .header-spacer,
+  .workspace-header .workspace-action-label,
+  .workspace-header > .primary-button {
+    display: none;
+  }
+  .workspace-header strong {
+    flex: 1 1 calc(100% - 140px);
+    min-width: 0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .workspace-header .interface-language {
+    flex: 1 1 120px;
+    min-width: 0;
+    max-width: 150px;
+  }
+  .workspace-header .interface-language select {
+    flex: 1;
+    width: auto;
+    max-width: 100%;
+  }
+  .document-strip {
+    flex-direction: column;
+    flex: none;
+  }
+  .document-tabs {
+    width: 100%;
+  }
+  .mode-switch {
+    overflow-x: auto;
+    border-left: 0;
+  }
+  .command-categories {
+    overflow-x: auto;
+  }
+  .workspace-mobile-pages {
+    display: block;
+    flex: none;
+  }
+  .workspace-mobile-navigation.panel-tabs {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    height: auto;
+    min-height: 56px;
+    padding-bottom: env(safe-area-inset-bottom);
+    gap: 0;
+  }
+  .workspace-mobile-navigation.panel-tabs > [role="tab"] {
+    flex-direction: column;
+    margin: 0;
+    padding: 7px 4px;
+    gap: 4px;
+    white-space: normal;
+  }
+  .workspace-status > span:not(:first-child):not(:last-child) {
+    display: none;
+  }
+}

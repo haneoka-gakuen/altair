@@ -48,6 +48,7 @@ import { NativeInspector } from "./NativeInspector";
 import { type EditorSession } from "./session";
 import { exportProjectZip } from "./archive";
 import type { ProjectFile } from "./library";
+import "./mobile-workspace.css";
 const CommandLibraryPanel = lazy(() =>
   import("./CommandLibraryPanel").then((module) => ({
     default: module.CommandLibraryPanel,
@@ -61,6 +62,14 @@ const TimelineEditor = lazy(() =>
 );
 export function Workspace({ session, onHome }: { session: EditorSession; onHome: () => void }) {
   const { i18n } = useStudioI18n();
+  const [mobile, setMobile] = useState(() => window.matchMedia("(max-width: 900px)").matches);
+  const [mobilePage, setMobilePage] = useState("editor");
+  useEffect(() => {
+    const query = window.matchMedia("(max-width: 900px)");
+    const change = () => setMobile(query.matches);
+    query.addEventListener("change", change);
+    return () => query.removeEventListener("change", change);
+  }, []);
   const assetFileInput = useRef<HTMLInputElement>(null),
     assetFolderInput = useRef<HTMLInputElement>(null);
   const state = useSyncExternalStore(session.subscribe, session.getSnapshot),
@@ -172,6 +181,9 @@ export function Workspace({ session, onHome }: { session: EditorSession; onHome:
   }, [session, dirty, state.saving]);
   const sceneFiles = state.documents.filter((file) => nativeScenePath(file.path));
   const resourceFiles = state.files.filter((file) => !sceneFiles.some((scene) => scene.path === file.path));
+  const propertyFile = state.files.find(
+    (file) => file.path === (asset || (doc && !nativeScenePath(doc.path) ? doc.path : "")),
+  );
   const enterHome = () => {
     if (state.saving) return;
     if (dirty) {
@@ -181,7 +193,7 @@ export function Workspace({ session, onHome }: { session: EditorSession; onHome:
     onHome();
   };
   return (
-    <main className="workspace">
+    <main className="workspace" data-mobile-page={mobilePage}>
       {showLibrary && (
         <Suspense fallback={null}>
           <CommandLibraryPanel session={session} onClose={() => setShowLibrary(false)} />
@@ -237,9 +249,9 @@ export function Workspace({ session, onHome }: { session: EditorSession; onHome:
         </DropdownMenu.Root>
         <div className="header-spacer" />
         <InterfaceLanguage />
-        <button className="secondary-button" onClick={() => setShowLibrary(true)}>
+        <button className="secondary-button" aria-label={tr("Command library")} onClick={() => setShowLibrary(true)}>
           <Library size={15} />
-          {tr("Command library")}
+          <span className="workspace-action-label">{tr("Command library")}</span>
         </button>
         <button disabled={!state.canUndo} title={tr("Undo")} aria-label={tr("Undo")} onClick={() => session.undo()}>
           <Undo2 size={16} />
@@ -251,26 +263,36 @@ export function Workspace({ session, onHome }: { session: EditorSession; onHome:
           className="secondary-button"
           onClick={() => void session.save().catch(() => {})}
           disabled={state.saving}
+          aria-label={tr("Save")}
         >
           <Save size={15} />
-          {state.saving ? tr("Saving") : tr("Save")}
+          <span className="workspace-action-label">{state.saving ? tr("Saving") : tr("Save")}</span>
           {dirty && <span className="dirty-dot" />}
         </button>
         <button
           className="primary-button"
+          aria-label={tr("Export project")}
           onClick={() => void exportProjectZip(session).catch((error) => setIssue(String(error)))}
         >
           <Download size={15} />
-          {tr("Export project")}
+          <span className="workspace-action-label">{tr("Export project")}</span>
         </button>
       </header>
       <Group
         className="workspace-panels"
         orientation="horizontal"
         id="workspace-columns"
-        defaultLayout={{ left: 30, editor: 70 }}
+        defaultLayout={{ left: 30, editor: 46, inspector: 24 }}
+        disabled={mobile}
       >
-        <Panel id="left" minSize="260px" defaultSize="30%">
+        <Panel
+          id="left"
+          className="workspace-files-page"
+          minSize={mobile ? 0 : "260px"}
+          defaultSize="30%"
+          role={mobile ? "tabpanel" : undefined}
+          aria-labelledby={mobile ? "mobile-files-tab" : undefined}
+        >
           <Group orientation="vertical" id="workspace-left" defaultLayout={{ preview: 48, files: 52 }}>
             <Panel id="preview" minSize="190px">
               <Preview session={session} />
@@ -319,6 +341,7 @@ export function Workspace({ session, onHome }: { session: EditorSession; onHome:
                         onClick={() => {
                           session.activate(file.path);
                           setAsset("");
+                          setMobilePage("editor");
                         }}
                       >
                         <FileText size={14} />
@@ -357,6 +380,7 @@ export function Workspace({ session, onHome }: { session: EditorSession; onHome:
                             setMode(session.editorFor(file.path) ? "visual" : "source");
                             setAsset("");
                           } else setAsset(file.path);
+                          setMobilePage("editor");
                         }}
                       >
                         {/\.(png|jpg|webp)$/iu.test(file.path) ? <Image size={14} /> : <Braces size={14} />}
@@ -373,7 +397,14 @@ export function Workspace({ session, onHome }: { session: EditorSession; onHome:
           </Group>
         </Panel>
         <Separator className="resize-handle" />
-        <Panel id="editor" minSize="420px">
+        <Panel
+          id="editor"
+          className="workspace-editor-page"
+          minSize={mobile ? 0 : "260px"}
+          defaultSize="46%"
+          role={mobile ? "tabpanel" : undefined}
+          aria-labelledby={mobile ? "mobile-editor-tab" : undefined}
+        >
           <div className="editing-panel">
             <div className="document-strip">
               <div className="document-tabs" role="tablist" aria-label={tr("Open files")}>
@@ -464,149 +495,137 @@ export function Workspace({ session, onHome }: { session: EditorSession; onHome:
                 <TimelineEditor session={session} />
               </Suspense>
             ) : (
-              <Group orientation="horizontal" id="editor-content" defaultLayout={{ sentences: 66, inspector: 34 }}>
-                <Panel id="sentences" minSize="260px">
-                  <div className="document-editor">
-                    {doc?.external !== undefined && (
-                      <div className="conflict-banner">
-                        <strong>{tr("File changed on disk")}</strong>
-                        <p>{tr("The file on disk differs from your changes.")}</p>
-                        <button onClick={() => session.resolveConflict(doc.path, "disk")}>
-                          {tr("Load disk version")}
-                        </button>
-                        <button onClick={() => session.resolveConflict(doc.path, "editor")}>
-                          {tr("Keep editor version")}
-                        </button>
-                        <details>
-                          <summary>{tr("View disk version")}</summary>
-                          <pre>{doc.external}</pre>
-                        </details>
-                      </div>
-                    )}
-                    {mode === "source" && doc ? (
-                      <Suspense fallback={<div className="empty-panel">{tr("Opening source editor\u2026")}</div>}>
-                        <SourceEditor session={session} document={doc} line={state.line} />
-                      </Suspense>
-                    ) : (
-                      <div className="sentence-list" role="list" aria-label={tr("Scene statements")}>
-                        {statements.map((statement, ordinal) => {
-                          const command = nativeCommands.find((command) => command.name === statement.node.type.name);
-                          return (
-                            <article
-                              key={statement.id}
-                              role="listitem"
-                              tabIndex={0}
-                              className={`sentence-card ${selected?.line === statement.line ? "selected" : ""} ${statement.kind === "comment" ? "comment" : ""}`}
-                              onClick={() => session.select(statement.line)}
-                              onKeyDown={(event) => {
-                                if (event.key === "Enter" || event.key === " ") session.select(statement.line);
-                              }}
-                            >
-                              <header>
-                                <span className="sentence-line">{String(ordinal + 1).padStart(2, "0")}</span>
-                                <span
-                                  className={`command-kind ${command?.category === "dialogue" ? "performance" : ""}`}
-                                >
-                                  {command?.label ?? statement.name}
-                                </span>
-                                {statement.kind === "dialogue" && (
-                                  <strong>
-                                    {Array.isArray(statement.node.arguments.targetTextNames)
-                                      ? statement.node.arguments.targetTextNames
-                                          .map((value) => readLocalizedText(value, authoringLocale))
-                                          .filter(Boolean)
-                                          .join("・") ||
-                                        readLocalizedText(statement.node.arguments.targetName, authoringLocale) ||
-                                        tr("Narration")
-                                      : readLocalizedText(statement.node.arguments.targetTextNames, authoringLocale) ||
-                                        readLocalizedText(statement.node.arguments.targetName, authoringLocale) ||
-                                        tr("Narration")}
-                                  </strong>
-                                )}
-                                <div className="sentence-actions">
-                                  <button
-                                    title={tr("Move up")}
-                                    aria-label={tr("Move statement up")}
-                                    onClick={(event) => {
-                                      event.stopPropagation();
-                                      session.move(statement, -1);
-                                    }}
-                                  >
-                                    <ArrowUp size={13} />
-                                  </button>
-                                  <button
-                                    title={tr("Move down")}
-                                    aria-label={tr("Move statement down")}
-                                    onClick={(event) => {
-                                      event.stopPropagation();
-                                      session.move(statement, 1);
-                                    }}
-                                  >
-                                    <ArrowDown size={13} />
-                                  </button>
-                                  <button
-                                    title={tr("Duplicate")}
-                                    aria-label={tr("Duplicate statement")}
-                                    onClick={(event) => {
-                                      event.stopPropagation();
-                                      session.insert(statement.raw, statement.line);
-                                    }}
-                                  >
-                                    <Copy size={13} />
-                                  </button>
-                                  <button
-                                    title={tr("Delete")}
-                                    aria-label={tr("Delete statement")}
-                                    onClick={(event) => {
-                                      event.stopPropagation();
-                                      session.remove(statement);
-                                    }}
-                                  >
-                                    <Trash2 size={13} />
-                                  </button>
-                                </div>
-                              </header>
-                              <p>
-                                {(statement.kind === "dialogue"
-                                  ? readLocalizedText(statement.node.arguments.text, authoringLocale)
-                                  : statement.content) ||
-                                  command?.label ||
-                                  statement.name}
-                              </p>
-                              {statement.arguments.length > 0 && (
-                                <footer>
-                                  {statement.arguments.map((arg) => (
-                                    <span key={arg.name}>
-                                      {arg.name}
-                                      {arg.value !== true ? ` = ${arg.value}` : ""}
-                                    </span>
-                                  ))}
-                                </footer>
-                              )}
-                            </article>
-                          );
-                        })}
-                        <button
-                          className="append-statement"
-                          onClick={() =>
-                            insertCommand(
-                              nativeCommands.find((command) => command.name === "Talk")!.initial(),
-                              statements.at(-1)?.line ?? 0,
-                            )
-                          }
-                        >
-                          <Plus size={15} />
-                          {tr("Add statement")}
-                        </button>
-                      </div>
-                    )}
+              <div className="document-editor">
+                {doc?.external !== undefined && (
+                  <div className="conflict-banner">
+                    <strong>{tr("File changed on disk")}</strong>
+                    <p>{tr("The file on disk differs from your changes.")}</p>
+                    <button onClick={() => session.resolveConflict(doc.path, "disk")}>{tr("Load disk version")}</button>
+                    <button onClick={() => session.resolveConflict(doc.path, "editor")}>
+                      {tr("Keep editor version")}
+                    </button>
+                    <details>
+                      <summary>{tr("View disk version")}</summary>
+                      <pre>{doc.external}</pre>
+                    </details>
                   </div>
-                </Panel>
-                <Separator className="resize-handle" />
-                <Panel id="inspector" minSize="200px">
-                  <NativeInspector statement={selected} session={session} onOpenTimeline={() => setMode("timeline")} />
-                </Panel>
-              </Group>
+                )}
+                {mode === "source" && doc ? (
+                  <Suspense fallback={<div className="empty-panel">{tr("Opening source editor\u2026")}</div>}>
+                    <SourceEditor session={session} document={doc} line={state.line} />
+                  </Suspense>
+                ) : (
+                  <div className="sentence-list" role="list" aria-label={tr("Scene statements")}>
+                    {statements.map((statement, ordinal) => {
+                      const command = nativeCommands.find((command) => command.name === statement.node.type.name);
+                      return (
+                        <article
+                          key={statement.id}
+                          role="listitem"
+                          tabIndex={0}
+                          className={`sentence-card ${selected?.line === statement.line ? "selected" : ""} ${statement.kind === "comment" ? "comment" : ""}`}
+                          onClick={() => session.select(statement.line)}
+                          onKeyDown={(event) => {
+                            if (event.key === "Enter" || event.key === " ") session.select(statement.line);
+                          }}
+                        >
+                          <header>
+                            <span className="sentence-line">{String(ordinal + 1).padStart(2, "0")}</span>
+                            <span className={`command-kind ${command?.category === "dialogue" ? "performance" : ""}`}>
+                              {command?.label ?? statement.name}
+                            </span>
+                            {statement.kind === "dialogue" && (
+                              <strong>
+                                {Array.isArray(statement.node.arguments.targetTextNames)
+                                  ? statement.node.arguments.targetTextNames
+                                      .map((value) => readLocalizedText(value, authoringLocale))
+                                      .filter(Boolean)
+                                      .join("・") ||
+                                    readLocalizedText(statement.node.arguments.targetName, authoringLocale) ||
+                                    tr("Narration")
+                                  : readLocalizedText(statement.node.arguments.targetTextNames, authoringLocale) ||
+                                    readLocalizedText(statement.node.arguments.targetName, authoringLocale) ||
+                                    tr("Narration")}
+                              </strong>
+                            )}
+                            <div className="sentence-actions">
+                              <button
+                                title={tr("Move up")}
+                                aria-label={tr("Move statement up")}
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  session.move(statement, -1);
+                                }}
+                              >
+                                <ArrowUp size={13} />
+                              </button>
+                              <button
+                                title={tr("Move down")}
+                                aria-label={tr("Move statement down")}
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  session.move(statement, 1);
+                                }}
+                              >
+                                <ArrowDown size={13} />
+                              </button>
+                              <button
+                                title={tr("Duplicate")}
+                                aria-label={tr("Duplicate statement")}
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  session.insert(statement.raw, statement.line);
+                                }}
+                              >
+                                <Copy size={13} />
+                              </button>
+                              <button
+                                title={tr("Delete")}
+                                aria-label={tr("Delete statement")}
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  session.remove(statement);
+                                }}
+                              >
+                                <Trash2 size={13} />
+                              </button>
+                            </div>
+                          </header>
+                          <p>
+                            {(statement.kind === "dialogue"
+                              ? readLocalizedText(statement.node.arguments.text, authoringLocale)
+                              : statement.content) ||
+                              command?.label ||
+                              statement.name}
+                          </p>
+                          {statement.arguments.length > 0 && (
+                            <footer>
+                              {statement.arguments.map((arg) => (
+                                <span key={arg.name}>
+                                  {arg.name}
+                                  {arg.value !== true ? ` = ${arg.value}` : ""}
+                                </span>
+                              ))}
+                            </footer>
+                          )}
+                        </article>
+                      );
+                    })}
+                    <button
+                      className="append-statement"
+                      onClick={() =>
+                        insertCommand(
+                          nativeCommands.find((command) => command.name === "Talk")!.initial(),
+                          statements.at(-1)?.line ?? 0,
+                        )
+                      }
+                    >
+                      <Plus size={15} />
+                      {tr("Add statement")}
+                    </button>
+                  </div>
+                )}
+              </div>
             )}
             {mode !== "timeline" && doc && nativeScenePath(doc.path) && (
               <section className="command-panel">
@@ -714,7 +733,68 @@ export function Workspace({ session, onHome }: { session: EditorSession; onHome:
             )}
           </div>
         </Panel>
+        <Separator className="resize-handle" />
+        <Panel
+          id="inspector"
+          className="workspace-properties-page"
+          minSize={mobile ? 0 : "200px"}
+          defaultSize="24%"
+          role={mobile ? "tabpanel" : undefined}
+          aria-labelledby={mobile ? "mobile-properties-tab" : undefined}
+        >
+          {propertyFile ? (
+            <section className="statement-inspector">
+              <header className="panel-heading">
+                <span>{propertyFile.path.split("/").at(-1)}</span>
+              </header>
+              <div className="inspector-body">
+                <dl>
+                  <div className="field">
+                    <dt>{tr("File path")}</dt>
+                    <dd>{propertyFile.path}</dd>
+                  </div>
+                  <div className="field">
+                    <dt>{tr("File size")}</dt>
+                    <dd>{tr("{{count}} bytes", { count: propertyFile.blob.size })}</dd>
+                  </div>
+                  <div className="field">
+                    <dt>{tr("Media type")}</dt>
+                    <dd>{propertyFile.blob.type || tr("Unknown")}</dd>
+                  </div>
+                </dl>
+                {mobile && <button className="secondary-button" onClick={() => setMobilePage("editor")}>
+                  {tr("Open in editor")}
+                </button>}
+              </div>
+            </section>
+          ) : (
+            <NativeInspector
+              statement={selected}
+              session={session}
+              onOpenTimeline={() => {
+                setMode("timeline");
+                setMobilePage("editor");
+              }}
+            />
+          )}
+        </Panel>
       </Group>
+      <Tabs.Root value={mobilePage} onValueChange={setMobilePage} className="workspace-mobile-pages">
+        <Tabs.List className="workspace-mobile-navigation panel-tabs" aria-label={tr("Workspace pages")}>
+          <Tabs.Trigger id="mobile-files-tab" value="files" aria-controls="left">
+            <Folder size={20} />
+            {tr("Preview and files")}
+          </Tabs.Trigger>
+          <Tabs.Trigger id="mobile-editor-tab" value="editor" aria-controls="editor">
+            <LayoutList size={20} />
+            {tr("Editor")}
+          </Tabs.Trigger>
+          <Tabs.Trigger id="mobile-properties-tab" value="properties" aria-controls="inspector">
+            <Settings2 size={20} />
+            {tr("Properties")}
+          </Tabs.Trigger>
+        </Tabs.List>
+      </Tabs.Root>
       <footer className="workspace-status">
         <span title={state.localFolder}>
           {state.localFolder ? `${tr("Local folder")} · ${state.localFolder}` : tr("Browser storage")}

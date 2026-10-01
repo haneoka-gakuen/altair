@@ -872,5 +872,15 @@
   "Asset pack version": "Asset pack version",
   "Asset author": "Asset author",
   "Asset license": "Asset license",
-  "The project changed during import": "The project changed during import"
+  "The project changed during import": "The project changed during import",
+  "Workspace pages": "Workspace pages",
+  "Preview and files": "Preview and files",
+  "Editor": "Editor",
+  "Properties": "Properties",
+  "File path": "File path",
+  "File size": "File size",
+  "{{count}} bytes": "{{count}} bytes",
+  "Media type": "Media type",
+  "Unknown": "Unknown",
+  "Open in editor": "Open in editor"
 }

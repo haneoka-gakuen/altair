@@ -788,5 +788,15 @@
   "Asset author": "素材作者",
   "Asset license": "素材许可",
   "The project changed during import": "工程在导入期间发生变化，请重试。",
-  "Play": "播放"
+  "Play": "播放",
+  "Workspace pages": "工作区页面",
+  "Preview and files": "预览与文件",
+  "Editor": "编辑",
+  "Properties": "属性",
+  "File path": "文件路径",
+  "File size": "文件大小",
+  "{{count}} bytes": "{{count}} 字节",
+  "Media type": "媒体类型",
+  "Unknown": "未知",
+  "Open in editor": "在编辑页打开"
 }
