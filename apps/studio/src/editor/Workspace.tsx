@@ -2,7 +2,7 @@ import { PluginPanel } from "./PluginPanel";
 import { tr, useStudioI18n } from "./i18n";
 import { InterfaceLanguage } from "./InterfaceLanguage";
 import { ProjectSettings } from "./ProjectSettings";
-import { lazy, Suspense, useEffect, useMemo, useState, useSyncExternalStore } from "react";
+import { lazy, Suspense, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import * as Tabs from "@radix-ui/react-tabs";
 import * as Dialog from "@radix-ui/react-dialog";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
@@ -47,6 +47,7 @@ import { Preview } from "./Preview";
 import { NativeInspector } from "./NativeInspector";
 import { type EditorSession } from "./session";
 import { exportProjectZip } from "./archive";
+import type { ProjectFile } from "./library";
 const CommandLibraryPanel = lazy(() =>
   import("./CommandLibraryPanel").then((module) => ({
     default: module.CommandLibraryPanel,
@@ -60,6 +61,8 @@ const TimelineEditor = lazy(() =>
 );
 export function Workspace({ session, onHome }: { session: EditorSession; onHome: () => void }) {
   const { i18n } = useStudioI18n();
+  const assetFileInput = useRef<HTMLInputElement>(null),
+    assetFolderInput = useRef<HTMLInputElement>(null);
   const state = useSyncExternalStore(session.subscribe, session.getSnapshot),
     doc = session.document();
   const docEditor = doc && session.editorFor(doc.path);
@@ -80,6 +83,17 @@ export function Workspace({ session, onHome }: { session: EditorSession; onHome:
     [filename, setFilename] = useState(""),
     [issue, setIssue] = useState(""),
     [asset, setAsset] = useState(""),
+    [importAssets, setImportAssets] = useState(false),
+    [importingAssets, setImportingAssets] = useState(false),
+    [assetFiles, setAssetFiles] = useState<readonly ProjectFile[]>([]),
+    [assetImportError, setAssetImportError] = useState(""),
+    [assetPack, setAssetPack] = useState(() => ({
+      id: crypto.randomUUID(),
+      version: "1.0.0",
+      author: "",
+      license: "",
+      directory: "assets/shared",
+    })),
     [showSettings, setShowSettings] = useState(false),
     [showLibrary, setShowLibrary] = useState(false);
   const manifestSource = session.document(NATIVE_PROJECT_PATH)?.text ?? "";
@@ -349,24 +363,10 @@ export function Workspace({ session, onHome }: { session: EditorSession; onHome:
                         <span>{file.path.replace(/^game\//u, "")}</span>
                       </button>
                     ))}
-                  <label className="resource-import">
+                  <button className="resource-import" disabled={state.saving} onClick={() => setImportAssets(true)}>
                     <Plus size={14} />
                     {tr("Import assets")}
-                    <input
-                      type="file"
-                      multiple
-                      onChange={(event) => {
-                        for (const file of event.target.files ?? [])
-                          void session
-                            .addFile(
-                              `assets/${/\.(mp3|ogg|wav)$/iu.test(file.name) ? "audio" : /\.(mp4|webm)$/iu.test(file.name) ? "video" : "images"}/${file.name}`,
-                              file,
-                            )
-                            .catch((error) => setIssue(String(error)));
-                        event.target.value = "";
-                      }}
-                    />
-                  </label>
+                  </button>
                 </Tabs.Content>
               </Tabs.Root>
             </Panel>
@@ -737,6 +737,114 @@ export function Workspace({ session, onHome }: { session: EditorSession; onHome:
         <span>{tr("Line {{count}}", { count: state.line })}</span>
         <span>{dirty ? tr("Unsaved changes") : tr("Saved")}</span>
       </footer>
+      <Dialog.Root
+        open={importAssets}
+        onOpenChange={(open) => {
+          if (!importingAssets) setImportAssets(open);
+        }}
+      >
+        <Dialog.Portal>
+          <Dialog.Overlay className="modal-overlay" />
+          <Dialog.Content className="modal-content">
+            <Dialog.Title>{tr("Import assets")}</Dialog.Title>
+            <Dialog.Description>
+              {tr("Keep folder references and record the asset author and license.")}
+            </Dialog.Description>
+            <form
+              onSubmit={(event) => {
+                event.preventDefault();
+                setImportingAssets(true);
+                setAssetImportError("");
+                void session
+                  .importSharedAssets({ ...assetPack, files: assetFiles }, assetPack.directory)
+                  .then((paths) => {
+                    setImportAssets(false);
+                    setAssetFiles([]);
+                    setAssetPack((pack) => ({ ...pack, id: crypto.randomUUID() }));
+                    setLeftTab("resources");
+                    setAsset(paths[0] ?? "");
+                  })
+                  .catch((error) => setAssetImportError(error instanceof Error ? tr(error.message) : String(error)))
+                  .finally(() => setImportingAssets(false));
+              }}
+            >
+              {[false, true].map((folder) => (
+                <div key={String(folder)}>
+                  <button
+                    className="secondary-button"
+                    type="button"
+                    disabled={importingAssets}
+                    onClick={() => (folder ? assetFolderInput : assetFileInput).current?.click()}
+                  >
+                    {folder ? <Folder size={15} /> : <Plus size={15} />}
+                    {tr(folder ? "Choose asset folder" : "Choose asset files")}
+                  </button>
+                  <input
+                    hidden
+                    ref={folder ? assetFolderInput : assetFileInput}
+                    type="file"
+                    multiple
+                    aria-label={tr(folder ? "Choose asset folder" : "Choose asset files")}
+                    disabled={importingAssets}
+                    {...(folder ? { webkitdirectory: "" } : {})}
+                    onChange={(event) => {
+                      setAssetFiles(
+                        Array.from(event.target.files ?? [], (file) => ({
+                          path: file.webkitRelativePath || file.name,
+                          blob: file,
+                        })),
+                      );
+                      setAssetImportError("");
+                      event.target.value = "";
+                    }}
+                  />
+                </div>
+              ))}
+              <p role="status">{tr("{{count}} files", { count: assetFiles.length })}</p>
+              {(
+                [
+                  ["directory", "Project asset directory"],
+                  ["version", "Asset pack version"],
+                  ["author", "Asset author"],
+                  ["license", "Asset license"],
+                ] as const
+              ).map(([field, label]) => (
+                <label className="field" key={field}>
+                  {tr(label)}
+                  <input
+                    required
+                    disabled={importingAssets}
+                    value={assetPack[field]}
+                    onChange={(event) => {
+                      const value = event.target.value;
+                      setAssetPack((pack) => ({ ...pack, [field]: value }));
+                    }}
+                  />
+                </label>
+              ))}
+              {assetImportError && (
+                <p role="alert" className="home-error">
+                  {assetImportError}
+                </p>
+              )}
+              <div className="modal-actions">
+                <Dialog.Close asChild>
+                  <button type="button" disabled={importingAssets}>
+                    {tr("Cancel")}
+                  </button>
+                </Dialog.Close>
+                <button
+                  type="submit"
+                  className="primary-button"
+                  disabled={importingAssets || state.saving || !assetFiles.length}
+                >
+                  {tr(importingAssets ? "Saving" : "Import assets")}
+                </button>
+              </div>
+            </form>
+          </Dialog.Content>
+        </Dialog.Portal>
+      </Dialog.Root>
       <Dialog.Root open={newFile} onOpenChange={setNewFile}>
         <Dialog.Portal>
           <Dialog.Overlay className="modal-overlay" />

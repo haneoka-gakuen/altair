@@ -864,5 +864,13 @@
   "Required by {{plugins}}": "Required by {{plugins}}",
   "Required by this project": "Required by this project",
   "Enable dependencies first: {{plugins}}": "Enable dependencies first: {{plugins}}",
-  "Source document": "Source document"
+  "Source document": "Source document",
+  "Keep folder references and record the asset author and license.": "Keep folder references and record the asset author and license.",
+  "Choose asset folder": "Choose asset folder",
+  "Choose asset files": "Choose asset files",
+  "Project asset directory": "Project asset directory",
+  "Asset pack version": "Asset pack version",
+  "Asset author": "Asset author",
+  "Asset license": "Asset license",
+  "The project changed during import": "The project changed during import"
 }

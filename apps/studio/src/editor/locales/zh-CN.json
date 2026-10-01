@@ -779,5 +779,13 @@
   "Required by {{plugins}}": "被 {{plugins}} 依赖",
   "Required by this project": "此工程必需",
   "Enable dependencies first: {{plugins}}": "请先启用依赖：{{plugins}}",
-  "Source document": "源码文档"
+  "Source document": "源码文档",
+  "Keep folder references and record the asset author and license.": "保留文件夹内的相对引用，并记录素材作者与许可。",
+  "Choose asset folder": "选择素材文件夹",
+  "Choose asset files": "选择素材文件",
+  "Project asset directory": "工程素材目录",
+  "Asset pack version": "素材包版本",
+  "Asset author": "素材作者",
+  "Asset license": "素材许可",
+  "The project changed during import": "工程在导入期间发生变化，请重试。"
 }

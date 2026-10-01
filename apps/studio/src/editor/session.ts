@@ -42,6 +42,7 @@ import {
   type LoadedStudioAuthoringPlugins,
 } from "../authoring-plugins";
 import { projectLibrary, type LibraryProject, type ProjectFile } from "./library";
+import { prepareSharedAssetImport, type SharedAssetPack } from "./shared-assets";
 export interface EditorDocument {
   readonly path: string;
   readonly text: string;
@@ -428,6 +429,45 @@ export class EditorSession {
     this.scheduleDraft();
     if (isText(path) && options.open !== false) this.activate(path);
     await this.save();
+  }
+  async importSharedAssets(pack: SharedAssetPack, directory: string): Promise<readonly string[]> {
+    if (this.state.saving) throw new Error(tr("Saving"));
+    const manifest = this.document(NATIVE_PROJECT_PATH);
+    if (!manifest) throw new Error(tr("Project manifest is missing"));
+    const revision = this.state;
+    const imported = prepareSharedAssetImport(pack, directory, this.state.files);
+    const documents = await Promise.all(
+      imported.files
+        .filter((file) => isText(file.path))
+        .map(async (file) => {
+          const text = await file.blob.text();
+          this.validateDocument(file.path, text);
+          return { path: file.path, text, baseline: "", revision: 1 };
+        }),
+    );
+    if (this.disposed || this.state.files !== revision.files || this.state.documents !== revision.documents)
+      throw new Error(tr("The project changed during import"));
+    const project = parseAltairProjectDocument(manifest.text);
+    const previous = project.extensions?.sharedAssetPacks;
+    if (previous !== undefined && !Array.isArray(previous)) throw new TypeError("Invalid shared asset pack list");
+    const text = serializeAltairDocument(
+      {
+        ...project,
+        extensions: { ...project.extensions, sharedAssetPacks: [...(previous ?? []), imported.metadata] },
+      },
+      manifest.text,
+    );
+    this.update(manifest.path, text);
+    for (const doc of documents) this.history.set(doc.path, this.histories.create(doc.path, doc.text));
+    for (const file of imported.files) this.pendingFiles.add(file.path);
+    this.publish({
+      files: [...this.state.files, ...imported.files],
+      documents: [...this.state.documents, ...documents],
+    });
+    await this.save();
+    for (const file of imported.files) this.pendingFiles.delete(file.path);
+    await this.compile();
+    return imported.files.map((file) => file.path);
   }
   private startLocalWatch(): void {
     this.localUnsubscribe?.();
