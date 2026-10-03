@@ -11,16 +11,14 @@ import {
   ArrowLeft,
   ArrowDown,
   ArrowUp,
-  Braces,
-  ChevronRight,
   Code2,
   Copy,
   Download,
   FilePlus2,
   FileText,
   Folder,
+  FolderPlus,
   GanttChart,
-  Image,
   LayoutList,
   Library,
   Star,
@@ -49,6 +47,9 @@ import { type EditorSession } from "./session";
 import { exportProjectZip } from "./archive";
 import type { ProjectFile } from "./library";
 import "./mobile-workspace.css";
+import { FileTree } from "./FileTree";
+import { FileActionsDialog } from "./FileActionsDialog";
+import { FileRecoveryDialog } from "./FileRecoveryDialog";
 const CommandLibraryPanel = lazy(() =>
   import("./CommandLibraryPanel").then((module) => ({
     default: module.CommandLibraryPanel,
@@ -74,6 +75,13 @@ export function Workspace({ session, onHome }: { session: EditorSession; onHome:
     assetFolderInput = useRef<HTMLInputElement>(null);
   const state = useSyncExternalStore(session.subscribe, session.getSnapshot),
     doc = session.document();
+  const [fileAction, setFileAction] = useState<{
+    action: "move" | "copy" | "folder";
+    source: string;
+    target?: string;
+  }>();
+  const [fileClipboard, setFileClipboard] = useState<{ path: string; cut: boolean }>();
+  const [recovery, setRecovery] = useState<{ source?: string }>();
   const docEditor = doc && session.editorFor(doc.path);
   const mode = state.view ?? "visual",
     setMode = (view: string) => session.setView(view);
@@ -184,6 +192,34 @@ export function Workspace({ session, onHome }: { session: EditorSession; onHome:
   const propertyFile = state.files.find(
     (file) => file.path === (asset || (doc && !nativeScenePath(doc.path) ? doc.path : "")),
   );
+  const fileTreeActions = {
+    disabled: state.saving,
+    canPaste: Boolean(fileClipboard),
+    dirtyPaths: new Set(state.documents.filter((doc) => doc.text !== doc.baseline).map((doc) => doc.path)),
+    onMove: (source: string) => setFileAction({ action: "move", source }),
+    onCopy: (path: string) => setFileClipboard({ path, cut: false }),
+    onCut: (path: string) => setFileClipboard({ path, cut: true }),
+    onDuplicate: (source: string) => {
+      const match = source.match(/^(.*?)(\.scene\.ya?ml|\.[^/.]+)?$/u)!;
+      let target = `${match[1]}_copy${match[2] ?? ""}`,
+        suffix = 2;
+      while (state.files.some((file) => file.path === target) || state.directories.includes(target))
+        target = `${match[1]}_copy${suffix++}${match[2] ?? ""}`;
+      setFileAction({ action: "copy", source, target });
+    },
+    onPaste: (directory: string) => {
+      if (!fileClipboard) return;
+      const filename = fileClipboard.path.split("/").at(-1)!;
+      setFileAction({
+        action: fileClipboard.cut ? "move" : "copy",
+        source: fileClipboard.path,
+        target: directory ? `${directory}/${filename}` : filename,
+      });
+    },
+    onNewDirectory: (directory: string) =>
+      setFileAction({ action: "folder", source: directory, target: directory ? `${directory}/` : "" }),
+    onDelete: (source: string) => setRecovery({ source }),
+  };
   const enterHome = () => {
     if (state.saving) return;
     if (dirty) {
@@ -194,6 +230,32 @@ export function Workspace({ session, onHome }: { session: EditorSession; onHome:
   };
   return (
     <main className="workspace" data-mobile-page={mobilePage}>
+      {recovery && (
+        <FileRecoveryDialog
+          session={session}
+          source={recovery.source}
+          onClose={() => setRecovery(undefined)}
+          onDeleted={(path) => {
+            if (asset === path || asset.startsWith(`${path}/`)) setAsset("");
+            if (fileClipboard?.path === path || fileClipboard?.path.startsWith(`${path}/`)) setFileClipboard(undefined);
+          }}
+        />
+      )}
+      {fileAction && (
+        <FileActionsDialog
+          key={`${fileAction.action}:${fileAction.source}:${fileAction.target ?? ""}`}
+          session={session}
+          source={fileAction.source}
+          action={fileAction.action}
+          initialTarget={fileAction.target}
+          onClose={() => setFileAction(undefined)}
+          onMoved={(paths) => {
+            setAsset((current) => paths.get(current) ?? current);
+            if (fileClipboard?.cut && fileAction.action === "move" && fileClipboard.path === fileAction.source)
+              setFileClipboard(undefined);
+          }}
+        />
+      )}
       {showLibrary && (
         <Suspense fallback={null}>
           <CommandLibraryPanel session={session} onClose={() => setShowLibrary(false)} />
@@ -326,29 +388,56 @@ export function Workspace({ session, onHome }: { session: EditorSession; onHome:
                     onChange={(event) => setSearch(event.target.value)}
                   />
                 </div>
+                <div className="file-tree-toolbar">
+                  <button
+                    className="icon-button"
+                    disabled={state.saving}
+                    aria-label={tr("New folder")}
+                    onClick={() => fileTreeActions.onNewDirectory(leftTab === "scenes" ? "scenes" : "")}
+                  >
+                    <FolderPlus size={16} />
+                  </button>
+                  <button
+                    className="icon-button"
+                    disabled={state.saving}
+                    aria-label={tr("Recovery copies")}
+                    onClick={() => setRecovery({})}
+                  >
+                    <Undo2 size={16} />
+                  </button>
+                  {fileClipboard && (
+                    <button
+                      className="secondary-button"
+                      disabled={state.saving}
+                      onClick={() => fileTreeActions.onPaste(leftTab === "scenes" ? "scenes" : "")}
+                      title={fileClipboard.path}
+                    >
+                      {tr("Paste into folder")}
+                    </button>
+                  )}
+                  {fileClipboard && (
+                    <button
+                      className="icon-button"
+                      aria-label={tr("Clear file clipboard")}
+                      onClick={() => setFileClipboard(undefined)}
+                    >
+                      <X size={16} />
+                    </button>
+                  )}
+                </div>
                 <Tabs.Content value="scenes" className="file-list">
-                  <div className="tree-heading">
-                    <ChevronRight size={13} />
-                    <Folder size={14} />
-                    {tr("Scenes")}
-                  </div>
-                  {sceneFiles
-                    .filter((file) => file.path.toLowerCase().includes(search.toLowerCase()))
-                    .map((file) => (
-                      <button
-                        key={file.path}
-                        className={file.path === state.active ? "file-item active" : "file-item"}
-                        onClick={() => {
-                          session.activate(file.path);
-                          setAsset("");
-                          setMobilePage("editor");
-                        }}
-                      >
-                        <FileText size={14} />
-                        <span>{file.path.replace(/^.*?scenes?\//u, "")}</span>
-                        {file.text !== file.baseline && <span className="dirty-dot" />}
-                      </button>
-                    ))}
+                  <FileTree
+                    {...fileTreeActions}
+                    directories={state.directories.filter((path) => path === "scenes" || path.startsWith("scenes/"))}
+                    files={state.files.filter((file) => sceneFiles.some((scene) => scene.path === file.path))}
+                    active={state.active}
+                    query={search}
+                    onOpen={(path) => {
+                      session.activate(path);
+                      setAsset("");
+                      setMobilePage("editor");
+                    }}
+                  />
                 </Tabs.Content>
                 <Tabs.Content value="resources" className="file-list">
                   {session
@@ -368,25 +457,21 @@ export function Workspace({ session, onHome }: { session: EditorSession; onHome:
                         {tr("New {{kind}}", { kind: tr(editor.label) })}
                       </button>
                     ))}
-                  {resourceFiles
-                    .filter((file) => file.path.toLowerCase().includes(search.toLowerCase()))
-                    .map((file) => (
-                      <button
-                        className={asset === file.path ? "file-item active" : "file-item"}
-                        key={file.path}
-                        onClick={() => {
-                          if (session.document(file.path)) {
-                            session.activate(file.path);
-                            setMode(session.editorFor(file.path) ? "visual" : "source");
-                            setAsset("");
-                          } else setAsset(file.path);
-                          setMobilePage("editor");
-                        }}
-                      >
-                        {/\.(png|jpg|webp)$/iu.test(file.path) ? <Image size={14} /> : <Braces size={14} />}
-                        <span>{file.path.replace(/^game\//u, "")}</span>
-                      </button>
-                    ))}
+                  <FileTree
+                    {...fileTreeActions}
+                    directories={state.directories.filter((path) => path !== "scenes" && !path.startsWith("scenes/"))}
+                    files={resourceFiles}
+                    active={asset || state.active}
+                    query={search}
+                    onOpen={(path) => {
+                      if (session.document(path)) {
+                        session.activate(path);
+                        setMode(session.editorFor(path) ? "visual" : "source");
+                        setAsset("");
+                      } else setAsset(path);
+                      setMobilePage("editor");
+                    }}
+                  />
                   <button className="resource-import" disabled={state.saving} onClick={() => setImportAssets(true)}>
                     <Plus size={14} />
                     {tr("Import assets")}
@@ -762,9 +847,11 @@ export function Workspace({ session, onHome }: { session: EditorSession; onHome:
                     <dd>{propertyFile.blob.type || tr("Unknown")}</dd>
                   </div>
                 </dl>
-                {mobile && <button className="secondary-button" onClick={() => setMobilePage("editor")}>
-                  {tr("Open in editor")}
-                </button>}
+                {mobile && (
+                  <button className="secondary-button" onClick={() => setMobilePage("editor")}>
+                    {tr("Open in editor")}
+                  </button>
+                )}
               </div>
             </section>
           ) : (

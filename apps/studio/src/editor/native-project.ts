@@ -26,9 +26,11 @@ import {
   registerWebGalDocumentCommands,
   importWebGalAuthoredWorkspace,
   webGalCommandToAuthoredNode,
+  WEBGAL_WORKSPACE_LIMITS,
+  normalizeWebGalWorkspacePath,
 } from "@haneoka/altair-plugin-webgal";
 import { DEFAULT_STUDIO_PROJECT_PLUGINS } from "../studio-plugin-catalog";
-import type { LibraryProject, ProjectFile } from "./library";
+import { projectLibrary, type LibraryProject, type ProjectFile } from "./library";
 export const NATIVE_RUNTIME_PLUGINS = [
   { id: "haneoka.cubism", version: "0.1.0", permissions: ["render:webgl", "audio:analysis"] },
   { id: "haneoka.composite", version: "0.1.0", permissions: ["render:webgl"] },
@@ -181,20 +183,22 @@ export async function normalizeImportedProject(project: LibraryProject): Promise
       const scene = parseAltairSceneDocument(await file.blob.text());
       if (scene.id !== reference.id) throw new Error(`${reference.path}: ${tr("Scene id does not match the project")}`);
     }
-    return { ...project, id: parsed.id, name: parsed.title };
+    return protectImportedIdentity(project.id, { ...project, id: parsed.id, name: parsed.title });
   }
-  const files = await Promise.all(
-    project.files.map(async (file) => ({
-      path: file.path,
-      bytes: new Uint8Array(await file.blob.arrayBuffer()),
-    })),
-  );
+  if (
+    project.files.length > WEBGAL_WORKSPACE_LIMITS.files ||
+    project.files.reduce((size, file) => size + file.blob.size, 0) > WEBGAL_WORKSPACE_LIMITS.totalBytes
+  )
+    throw new Error(tr("The imported project exceeds workspace limits"));
+  for (const file of project.files) normalizeWebGalWorkspacePath(file.path);
   let workspace: AltairAuthoredWorkspace | undefined;
   let nativeImport = false;
-  for (const file of files.filter((file) => file.path.endsWith(".json"))) {
+  for (const file of project.files.filter((file) => file.path.endsWith(".json"))) {
+    // Runtime models and binary assets remain Blobs; only candidate story JSON is decoded here.
+    if (file.blob.size > WEBGAL_WORKSPACE_LIMITS.sceneBytes) continue;
     let value: unknown;
     try {
-      value = JSON.parse(new TextDecoder().decode(file.bytes));
+      value = JSON.parse(await file.blob.text());
     } catch {
       continue;
     }
@@ -206,10 +210,17 @@ export async function normalizeImportedProject(project: LibraryProject): Promise
       break;
     }
   }
-  workspace ??= await importWebGalAuthoredWorkspace({
-    files,
-    signal: new AbortController().signal,
-  });
+  if (!workspace) {
+    const files: { path: string; bytes: Uint8Array }[] = [];
+    for (const file of project.files.filter(
+      (file) => /\.(?:txt|wg|webgal|wgcp)$/iu.test(file.path) || /(?:^|\/)animation\/.*\.json$/iu.test(file.path),
+    )) {
+      if (file.blob.size > WEBGAL_WORKSPACE_LIMITS.sceneBytes)
+        throw new Error(tr("The imported source document is too large"));
+      files.push({ path: file.path, bytes: new Uint8Array(await file.blob.arrayBuffer()) });
+    }
+    workspace = await importWebGalAuthoredWorkspace({ files, signal: new AbortController().signal });
+  }
   const models = await convertWorkspaceModels(workspace, project.files);
   workspace = models.workspace;
   const config = workspace.project.extensions?.webgalConfig;
@@ -242,11 +253,38 @@ export async function normalizeImportedProject(project: LibraryProject): Promise
       !/(?:^|\/)scene\/.*\.(?:txt|wg|webgal)$/iu.test(file.path) &&
       !["project.wgcp", NATIVE_PROJECT_PATH].includes(file.path),
   );
-  return {
+  return protectImportedIdentity(project.id, {
     id: native.project.id,
     name: native.project.title,
     updatedAt: Date.now(),
     files: [...workspaceFiles(native), ...retained],
+    directories: project.directories,
+  });
+}
+
+async function protectImportedIdentity(originalId: string, imported: LibraryProject): Promise<LibraryProject> {
+  if (originalId === imported.id || !(await projectLibrary.get(imported.id))) return imported;
+  const id = crypto.randomUUID(),
+    name = `${imported.name} (${tr("Imported copy")})`;
+  const manifest = imported.files.find((file) => file.path === NATIVE_PROJECT_PATH)!;
+  const source = await manifest.blob.text();
+  const project = parseAltairProjectDocument(source);
+  // Scene/node IDs are scoped to their project and keep all existing internal references.
+  return {
+    ...imported,
+    directory: undefined,
+    id,
+    name,
+    files: imported.files.map((file) =>
+      file.path === NATIVE_PROJECT_PATH
+        ? {
+            ...file,
+            blob: new Blob([serializeAltairDocument({ ...project, id, title: name }, source)], {
+              type: manifest.blob.type || "application/yaml",
+            }),
+          }
+        : file,
+    ),
   };
 }
 export function readNativeWorkspace(documents: readonly { path: string; text: string }[]): AltairAuthoredWorkspace {

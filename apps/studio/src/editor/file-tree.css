@@ -1,0 +1,106 @@
+.file-tree-row {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+}
+.file-tree-row > .file-item {
+  min-width: 0;
+  flex: 1;
+}
+.file-tree-folder-heading {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+}
+.file-tree-toggle {
+  position: relative;
+  isolation: isolate;
+  justify-content: flex-start;
+  gap: 6px;
+  min-height: 48px;
+  min-width: 0;
+  flex: 1;
+  text-align: start;
+  white-space: normal;
+  border-radius: var(--md-sys-shape-corner-small, 8px);
+  background: transparent;
+  overflow: hidden;
+}
+.file-tree-toggle::before,
+.file-tree-toggle::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: currentColor;
+  opacity: 0;
+  pointer-events: none;
+  z-index: -1;
+}
+.file-tree-toggle:hover {
+  background: transparent;
+}
+.file-tree-toggle:is(:hover, :focus-visible)::before {
+  opacity: var(--md-sys-state-hover-state-layer-opacity, 0.08);
+}
+.file-tree-toggle::after {
+  clip-path: circle(0% at 50% 50%);
+  transition:
+    clip-path 150ms ease-out,
+    opacity 150ms ease-out;
+}
+.file-tree-toggle:active::after {
+  clip-path: circle(150% at 50% 50%);
+  opacity: var(--md-sys-state-pressed-state-layer-opacity, 0.12);
+}
+.file-tree-toggle > span {
+  flex: 1;
+  overflow-wrap: anywhere;
+}
+.file-tree-folder-heading > .icon-button {
+  min-height: 48px;
+  min-width: 48px;
+}
+.file-tree-chevron {
+  transition: transform 150ms ease-out;
+}
+.file-tree-toggle[aria-expanded="true"] .file-tree-chevron {
+  transform: rotate(90deg);
+}
+:dir(rtl) .file-tree-toggle[aria-expanded="false"] .file-tree-chevron {
+  transform: rotate(180deg);
+}
+.file-tree-children {
+  padding-inline-start: 14px;
+}
+.file-tree .icon-button {
+  flex: none;
+}
+.file-tree-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  flex-wrap: wrap;
+}
+.file-recovery-list {
+  max-height: 50dvh;
+  overflow: auto;
+}
+.file-recovery-list article {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-block: 12px;
+}
+.file-recovery-list strong {
+  flex: 1 1 100%;
+  overflow-wrap: anywhere;
+}
+@media (prefers-reduced-motion: reduce) {
+  .file-tree-chevron,
+  .file-tree-toggle::after {
+    transition: none;
+  }
+}

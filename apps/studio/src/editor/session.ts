@@ -41,8 +41,15 @@ import {
   studioAuthoringPluginBroker,
   type LoadedStudioAuthoringPlugins,
 } from "../authoring-plugins";
-import { projectLibrary, type LibraryProject, type ProjectFile } from "./library";
+import { projectLibrary, type LibraryProject, type ProjectFile, type ProjectRecoveryCopy } from "./library";
 import { prepareSharedAssetImport, type SharedAssetPack } from "./shared-assets";
+import {
+  planProjectPathMove,
+  planProjectPathCopy,
+  projectDirectories,
+  projectFilePath,
+  type ProjectPathMove,
+} from "./file-operations";
 export interface EditorDocument {
   readonly path: string;
   readonly text: string;
@@ -55,6 +62,7 @@ export interface EditorSnapshot {
   readonly name: string;
   readonly documents: readonly EditorDocument[];
   readonly files: readonly ProjectFile[];
+  readonly directories: readonly string[];
   readonly tabs: readonly string[];
   readonly active: string;
   readonly line: number;
@@ -90,6 +98,7 @@ export class EditorSession {
   private compilation: AbortController | undefined;
   private saveTask: Promise<void> | undefined;
   private folderTask: Promise<void> | undefined;
+  private pathTask: Promise<unknown> | undefined;
   private localWatch?: { dispose(): void | Promise<void> };
   private localUnsubscribe?: () => void;
   private localRefresh?: Promise<void>;
@@ -100,6 +109,7 @@ export class EditorSession {
   private authoringController = new AbortController();
   editorHost: AltairPluginHost | undefined;
   private previewSourceIndex = 0;
+  private libraryRevision: number | undefined;
   readonly editorWorkspace: AltairEditorWorkspace = Object.freeze({
     getSnapshot: () => this.getSnapshot(),
     subscribe: (listener: () => void) => this.subscribe(listener),
@@ -136,10 +146,15 @@ export class EditorSession {
     private workspace?: AltairBrowserWorkspaceService,
   ) {
     this.previewResources = new PreviewResources(project.id);
+    this.libraryRevision = project.revision;
     this.state = {
       id: project.id,
       name: project.name,
       files: project.files,
+      directories: projectDirectories(
+        project.files,
+        workspace?.directory ? workspace.current.directories : project.directories,
+      ),
       documents: [],
       tabs: [],
       active: "",
@@ -164,6 +179,7 @@ export class EditorSession {
     for (const listener of this.listeners) listener();
   }
   async initialize(): Promise<void> {
+    this.libraryRevision ??= (await projectLibrary.get(this.state.id))?.revision;
     const documents = await Promise.all(
       this.state.files
         .filter((file) => isText(file.path))
@@ -411,6 +427,7 @@ export class EditorSession {
       open?: boolean;
     } = {},
   ): Promise<void> {
+    if (this.pathTask) throw new Error(tr("Saving"));
     path = normalizeBrowserWorkspacePath(path);
     if (this.state.files.some((file) => file.path === path))
       throw new Error(tr("A file with this name already exists"));
@@ -425,7 +442,7 @@ export class EditorSession {
       this.history.set(path, this.histories.create(path, text));
     }
     this.pendingFiles.add(path);
-    this.publish({ files, documents });
+    this.publish({ files, documents, directories: projectDirectories(files, this.state.directories) });
     this.scheduleDraft();
     if (isText(path) && options.open !== false) this.activate(path);
     await this.save();
@@ -463,11 +480,390 @@ export class EditorSession {
     this.publish({
       files: [...this.state.files, ...imported.files],
       documents: [...this.state.documents, ...documents],
+      directories: projectDirectories([...this.state.files, ...imported.files], this.state.directories),
     });
     await this.save();
     for (const file of imported.files) this.pendingFiles.delete(file.path);
     await this.compile();
     return imported.files.map((file) => file.path);
+  }
+  /** Move a path and reconcile the authoring documents in its active storage. */
+  private runPathTask<T>(run: () => Promise<T>): Promise<T> {
+    if (this.disposed || this.state.saving || this.pathTask) return Promise.reject(new Error(tr("Saving")));
+    const task = Promise.resolve()
+      .then(run)
+      .finally(() => {
+        this.pathTask = undefined;
+      });
+    this.pathTask = task;
+    return task;
+  }
+  moveProjectPath(source: string, target: string): Promise<ProjectPathMove> {
+    return this.runPathTask(() => this.moveProjectPathNow(source, target));
+  }
+  private async moveProjectPathNow(source: string, target: string): Promise<ProjectPathMove> {
+    const native = this.workspace?.directory ? this.workspace : undefined;
+    if (native && !native.rename) throw new Error(tr("Native folder path operations require the folder service"));
+    if (this.disposed || this.state.saving) throw new Error(tr("Saving"));
+    await this.saveNow();
+    const before = this.state;
+    const plan = planProjectPathMove(before.files, before.documents, source, target, before.directories);
+    const current = await projectLibrary.get(before.id);
+    if (!current || current.revision !== this.libraryRevision)
+      throw new Error(tr("The project changed in another window. Save again to check for conflicts."));
+    this.publish({ saving: true, error: "" });
+    try {
+      if (native) await native.rename!(source, target);
+      else {
+        const saved = await projectLibrary.commit(
+          { ...current, files: plan.files, directories: plan.directories, updatedAt: Date.now() },
+          current.revision,
+        );
+        this.libraryRevision = saved.revision;
+      }
+      const live = this.state;
+      const next =
+        live.files === before.files && live.documents === before.documents
+          ? plan
+          : planProjectPathMove(live.files, live.documents, source, target, live.directories);
+      const baseline = new Map(
+        native
+          ? before.documents.map((doc) => [plan.paths.get(doc.path) ?? doc.path, doc.text])
+          : plan.documents.map((doc) => [doc.path, doc.text]),
+      );
+      const documents = next.documents.map((doc) => ({
+        ...doc,
+        baseline: baseline.get(doc.path) ?? "",
+        revision:
+          (before.documents.find((old) => (next.paths.get(old.path) ?? old.path) === doc.path)?.revision ?? 0) + 1,
+      }));
+      for (const doc of documents) {
+        const old = [...next.paths].find(([, path]) => path === doc.path)?.[0] ?? doc.path;
+        const history = this.history.get(old);
+        if (history) {
+          this.history.delete(old);
+          if (old !== doc.path || before.documents.find((previous) => previous.path === old)?.text !== doc.text)
+            history.reset(doc.text);
+          this.history.set(doc.path, history);
+        } else this.history.set(doc.path, this.histories.create(doc.path, doc.text));
+      }
+      for (const [path, url] of this.urls)
+        if (next.paths.has(path)) {
+          this.retiredUrls.add(url);
+          this.urls.delete(path);
+        }
+      this.publish({
+        files: next.files,
+        directories: next.directories,
+        documents,
+        active: next.paths.get(live.active) ?? live.active,
+        tabs: live.tabs.map((path) => next.paths.get(path) ?? path),
+      });
+      this.syncHistory();
+      await this.persistDraft();
+      if (native) await this.saveNow();
+      await this.compile();
+      return next;
+    } catch (error) {
+      this.publish({ error: error instanceof Error ? error.message : String(error) });
+      throw error;
+    } finally {
+      this.publish({ saving: false });
+    }
+  }
+  createProjectDirectory(path: string): Promise<void> {
+    return this.runPathTask(() => this.createProjectDirectoryNow(path));
+  }
+  private async createProjectDirectoryNow(path: string): Promise<void> {
+    path = projectFilePath(path);
+    if (this.disposed || this.state.saving) throw new Error(tr("Saving"));
+    await this.saveNow();
+    if (this.state.files.some((file) => file.path === path) || this.state.directories.includes(path))
+      throw new Error(tr("A file with this name already exists"));
+    const directories = projectDirectories(this.state.files, [...this.state.directories, path]);
+    const current = await projectLibrary.get(this.state.id);
+    if (!current || current.revision !== this.libraryRevision)
+      throw new Error(tr("The project changed in another window. Save again to check for conflicts."));
+    this.publish({ saving: true });
+    try {
+      if (this.workspace?.directory) {
+        if (!this.workspace.mkdir) throw new Error(tr("Native folder path operations require the folder service"));
+        await this.workspace.mkdir(path);
+      }
+      const saved = await projectLibrary.commit({ ...current, directories, updatedAt: Date.now() }, current.revision);
+      this.libraryRevision = saved.revision;
+      this.publish({ directories });
+    } finally {
+      this.publish({ saving: false });
+    }
+  }
+  copyProjectPath(source: string, target: string): Promise<void> {
+    return this.runPathTask(() => this.copyProjectPathNow(source, target));
+  }
+  private async copyProjectPathNow(source: string, target: string): Promise<void> {
+    if (this.disposed || this.state.saving) throw new Error(tr("Saving"));
+    await this.saveNow();
+    const before = this.state;
+    const plan = planProjectPathCopy(before.files, before.documents, source, target, before.directories);
+    const manifest = this.document(NATIVE_PROJECT_PATH);
+    if (!manifest) throw new Error(tr("Project manifest is missing"));
+    const project = parseAltairProjectDocument(manifest.text);
+    const sourceTexts = new Map(
+      before.documents
+        .filter((doc) => doc.path === source || doc.path.startsWith(`${source}/`))
+        .map((doc) => [target + doc.path.slice(source.length), doc.text]),
+    );
+    const documents = await Promise.all(
+      plan.files
+        .filter((file) => isText(file.path))
+        .map(async (file) => {
+          const text = await file.blob.text();
+          this.validateDocument(file.path, text);
+          return {
+            path: file.path,
+            text,
+            baseline: this.workspace?.directory ? (sourceTexts.get(file.path) ?? "") : "",
+            revision: 1,
+          };
+        }),
+    );
+    if (this.disposed || this.state.files !== before.files || this.state.documents !== before.documents)
+      throw new Error(tr("The project changed during import"));
+    const files = [...before.files, ...plan.files];
+    const directories = projectDirectories(files, [...before.directories, ...plan.directories]);
+    this.publish({ saving: true });
+    try {
+      if (this.workspace?.directory) {
+        if (!this.workspace.copy) throw new Error(tr("Native folder path operations require the folder service"));
+        await this.workspace.copy(source, target);
+      }
+      if (this.disposed || this.state.files !== before.files || this.state.documents !== before.documents)
+        throw new Error(tr("The project changed during import"));
+      if (plan.scenes.length)
+        this.update(
+          manifest.path,
+          serializeAltairDocument({ ...project, scenes: [...project.scenes, ...plan.scenes] }, manifest.text),
+        );
+      for (const doc of documents) this.history.set(doc.path, this.histories.create(doc.path, doc.text));
+      if (!this.workspace?.directory) for (const file of plan.files) this.pendingFiles.add(file.path);
+      this.publish({ files, directories, documents: [...this.state.documents, ...documents] });
+      await this.saveNow();
+      await this.compile();
+    } finally {
+      this.publish({ saving: false });
+    }
+  }
+  deleteProjectPath(path: string): Promise<void> {
+    return this.runPathTask(() => this.deleteProjectPathNow(path));
+  }
+  private async deleteProjectPathNow(path: string): Promise<void> {
+    path = projectFilePath(path);
+    if (path === NATIVE_PROJECT_PATH) throw new Error(tr("The project manifest path is fixed"));
+    await this.saveNow();
+    const before = this.state;
+    const contains = (candidate: string) => candidate === path || candidate.startsWith(`${path}/`);
+    const files = before.files.filter((file) => contains(file.path));
+    const directories = before.directories.filter(contains);
+    if (!files.length && !directories.length) throw new Error(tr("File is missing"));
+    const manifest = this.document(NATIVE_PROJECT_PATH)!;
+    const project = parseAltairProjectDocument(manifest.text);
+    const scenes = project.scenes.filter((scene) => contains(scene.path));
+    if (scenes.some((scene) => scene.id === project.entry.sceneId))
+      throw new Error(tr("Change the entry scene before deleting it"));
+    const remainingFiles = before.files.filter((file) => !contains(file.path));
+    const remainingDirectories = before.directories.filter((directory) => !contains(directory));
+    const manifestText = scenes.length
+      ? serializeAltairDocument(
+          { ...project, scenes: project.scenes.filter((scene) => !contains(scene.path)) },
+          manifest.text,
+        )
+      : manifest.text;
+    const nextFiles = remainingFiles.map((file) =>
+      file.path === manifest.path ? { ...file, blob: new Blob([manifestText], { type: file.blob.type }) } : file,
+    );
+    const current = await projectLibrary.get(before.id);
+    if (!current || current.revision !== this.libraryRevision)
+      throw new Error(tr("The project changed in another window. Save again to check for conflicts."));
+    this.publish({ saving: true });
+    try {
+      // Copy disk-backed File objects into owned Blobs before their source is removed.
+      const recoveryFiles: ProjectFile[] = [];
+      for (const file of files)
+        recoveryFiles.push({
+          path: file.path,
+          blob: new Blob([await file.blob.arrayBuffer()], { type: file.blob.type }),
+        });
+      const recovery: ProjectRecoveryCopy = {
+        id: crypto.randomUUID(),
+        projectId: before.id,
+        path,
+        createdAt: Date.now(),
+        files: recoveryFiles,
+        directories,
+        scenes,
+      };
+      if (this.state.documents !== before.documents || this.state.files !== before.files)
+        throw new Error(tr("The project changed during import"));
+      if (this.workspace?.directory) {
+        if (!this.workspace.remove) throw new Error(tr("Native folder path operations require the folder service"));
+        const expectedFiles = this.workspace.current.files.filter((file) => contains(file.path));
+        await projectLibrary.saveRecoveryCopy(recovery);
+        if (this.state.documents !== before.documents || this.state.files !== before.files)
+          throw new Error(tr("The project changed during import"));
+        await this.workspace.remove(path, {
+          recursive: directories.length > 0,
+          expected: {
+            files: expectedFiles,
+            directories,
+          },
+        });
+      } else {
+        const saved = await projectLibrary.commit(
+          { ...current, files: nextFiles, directories: remainingDirectories, updatedAt: Date.now() },
+          current.revision,
+          recovery,
+        );
+        this.libraryRevision = saved.revision;
+      }
+      // Preserve edits made while the storage operation was in flight in the recovery copy.
+      const liveRemoved = this.state.documents.filter(
+        (doc) => contains(doc.path) && doc.text !== before.documents.find((old) => old.path === doc.path)?.text,
+      );
+      if (liveRemoved.length) {
+        const texts = new Map(liveRemoved.map((doc) => [doc.path, doc.text]));
+        await projectLibrary.saveRecoveryCopy({
+          ...recovery,
+          files: recovery.files.map((file) =>
+            texts.has(file.path)
+              ? { ...file, blob: new Blob([texts.get(file.path)!], { type: file.blob.type }) }
+              : file,
+          ),
+        });
+      }
+      const documents = this.state.documents
+        .filter((doc) => !contains(doc.path))
+        .map((doc) =>
+          doc.path === manifest.path
+            ? {
+                ...doc,
+                text: manifestText,
+                baseline: this.workspace?.directory ? doc.baseline : manifestText,
+                revision: doc.revision + 1,
+              }
+            : doc,
+        );
+      const tabs = this.state.tabs.filter((tab) => !contains(tab));
+      for (const file of files) {
+        this.pendingFiles.delete(file.path);
+        this.history.delete(file.path);
+        const url = this.urls.get(file.path);
+        if (url) {
+          this.retiredUrls.add(url);
+          this.urls.delete(file.path);
+        }
+      }
+      this.publish({
+        files: nextFiles,
+        directories: remainingDirectories,
+        documents,
+        tabs,
+        active: contains(this.state.active)
+          ? (tabs.at(-1) ?? documents.find((doc) => isScene(doc.path))?.path ?? "")
+          : this.state.active,
+      });
+      this.history.get(manifest.path)?.reset(manifestText);
+      this.syncHistory();
+      await this.persistDraft();
+      if (this.workspace?.directory) await this.saveNow();
+      await this.compile();
+    } finally {
+      this.publish({ saving: false });
+    }
+  }
+  restoreProjectPath(recoveryId: string): Promise<void> {
+    return this.runPathTask(() => this.restoreProjectPathNow(recoveryId));
+  }
+  private async restoreProjectPathNow(recoveryId: string): Promise<void> {
+    await this.saveNow();
+    const copy = await projectLibrary.recoveryCopy(recoveryId);
+    if (!copy || copy.projectId !== this.state.id) throw new Error(tr("File is missing"));
+    const before = this.state;
+    if (
+      before.files.some(
+        (file) =>
+          file.path === copy.path || file.path.startsWith(`${copy.path}/`) || copy.path.startsWith(`${file.path}/`),
+      ) ||
+      before.directories.includes(copy.path)
+    )
+      throw new Error(tr("A file with this name already exists"));
+    const files = [...before.files, ...copy.files];
+    const directories = projectDirectories(files, [...before.directories, ...copy.directories]);
+    const manifest = this.document(NATIVE_PROJECT_PATH)!;
+    const project = parseAltairProjectDocument(manifest.text);
+    if (
+      copy.scenes.some((scene) =>
+        project.scenes.some((existing) => existing.id === scene.id || existing.path === scene.path),
+      )
+    )
+      throw new Error(tr("A file with this name already exists"));
+    const text = copy.scenes.length
+      ? serializeAltairDocument({ ...project, scenes: [...project.scenes, ...copy.scenes] }, manifest.text)
+      : manifest.text;
+    const restoredDocs = await Promise.all(
+      copy.files
+        .filter((file) => isText(file.path))
+        .map(async (file) => {
+          const text = await file.blob.text();
+          this.validateDocument(file.path, text);
+          return { path: file.path, text, baseline: text, revision: 0 };
+        }),
+    );
+    const current = await projectLibrary.get(before.id);
+    if (!current || current.revision !== this.libraryRevision)
+      throw new Error(tr("The project changed in another window. Save again to check for conflicts."));
+    this.publish({ saving: true });
+    try {
+      if (this.state.files !== before.files || this.state.documents !== before.documents)
+        throw new Error(tr("The project changed during import"));
+      if (this.workspace?.directory) {
+        if (!this.workspace.exists || !this.workspace.mkdir)
+          throw new Error(tr("Native folder path operations require the folder service"));
+        if (await this.workspace.exists(copy.path)) throw new Error(tr("A file with this name already exists"));
+        for (const directory of copy.directories) await this.workspace.mkdir(directory);
+        for (const file of copy.files)
+          await this.workspace.write(file.path, file.blob, { create: true, exclusive: true });
+      }
+      const nextFiles = files.map((file) =>
+        file.path === manifest.path ? { ...file, blob: new Blob([text], { type: file.blob.type }) } : file,
+      );
+      const saved = await projectLibrary.commit(
+        { ...current, files: nextFiles, directories, updatedAt: Date.now() },
+        current.revision,
+        undefined,
+        this.workspace?.directory ? undefined : copy.id,
+      );
+      this.libraryRevision = saved.revision;
+      for (const doc of restoredDocs) this.history.set(doc.path, this.histories.create(doc.path, doc.text));
+      this.publish({
+        files: nextFiles,
+        directories,
+        documents: [
+          ...this.state.documents.map((doc) =>
+            doc.path === manifest.path
+              ? { ...doc, text, baseline: this.workspace?.directory ? doc.baseline : text, revision: doc.revision + 1 }
+              : doc,
+          ),
+          ...restoredDocs,
+        ],
+      });
+      this.history.get(manifest.path)?.reset(text);
+      await this.persistDraft();
+      if (this.workspace?.directory) await this.saveNow();
+      await this.compile();
+      if (this.workspace?.directory) await projectLibrary.removeRecoveryCopy(copy.id);
+    } finally {
+      this.publish({ saving: false });
+    }
   }
   private startLocalWatch(): void {
     this.localUnsubscribe?.();
@@ -573,6 +969,7 @@ export class EditorSession {
         statements[0];
       this.publish({
         files,
+        directories: projectDirectories(files, snapshot.directories),
         documents,
         tabs,
         active,
@@ -619,16 +1016,22 @@ export class EditorSession {
           (a, b) => Number(a.path === NATIVE_PROJECT_PATH) - Number(b.path === NATIVE_PROJECT_PATH),
         ))
           await workspace.write(file.path, file.blob, { create: true });
-        await projectLibrary.commit(
+        for (const path of this.state.directories) {
+          if (!workspace.mkdir) throw new Error(tr("Native folder path operations require the folder service"));
+          await workspace.mkdir(path);
+        }
+        const savedProject = await projectLibrary.commit(
           {
             id: this.state.id,
             name: this.state.name,
             updatedAt: Date.now(),
             files,
+            directories: this.state.directories,
             directory: workspace.directory,
           },
           current?.revision,
         );
+        this.libraryRevision = savedProject.revision;
         this.localUnsubscribe?.();
         await this.localWatch?.dispose();
         await this.workspace?.dispose();
@@ -809,6 +1212,7 @@ export class EditorSession {
     readNativeWorkspace(documents);
   }
   save(): Promise<void> {
+    if (this.pathTask) return this.pathTask.then(() => this.save());
     if (this.folderTask) return this.folderTask.then(() => this.save());
     if (this.saveTask) return this.saveTask.then(() => this.save());
     this.saveTask = this.saveNow().finally(() => {
@@ -837,6 +1241,13 @@ export class EditorSession {
       }
       const current = await projectLibrary.get(this.state.id);
       const currentFiles = new Map(current?.files.map((file) => [file.path, file]) ?? []);
+      if (
+        !this.workspace?.directory &&
+        current &&
+        current.revision !== this.libraryRevision &&
+        this.state.files.some((file) => !currentFiles.has(file.path) && !this.pendingFiles.has(file.path))
+      )
+        throw new Error(tr("The project changed in another window. Save again to check for conflicts."));
       for (const doc of documents) {
         if (doc.external !== undefined)
           throw new Error(tr("Resolve the external change first: {{p0}}", { p0: doc.path }));
@@ -909,12 +1320,18 @@ export class EditorSession {
           }),
       );
       const beforeCommit = new Map(this.state.documents.map((document) => [document.path, document]));
-      await projectLibrary.commit(
+      const savedProject = await projectLibrary.commit(
         {
           id: this.state.id,
           name: this.state.name,
           updatedAt: Date.now(),
           files,
+          directories: projectDirectories(
+            files,
+            this.workspace?.directory
+              ? this.state.directories
+              : [...this.state.directories, ...(current?.directories ?? [])],
+          ),
           ...(this.workspace?.directory
             ? { directory: this.workspace.directory }
             : current?.directory
@@ -923,6 +1340,8 @@ export class EditorSession {
         },
         current?.revision,
       );
+      this.libraryRevision = savedProject.revision;
+      for (const file of files) this.pendingFiles.delete(file.path);
       const reconciled = new Map(refreshed.map((document) => [document.path, document]));
       for (const live of this.state.documents) {
         if (live === beforeCommit.get(live.path) && reconciled.has(live.path)) continue;
@@ -937,6 +1356,7 @@ export class EditorSession {
       }
       this.publish({
         files: [...files, ...this.state.files.filter((file) => !merged.has(file.path))],
+        directories: savedProject.directories ?? this.state.directories,
         documents: [...reconciled.values()],
       });
       await this.persistDraft();
@@ -964,6 +1384,7 @@ export class EditorSession {
   }
   async dispose() {
     if (this.disposed) return;
+    await this.pathTask?.catch(() => undefined);
     await this.folderTask?.catch(() => undefined);
     await this.saveTask?.catch(() => undefined);
     this.compilation?.abort();

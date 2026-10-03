@@ -7,7 +7,7 @@ import { Boxes, FolderOpen, Gamepad2, Import, Plus, Search, Settings, Star, X } 
 import { BrowserWorkspaceService } from "@haneoka/altair-plugin-workspace-browser";
 import { projectLibrary, type LibraryProject } from "./library";
 import { EditorSession } from "./session";
-import { importProjectZip } from "./archive";
+import { readProjectZip } from "./archive";
 import { createNativeProject, normalizeImportedProject } from "./native-project";
 import "./editor.css";
 const Workspace = lazy(() => import("./Workspace").then((module) => ({ default: module.Workspace })));
@@ -52,6 +52,7 @@ export function EditorApp() {
         });
         project = {
           ...project,
+          directories: snapshot.directories,
           files: await Promise.all(
             snapshot.files.map(async (file) => ({
               path: file.path,
@@ -113,6 +114,7 @@ export function EditorApp() {
         })),
       );
       const project = {
+        directories: snapshot.directories,
         id: snapshot.id,
         name: snapshot.name,
         updatedAt: Date.now(),
@@ -246,13 +248,14 @@ export function EditorApp() {
           event.target.value = "";
           if (!file) return;
           setBusy(true);
-          void importProjectZip(file)
-            .then(async (files) => {
+          void readProjectZip(file)
+            .then(async ({ files, directories }) => {
               const project = {
                 id: crypto.randomUUID(),
                 name: file.name.replace(/\.zip$/iu, ""),
                 updatedAt: Date.now(),
                 files,
+                directories,
               };
               await projectLibrary.put(project);
               await open(project);
