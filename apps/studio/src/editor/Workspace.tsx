@@ -50,6 +50,9 @@ import "./mobile-workspace.css";
 import { FileTree } from "./FileTree";
 import { FileActionsDialog } from "./FileActionsDialog";
 import { FileRecoveryDialog } from "./FileRecoveryDialog";
+const ProjectHistoryDialog = lazy(() =>
+  import("./ProjectHistoryDialog").then((module) => ({ default: module.ProjectHistoryDialog })),
+);
 const CommandLibraryPanel = lazy(() =>
   import("./CommandLibraryPanel").then((module) => ({
     default: module.CommandLibraryPanel,
@@ -82,6 +85,7 @@ export function Workspace({ session, onHome }: { session: EditorSession; onHome:
   }>();
   const [fileClipboard, setFileClipboard] = useState<{ path: string; cut: boolean }>();
   const [recovery, setRecovery] = useState<{ source?: string }>();
+  const [historyPath, setHistoryPath] = useState("");
   const docEditor = doc && session.editorFor(doc.path);
   const mode = state.view ?? "visual",
     setMode = (view: string) => session.setView(view);
@@ -230,6 +234,11 @@ export function Workspace({ session, onHome }: { session: EditorSession; onHome:
   };
   return (
     <main className="workspace" data-mobile-page={mobilePage}>
+      {historyPath && (
+        <Suspense fallback={null}>
+          <ProjectHistoryDialog session={session} path={historyPath} onClose={() => setHistoryPath("")} />
+        </Suspense>
+      )}
       {recovery && (
         <FileRecoveryDialog
           session={session}
@@ -301,6 +310,9 @@ export function Workspace({ session, onHome }: { session: EditorSession; onHome:
                 {tr("Refresh local files")}
               </DropdownMenu.Item>
               <DropdownMenu.Separator />
+              <DropdownMenu.Item disabled={!doc || state.saving} onSelect={() => setHistoryPath(state.active)}>
+                {tr("Version history")}
+              </DropdownMenu.Item>
               <DropdownMenu.Item
                 onSelect={() => void exportProjectZip(session).catch((error) => setIssue(String(error)))}
               >

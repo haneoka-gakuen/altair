@@ -1,0 +1,99 @@
+.project-history-dialog {
+  width: min(960px, calc(100vw - 24px));
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.history-header,
+.history-settings,
+.history-footer {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.history-header > div {
+  flex: 1;
+  min-width: 0;
+}
+.history-header p {
+  overflow-wrap: anywhere;
+}
+.history-settings label {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+.history-settings input {
+  width: 68px;
+}
+.history-content {
+  display: grid;
+  grid-template-columns: minmax(160px, 220px) minmax(0, 1fr);
+  height: min(55dvh, 520px);
+  min-height: 220px;
+}
+.history-versions {
+  overflow: auto;
+  min-width: 0;
+}
+.history-versions button {
+  display: flex;
+  justify-content: flex-start;
+  width: 100%;
+  min-height: 48px;
+  white-space: normal;
+  text-align: start;
+}
+.history-versions button.active {
+  background: var(--md-sys-color-secondary-container, var(--surface-hover, transparent));
+  color: var(--md-sys-color-on-secondary-container, inherit);
+  border-color: var(--md-sys-color-outline, currentColor);
+  font-weight: 600;
+}
+.history-versions button span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.history-versions time {
+  display: block;
+  font-size: 11px;
+}
+.history-comparison {
+  min-width: 0;
+  overflow: hidden;
+}
+.history-footer > span:first-child {
+  margin-inline-end: auto;
+}
+.history-footer button {
+  min-height: 40px;
+}
+.history-status {
+  min-height: 18px;
+}
+@media (max-width: 600px) {
+  .history-content {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: 80px minmax(0, 1fr);
+  }
+  .history-versions {
+    display: flex;
+    gap: 4px;
+  }
+  .history-versions button {
+    flex: 0 0 150px;
+    width: auto;
+  }
+  .history-footer {
+    gap: 6px;
+  }
+  .history-footer > span:first-child {
+    flex: 1 1 100%;
+  }
+}
+.history-diff-mount {
+  height: 100%;
+  width: 100%;
+}

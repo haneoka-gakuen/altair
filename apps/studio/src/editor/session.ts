@@ -43,6 +43,7 @@ import {
 } from "../authoring-plugins";
 import { projectLibrary, type LibraryProject, type ProjectFile, type ProjectRecoveryCopy } from "./library";
 import { prepareSharedAssetImport, type SharedAssetPack } from "./shared-assets";
+import { ProjectHistory } from "./project-history";
 import {
   planProjectPathMove,
   planProjectPathCopy,
@@ -88,6 +89,7 @@ export class EditorSession {
   private readonly history = new Map<string, AltairHistory<string>>();
   private readonly urls = new Map<string, string>();
   private readonly previewResources: PreviewResources;
+  readonly projectHistory: ProjectHistory;
   get resourcePlugin() {
     return this.previewResources.plugin;
   }
@@ -146,6 +148,7 @@ export class EditorSession {
     private workspace?: AltairBrowserWorkspaceService,
   ) {
     this.previewResources = new PreviewResources(project.id);
+    this.projectHistory = new ProjectHistory(project.id, workspace);
     this.libraryRevision = project.revision;
     this.state = {
       id: project.id,
@@ -560,6 +563,7 @@ export class EditorSession {
         tabs: live.tabs.map((path) => next.paths.get(path) ?? path),
       });
       this.syncHistory();
+      await this.projectHistory.move(next.paths);
       await this.persistDraft();
       if (native) await this.saveNow();
       await this.compile();
@@ -782,6 +786,25 @@ export class EditorSession {
   }
   restoreProjectPath(recoveryId: string): Promise<void> {
     return this.runPathTask(() => this.restoreProjectPathNow(recoveryId));
+  }
+  restoreHistory(path: string, entryId: string, revision: number): Promise<void> {
+    return this.runPathTask(async () => {
+      const current = this.document(path);
+      if (!current || current.revision !== revision)
+        throw new Error(tr("The document changed while comparing history"));
+      if (current.external !== undefined)
+        throw new Error(tr("Resolve the external change first: {{p0}}", { p0: path }));
+      const text = await this.projectHistory.read(entryId, path);
+      this.validateDocuments(this.state.documents.map((doc) => (doc.path === path ? { ...doc, text } : doc)));
+      await this.projectHistory.capture(path, current.text, "before-restore", true);
+      if (this.document(path)?.revision !== revision)
+        throw new Error(tr("The document changed while comparing history"));
+      this.update(path, text);
+      await this.saveNow();
+      await this.projectHistory.capture(path, text, "restore", true);
+      this.activate(path, nativeStatements(text)[0]?.line ?? 1);
+      await this.compile();
+    });
   }
   private async restoreProjectPathNow(recoveryId: string): Promise<void> {
     await this.saveNow();
@@ -1032,6 +1055,7 @@ export class EditorSession {
           current?.revision,
         );
         this.libraryRevision = savedProject.revision;
+        await this.projectHistory.attachFolder(workspace);
         this.localUnsubscribe?.();
         await this.localWatch?.dispose();
         await this.workspace?.dispose();
@@ -1077,7 +1101,18 @@ export class EditorSession {
         .filter((doc) => doc.text !== doc.baseline)
         .map(({ path, text, baseline }) => ({ path, text, baseline })),
     };
-    this.persistence = this.persistence.catch(() => undefined).then(() => projectLibrary.saveDraft(draft));
+    this.persistence = this.persistence
+      .catch(() => undefined)
+      .then(async () => {
+        await projectLibrary.saveDraft(draft);
+        for (const doc of draft.documents) {
+          try {
+            await this.projectHistory.capture(doc.path, doc.text, "auto-save");
+          } catch (error) {
+            this.publish({ error: tr("History warning: {{error}}", { error: String(error) }) });
+          }
+        }
+      });
     return this.persistence;
   }
   async compile(): Promise<void> {
@@ -1264,6 +1299,8 @@ export class EditorSession {
             }
           }
         }
+        if (currentFiles.has(doc.path) && !this.pendingFiles.has(doc.path))
+          await this.projectHistory.capture(doc.path, doc.baseline, "before-save");
         if (this.workspace?.capabilities.writable) {
           const known = this.workspace.match(doc.path);
           if (known) {
@@ -1360,6 +1397,16 @@ export class EditorSession {
         documents: [...reconciled.values()],
       });
       await this.persistDraft();
+      const savedVersions = saved.size
+        ? saved
+        : new Map(this.document() ? [[this.state.active, this.document()!.baseline]] : []);
+      for (const [path, text] of savedVersions) {
+        try {
+          await this.projectHistory.capture(path, text, "manual-save");
+        } catch (error) {
+          this.publish({ error: tr("History warning: {{error}}", { error: String(error) }) });
+        }
+      }
     } catch (error) {
       this.publish({
         error: error instanceof Error ? error.message : String(error),
@@ -1390,6 +1437,7 @@ export class EditorSession {
     this.compilation?.abort();
     if (this.draftTimer) clearTimeout(this.draftTimer);
     await this.persistDraft();
+    await this.projectHistory.dispose();
     this.disposed = true;
     this.localUnsubscribe?.();
     await this.localWatch?.dispose();
