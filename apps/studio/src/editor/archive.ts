@@ -26,7 +26,23 @@ export async function createProjectZip(session: EditorSession, signal?: AbortSig
       ? new Blob([session.document(file.path)!.text], { type: "text/plain" })
       : file.blob,
   }));
-  const directories = projectDirectories(files, state.directories);
+  return createFilesZip(files, state.directories, signal, new Set(state.documents.map((doc) => doc.path)));
+}
+
+/** Shared streamed ZIP writer for native projects and engine-backed games. */
+export async function createFilesZip(
+  files: readonly ProjectFile[],
+  folders: readonly string[] = [],
+  signal?: AbortSignal,
+  compress: ReadonlySet<string> = new Set(),
+): Promise<Blob> {
+  const paths = new Set<string>();
+  for (const file of files) {
+    projectFilePath(file.path);
+    if (paths.has(file.path)) throw new Error(tr("The archive contains duplicate paths"));
+    paths.add(file.path);
+  }
+  const directories = projectDirectories(files, folders);
   if (files.length + directories.length > MAX_ARCHIVE_ENTRIES)
     throw new Error(tr("The archive contains too many entries"));
   if (files.reduce((size, file) => size + file.blob.size, 0) > MAX_ARCHIVE_BYTES)
@@ -48,9 +64,7 @@ export async function createProjectZip(session: EditorSession, signal?: AbortSig
     }
     for (const file of files) {
       signal?.throwIfAborted();
-      const entry = session.document(file.path)
-        ? new ZipDeflate(file.path, { level: 6 })
-        : new ZipPassThrough(file.path);
+      const entry = compress.has(file.path) ? new ZipDeflate(file.path, { level: 6 }) : new ZipPassThrough(file.path);
       archive.add(entry);
       const reader = file.blob.stream().getReader();
       try {
@@ -90,9 +104,16 @@ export async function exportProjectZip(session: EditorSession): Promise<void> {
 }
 
 /** Validate every ZIP entry and enforce limits using bytes actually produced by decompression. */
-export async function readProjectZip(file: Blob, signal?: AbortSignal): Promise<ProjectArchive> {
+export async function readProjectZip(
+  file: Blob,
+  signal?: AbortSignal,
+  limits?: { maxBytes: number },
+): Promise<ProjectArchive> {
+  const maxBytes = limits?.maxBytes ?? MAX_ARCHIVE_BYTES;
+  if (!Number.isSafeInteger(maxBytes) || maxBytes <= 0 || maxBytes > MAX_ARCHIVE_BYTES)
+    throw new RangeError("Invalid archive byte limit");
   // ZIP headers and directory records are additional to the decoded project budget.
-  if (file.size > MAX_ARCHIVE_BYTES + 128 * 1024 * 1024) throw new Error(tr("The project exceeds 2 GB"));
+  if (file.size > maxBytes + 128 * 1024 * 1024) throw new Error(tr("The archive exceeds its decoded byte limit"));
   signal?.throwIfAborted();
   const tail = new DataView(await file.slice(Math.max(0, file.size - 65_557)).arrayBuffer());
   let expectedCount: number | undefined;
@@ -142,7 +163,7 @@ export async function readProjectZip(file: Blob, signal?: AbortSignal): Promise<
     const mode = metadata.getUint32(offset + 38, true) >>> 16;
     if ((mode & 0o170000) === 0o120000) throw new Error(tr("Archive symbolic links are unsupported"));
     declaredBytes += size;
-    if (declaredBytes > MAX_ARCHIVE_BYTES) throw new Error(tr("The project exceeds 2 GB"));
+    if (declaredBytes > maxBytes) throw new Error(tr("The archive exceeds its decoded byte limit"));
     entries.set(name, { crc: metadata.getUint32(offset + 16, true), size });
     offset = next;
   }
@@ -163,8 +184,8 @@ export async function readProjectZip(file: Blob, signal?: AbortSignal): Promise<
       const path = projectFilePath(directory ? entry.name.slice(0, -1) : entry.name);
       if (paths.has(path)) throw new Error(tr("The archive contains duplicate paths"));
       paths.add(path);
-      if (entry.originalSize !== undefined && entry.originalSize > MAX_ARCHIVE_BYTES)
-        throw new Error(tr("The project exceeds 2 GB"));
+      if (entry.originalSize !== undefined && entry.originalSize > maxBytes)
+        throw new Error(tr("The archive exceeds its decoded byte limit"));
       const chunks: BlobPart[] = [];
       let crc = 0xffffffff,
         size = 0;
@@ -181,8 +202,8 @@ export async function readProjectZip(file: Blob, signal?: AbortSignal): Promise<
           entry.terminate();
           return;
         }
-        if (total > MAX_ARCHIVE_BYTES) {
-          failure = new Error(tr("The project exceeds 2 GB"));
+        if (total > maxBytes) {
+          failure = new Error(tr("The archive exceeds its decoded byte limit"));
           entry.terminate();
           return;
         }

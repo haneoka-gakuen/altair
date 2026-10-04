@@ -1,3 +1,4 @@
+import { WebGalEngineDialog } from "./WebGalEngineDialog";
 import { PluginPanel } from "./PluginPanel";
 import { tr, useStudioI18n } from "./i18n";
 import { InterfaceLanguage } from "./InterfaceLanguage";
@@ -323,6 +324,7 @@ export function Workspace({ session, onHome }: { session: EditorSession; onHome:
         </DropdownMenu.Root>
         <div className="header-spacer" />
         <InterfaceLanguage />
+        <WebGalEngineDialog session={session} exportMode />
         <button className="secondary-button" aria-label={tr("Command library")} onClick={() => setShowLibrary(true)}>
           <Library size={15} />
           <span className="workspace-action-label">{tr("Command library")}</span>

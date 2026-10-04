@@ -1,3 +1,4 @@
+import { WebGalEngineDialog } from "./WebGalEngineDialog";
 import { RuntimeSettings } from "./RuntimeSettings";
 import { ProjectPlugins } from "./ProjectPlugins";
 import { useState, useSyncExternalStore } from "react";
@@ -69,6 +70,7 @@ export function ProjectSettings({ session }: { session: EditorSession }) {
       </label>
       <h3>{tr("Project languages")}</h3>
       <RuntimeSettings />
+      <WebGalEngineDialog session={session} />
       <p>{tr("Use any BCP 47 language tag, for example fr-CA or ar.")}</p>
       <ul>
         {project.locales.map((locale, index) => (
