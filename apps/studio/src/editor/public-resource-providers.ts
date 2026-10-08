@@ -7,6 +7,7 @@ import type {
 import type { StoryResourceResolver } from "@haneoka/vega/renderer-kit";
 import { PublicResourceCatalog } from "./resource-catalog";
 import { validatePublicScope, type PublicSourceScope } from "./resource-manifest";
+import { readPublicResponse } from "./public-response";
 
 /** Factories are public source plugins supplied by the host; no platform registry is created here. */
 export type BestdoriAssetNode = number | { readonly [name: string]: BestdoriAssetNode };
@@ -50,36 +51,16 @@ export interface PublicResourceFactories {
 }
 export type PublicCatalogTransport = (url: string, signal: AbortSignal) => Promise<unknown>;
 export async function fetchPublicCatalogJson(url: string, signal: AbortSignal): Promise<unknown> {
-  const response = await fetch(url, { signal, credentials: "omit", mode: "cors", referrerPolicy: "no-referrer" });
-  if (!response.ok) throw new Error(`Public catalog HTTP ${response.status}`);
-  if (!/application\/(?:[^;]+\+)?json/iu.test(response.headers.get("content-type") ?? ""))
-    throw new Error("Public catalog is not JSON");
-  const reader = response.body?.getReader();
-  if (!reader) throw new Error("Public catalog response is empty");
-  const chunks: Uint8Array[] = [];
-  let total = 0;
-  try {
-    while (true) {
-      signal.throwIfAborted();
-      const { value, done } = await reader.read();
-      if (done) break;
-      total += value.byteLength;
-      if (total > 16 * 1024 * 1024) throw new Error("Public catalog exceeds its byte limit");
-      chunks.push(value);
-    }
-  } finally {
-    await reader.cancel().catch(() => undefined);
-    reader.releaseLock();
-  }
-  const bytes = new Uint8Array(total);
-  let offset = 0;
-  for (const chunk of chunks) {
-    bytes.set(chunk, offset);
-    offset += chunk.byteLength;
-  }
+  const bytes = await readPublicResponse(url, {
+    label: "Public catalog",
+    maxBytes: 16 * 1024 * 1024,
+    signals: [signal],
+    json: true,
+  });
   signal.throwIfAborted();
   return JSON.parse(new TextDecoder().decode(bytes));
 }
+
 function catalogUrl(scope: PublicSourceScope, path: readonly string[]): string {
   const url = new URL(
     `/api/v1/servers/${encodeURIComponent(scope.server)}/${path.map(encodeURIComponent).join("/")}`,
@@ -114,13 +95,12 @@ export function createHaneokaPublicResourceCatalog(options: {
     },
     fetchAsset: (request) => {
       if (request.release !== scope.releaseId) throw new Error("Catalog release changed");
-      return transport(
-        new URL(
-          `/assets/${scope.releaseId}/${safeSegments(request.path).map(encodeURIComponent).join("/")}`,
-          scope.origin,
-        ).href,
-        request.signal,
+      const endpoint = new URL(
+        `/assets/${scope.server}/${safeSegments(request.path).map(encodeURIComponent).join("/")}`,
+        scope.origin,
       );
+      endpoint.searchParams.set("release", scope.releaseId!);
+      return transport(endpoint.href, request.signal);
     },
   });
   return new PublicResourceCatalog(provider, scope, options.resources);

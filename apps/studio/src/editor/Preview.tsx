@@ -10,6 +10,7 @@ import {
   STUDIO_PLUGIN_ENVIRONMENT,
 } from "../studio-plugin-catalog";
 import type { EditorSession } from "./session";
+import { StageTransformEditor } from "./StageTransformEditor";
 export function Preview({ session }: { session: EditorSession }) {
   const state = useSyncExternalStore(session.subscribe, session.getSnapshot);
   const pluginSignature = JSON.stringify(state.project?.plugins ?? DEFAULT_STUDIO_PROJECT_PLUGINS);
@@ -19,6 +20,7 @@ export function Preview({ session }: { session: EditorSession }) {
   const [status, setStatus] = useState("Connecting preview"),
     [ready, setReady] = useState(false),
     [synchronized, setSynchronized] = useState(false),
+    [editingTransform, setEditingTransform] = useState(false),
     [revision, setRevision] = useState(0);
   useEffect(() => {
     if (!projectReady) return;
@@ -109,6 +111,7 @@ export function Preview({ session }: { session: EditorSession }) {
       <div className="panel-heading">
         <span>{tr("Live preview")}</span>
         <button
+          disabled={editingTransform}
           title={tr("Refresh preview")}
           aria-label={tr("Refresh preview")}
           onClick={() => setRevision((v) => v + 1)}
@@ -126,7 +129,7 @@ export function Preview({ session }: { session: EditorSession }) {
       <div className="preview-stage" ref={mount} />
       <div className="preview-toolbar">
         <button
-          disabled={!ready || !synchronized || state.compiling}
+          disabled={!ready || !synchronized || state.compiling || editingTransform}
           onClick={() => run((b) => b.play())}
           aria-label={tr("Play")}
           title={tr("Play")}
@@ -134,7 +137,7 @@ export function Preview({ session }: { session: EditorSession }) {
           <Play size={14} />
         </button>
         <button
-          disabled={!ready || !synchronized || state.compiling}
+          disabled={!ready || !synchronized || state.compiling || editingTransform}
           onClick={() => run((b) => b.runScene(0))}
           aria-label={tr("Run from the beginning")}
           title={tr("Run from the beginning")}
@@ -142,19 +145,21 @@ export function Preview({ session }: { session: EditorSession }) {
           <RotateCcw size={14} />
         </button>
         <button
-          disabled={!ready || !synchronized || state.compiling}
+          disabled={!ready || !synchronized || state.compiling || editingTransform}
           onClick={() => run((b) => b.runFrom(session.runtimeIndex()))}
         >
           <StepForward size={14} />
           {tr("Run from current statement")}
         </button>
-        <button disabled={!ready} onClick={() => run((b) => b.pause())} aria-label={tr("Pause")} title={tr("Pause")}>
+        <button disabled={!ready || editingTransform} onClick={() => run((b) => b.pause())} aria-label={tr("Pause")} title={tr("Pause")}>
           <Pause size={14} />
         </button>
         <span title={state.error || tr(status)}>
           {state.error ? tr("Preview shows the last valid version") : state.compiling ? tr("Compiling") : tr(status)}
         </span>
       </div>
+      <StageTransformEditor session={session} bridge={bridge.current} ready={ready && synchronized}
+        onEditingChange={setEditingTransform} />
     </section>
   );
 }

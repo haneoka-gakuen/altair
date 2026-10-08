@@ -1,0 +1,6 @@
+[submodule ".dependencies/altair-plugin-haneoka"]
+	path = .dependencies/altair-plugin-haneoka
+	url = https://github.com/haneoka-gakuen/altair-plugin-haneoka.git
+[submodule ".dependencies/altair-plugin-bestdori"]
+	path = .dependencies/altair-plugin-bestdori
+	url = https://github.com/haneoka-gakuen/altair-plugin-bestdori.git

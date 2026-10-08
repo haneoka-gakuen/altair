@@ -1,0 +1,311 @@
+/* Local inspector content only; no Preview, stage or workspace layout rules. */
+.webgal-animation-frames-editor {
+  --frames-control: var(--control-height, 40px);
+  --frames-surface: var(--md-sys-color-surface, var(--panel, Canvas));
+  --frames-container: var(--md-sys-color-surface-container-low, var(--panel-alt, Canvas));
+  --frames-text: var(--md-sys-color-on-surface, var(--text, CanvasText));
+  --frames-muted: var(--md-sys-color-on-surface-variant, var(--text-soft, GrayText));
+  --frames-outline: var(--md-sys-color-outline-variant, var(--line, ButtonBorder));
+  display: grid;
+  min-inline-size: 0;
+  inline-size: 100%;
+  gap: 12px;
+  color: var(--frames-text);
+}
+.webgal-animation-frames-editor > section {
+  display: grid;
+  min-inline-size: 0;
+  gap: 12px;
+}
+.webgal-animation-frames-editor > section > p {
+  margin: 0;
+  overflow-wrap: anywhere;
+  color: var(--frames-muted);
+  font-size: var(--md-sys-typescale-body-small-size, 12px);
+  line-height: var(--md-sys-typescale-body-small-line-height, 16px);
+}
+.webgal-animation-frames-editor > button,
+.webgal-animation-frames-editor :is(.animation-frames-actions, .animation-frames-footer) > button {
+  min-inline-size: var(--frames-control);
+  min-block-size: var(--frames-control);
+  padding: 8px 12px;
+  border: 1px solid var(--frames-outline);
+  border-radius: var(--md-sys-shape-corner-full, 9999px);
+  color: var(--frames-text);
+  background: var(--frames-surface);
+  white-space: normal;
+  overflow-wrap: anywhere;
+  text-wrap: balance;
+  font-size: var(--md-sys-typescale-label-large-size, 14px);
+  line-height: var(--md-sys-typescale-label-large-line-height, 20px);
+}
+.webgal-animation-frames-editor > button {
+  inline-size: 100%;
+  border-color: transparent;
+  color: var(--md-sys-color-on-secondary-container, var(--frames-text));
+  background: var(--md-sys-color-secondary-container, var(--accent-muted, ButtonFace));
+}
+.webgal-animation-frames-editor .animation-frames-actions {
+  display: flex;
+  flex-wrap: wrap;
+  min-inline-size: 0;
+  gap: 6px;
+}
+.webgal-animation-frames-editor .animation-frames-actions > button {
+  flex: 1 1 auto;
+}
+.webgal-animation-frames-editor .animation-frames-list {
+  display: grid;
+  align-content: start;
+  min-inline-size: 0;
+  max-block-size: min(28dvh, 16rem);
+  gap: 4px;
+  margin: 0;
+  padding: 4px;
+  overflow: auto;
+  overscroll-behavior: contain;
+  scroll-padding-block: 4px;
+  scrollbar-width: thin;
+  list-style: none;
+  border: 1px solid var(--frames-outline);
+  border-radius: var(--md-sys-shape-corner-large, 16px);
+  background: var(--frames-container);
+}
+.webgal-animation-frames-editor .animation-frames-list:empty {
+  display: none;
+}
+.webgal-animation-frames-editor .animation-frames-list > li {
+  min-inline-size: 0;
+}
+.webgal-animation-frames-editor .animation-frames-list > li > button {
+  display: grid;
+  justify-items: start;
+  align-content: center;
+  min-inline-size: 0;
+  inline-size: 100%;
+  min-block-size: max(var(--frames-control), 48px);
+  gap: 4px;
+  padding: 8px 12px;
+  border: 1px solid transparent;
+  border-radius: var(--md-sys-shape-corner-medium, 12px);
+  text-align: start;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  color: var(--frames-text);
+  background: var(--frames-surface);
+}
+.webgal-animation-frames-editor .animation-frames-list > li > button[aria-pressed="true"] {
+  color: var(--md-sys-color-on-secondary-container, var(--frames-text));
+  background: var(--md-sys-color-secondary-container, var(--accent-muted, ButtonFace));
+  border-color: var(--md-sys-color-secondary, var(--accent, Highlight));
+}
+.webgal-animation-frames-editor .animation-frames-list button > span {
+  font-weight: var(--md-sys-typescale-emphasized-label-weight, 700);
+}
+.webgal-animation-frames-editor .animation-frames-list button > small {
+  color: inherit;
+  font-size: var(--md-sys-typescale-body-small-size, 12px);
+  line-height: var(--md-sys-typescale-body-small-line-height, 16px);
+  font-variant-numeric: tabular-nums;
+}
+.webgal-animation-frames-editor .animation-frame-fields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  min-inline-size: 0;
+  gap: 12px 8px;
+  margin: 0;
+  padding: 12px;
+  border: 1px solid var(--frames-outline);
+  border-radius: var(--md-sys-shape-corner-large, 16px);
+  background: var(--frames-container);
+}
+.webgal-animation-frames-editor .animation-frame-fields > legend {
+  max-inline-size: 100%;
+  padding-inline: 4px;
+  overflow-wrap: anywhere;
+  font-weight: var(--md-sys-typescale-emphasized-label-weight, 700);
+}
+.webgal-animation-frames-editor .animation-frame-fields > label {
+  display: flex;
+  flex-direction: column;
+  min-inline-size: 0;
+  gap: 6px;
+}
+.webgal-animation-frames-editor .animation-frame-fields > label > span {
+  color: var(--frames-text);
+  overflow-wrap: anywhere;
+  font-size: var(--md-sys-typescale-label-medium-size, 12px);
+  line-height: var(--md-sys-typescale-label-medium-line-height, 16px);
+}
+.webgal-animation-frames-editor .animation-frame-fields input {
+  min-inline-size: 0;
+  inline-size: 100%;
+  min-block-size: var(--frames-control);
+  margin-block-start: auto;
+  padding: 8px;
+  border-color: var(--frames-outline);
+  border-radius: var(--md-sys-shape-corner-extra-small, 4px);
+  color: var(--frames-text);
+  background: var(--frames-surface);
+  font-variant-numeric: tabular-nums;
+}
+.webgal-animation-frames-editor .animation-frame-fields input::placeholder {
+  color: var(--frames-muted);
+  opacity: 1;
+}
+.webgal-animation-frames-editor .animation-frames-footer {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  min-inline-size: 0;
+  gap: 8px;
+  padding-block-start: 12px;
+  border-block-start: 1px solid var(--frames-outline);
+}
+.webgal-animation-frames-editor .animation-frames-footer > button:first-child {
+  color: var(--md-sys-color-on-primary, HighlightText);
+  background: var(--md-sys-color-primary, var(--accent, Highlight));
+  border-color: transparent;
+}
+.webgal-animation-frames-editor > [role="alert"] {
+  margin: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--md-sys-color-error, var(--danger-line, ButtonBorder));
+  border-radius: var(--md-sys-shape-corner-medium, 12px);
+  color: var(--md-sys-color-on-error-container, var(--danger-text, CanvasText));
+  background: var(--md-sys-color-error-container, var(--danger-bg, Canvas));
+  overflow-wrap: anywhere;
+}
+@media (pointer: coarse) {
+  .webgal-animation-frames-editor {
+    --frames-control: max(48px, var(--md-comp-control-height-touch, 48px));
+  }
+  .webgal-animation-frames-editor .animation-frame-fields input {
+    font-size: var(--md-sys-typescale-body-large-size, 16px);
+  }
+}
+@media (prefers-reduced-motion: no-preference) {
+  .webgal-animation-frames-editor > button,
+  .webgal-animation-frames-editor :is(.animation-frames-actions, .animation-frames-footer) > button,
+  .webgal-animation-frames-editor .animation-frames-list button {
+    transition: border-radius var(--motion-spatial-fast, var(--editor-spatial, 180ms ease-out)), background-color var(--motion-effects-fast, var(--editor-effects, 140ms ease-out));
+  }
+}
+.webgal-animation-frames-editor > button:active,
+.webgal-animation-frames-editor :is(.animation-frames-actions, .animation-frames-footer) > button:active {
+  border-radius: var(--md-sys-shape-corner-small, 8px);
+}
+
+/* Controlled Material disclosure: functional state owns aria-expanded/hidden. */
+.webgal-animation-frames-editor .animation-frames-raw {
+  display: grid;
+  min-inline-size: 0;
+  gap: 8px;
+}
+.webgal-animation-frames-editor .animation-frames-raw-toggle {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-inline-size: 0;
+  inline-size: 100%;
+  min-block-size: max(48px, var(--frames-control));
+  padding: 10px 12px;
+  overflow: hidden;
+  border: 1px solid var(--frames-outline);
+  border-radius: var(--md-sys-shape-corner-large, 16px);
+  color: var(--frames-text);
+  background: var(--frames-container);
+  text-align: start;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  font-size: var(--md-sys-typescale-label-large-size, 14px);
+  line-height: var(--md-sys-typescale-label-large-line-height, 20px);
+}
+.webgal-animation-frames-editor .animation-frames-raw-toggle[aria-expanded="true"] {
+  color: var(--md-sys-color-on-secondary-container, var(--frames-text));
+  background: var(--md-sys-color-secondary-container, var(--accent-muted, ButtonFace));
+}
+.webgal-animation-frames-editor .animation-frames-raw-toggle::before {
+  position: absolute;
+  inset: 0;
+  content: "";
+  pointer-events: none;
+  border-radius: inherit;
+  background: currentColor;
+  opacity: 0;
+}
+.webgal-animation-frames-editor .animation-frames-raw-toggle::after {
+  content: "";
+  pointer-events: none;
+  flex: 0 0 20px;
+  inline-size: 20px;
+  block-size: 20px;
+  background: currentColor;
+  mask: url("data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2024%2024%22%3E%3Cpath%20d%3D%22M12%2014.95q-.2%200-.375-.062t-.325-.213l-4.6-4.6q-.275-.275-.275-.7t.275-.7t.7-.275t.7.275l3.9%203.9l3.9-3.9q.275-.275.7-.275t.7.275t.275.7t-.275.7l-4.6%204.6q-.15.15-.325.213T12%2014.95%22%2F%3E%3C%2Fsvg%3E") center / contain no-repeat;
+}
+.webgal-animation-frames-editor .animation-frames-raw-toggle[aria-expanded="true"]::after {
+  transform: rotate(180deg);
+}
+@media (hover: hover) {
+  .webgal-animation-frames-editor .animation-frames-raw-toggle:not(:disabled):hover::before {
+    opacity: var(--md-sys-state-hover-state-layer-opacity, 0.08);
+  }
+}
+.webgal-animation-frames-editor .animation-frames-raw-toggle:focus-visible {
+  outline: 3px solid var(--md-sys-color-secondary, var(--accent, Highlight));
+  outline-offset: 2px;
+}
+.webgal-animation-frames-editor .animation-frames-raw-toggle:focus-visible::before {
+  opacity: var(--md-sys-state-focus-state-layer-opacity, 0.1);
+}
+.webgal-animation-frames-editor .animation-frames-raw-toggle:not(:disabled):active {
+  border-radius: var(--md-sys-shape-corner-small, 8px);
+}
+.webgal-animation-frames-editor .animation-frames-raw-toggle:not(:disabled):active::before {
+  opacity: var(--md-sys-state-pressed-state-layer-opacity, 0.1);
+}
+.webgal-animation-frames-editor .animation-frames-raw-region[hidden] {
+  display: none;
+}
+.webgal-animation-frames-editor .animation-frames-raw-region:not([hidden]) {
+  display: grid;
+  min-inline-size: 0;
+  padding: 10px;
+  border: 1px solid var(--frames-outline);
+  border-radius: var(--md-sys-shape-corner-medium, 12px);
+  background: var(--frames-container);
+}
+.webgal-animation-frames-editor .animation-frames-raw-region > textarea {
+  display: block;
+  min-inline-size: 0;
+  inline-size: 100%;
+  min-block-size: 10rem;
+  max-block-size: 32rem;
+  padding: 10px;
+  resize: vertical;
+  border-color: var(--frames-outline);
+  border-radius: var(--md-sys-shape-corner-extra-small, 4px);
+  color: var(--frames-text);
+  background: var(--frames-surface);
+  font-family: var(--md-ref-typeface-code, ui-monospace, monospace);
+  font-size: var(--md-sys-typescale-body-small-size, 12px);
+  line-height: 1.6;
+  tab-size: 2;
+}
+@media (pointer: coarse) {
+  .webgal-animation-frames-editor .animation-frames-raw-region > textarea {
+    font-size: var(--md-sys-typescale-body-large-size, 16px);
+  }
+}
+@media (prefers-reduced-motion: no-preference) {
+  .webgal-animation-frames-editor .animation-frames-raw-toggle {
+    transition: border-radius var(--motion-spatial-fast, var(--editor-spatial, 180ms ease-out)), background-color var(--motion-effects-fast, var(--editor-effects, 140ms ease-out));
+  }
+  .webgal-animation-frames-editor .animation-frames-raw-toggle::before {
+    transition: opacity var(--motion-effects-fast, var(--editor-effects, 140ms ease-out));
+  }
+  .webgal-animation-frames-editor .animation-frames-raw-toggle::after {
+    transition: transform var(--motion-spatial-fast, var(--editor-spatial, 180ms ease-out));
+  }
+}

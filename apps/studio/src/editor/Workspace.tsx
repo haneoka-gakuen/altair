@@ -48,9 +48,17 @@ import { type EditorSession } from "./session";
 import { exportProjectZip } from "./archive";
 import type { ProjectFile } from "./library";
 import "./mobile-workspace.css";
+import "./workspace-expressive.css";
 import { FileTree } from "./FileTree";
 import { FileActionsDialog } from "./FileActionsDialog";
 import { FileRecoveryDialog } from "./FileRecoveryDialog";
+import { ConflictResolutionDialog } from "./ConflictResolutionDialog";
+const NativeImportRecoveryDialog = lazy(() =>
+  import("./NativeImportRecoveryDialog").then((module) => ({ default: module.NativeImportRecoveryDialog })),
+);
+const PublicResourcePicker = lazy(() =>
+  import("./PublicResourcePicker").then((module) => ({ default: module.PublicResourcePicker })),
+);
 const ProjectHistoryDialog = lazy(() =>
   import("./ProjectHistoryDialog").then((module) => ({ default: module.ProjectHistoryDialog })),
 );
@@ -87,6 +95,17 @@ export function Workspace({ session, onHome }: { session: EditorSession; onHome:
   const [fileClipboard, setFileClipboard] = useState<{ path: string; cut: boolean }>();
   const [recovery, setRecovery] = useState<{ source?: string }>();
   const [historyPath, setHistoryPath] = useState("");
+  const [nativeRecoveryView, setNativeRecoveryView] = useState<"recovery" | "backups">();
+  const [publicPicker, setPublicPicker] = useState(false);
+  useEffect(() => {
+    if (state.nativeImportRecovery) setNativeRecoveryView("recovery");
+  }, [session, state.nativeImportRecovery?.id]);
+  const [conflictTarget, setConflictTarget] = useState<{
+    session: EditorSession;
+    projectId: string;
+    path: string;
+    contextEpoch: number;
+  }>();
   const docEditor = doc && session.editorFor(doc.path);
   const mode = state.view ?? "visual",
     setMode = (view: string) => session.setView(view);
@@ -197,6 +216,7 @@ export function Workspace({ session, onHome }: { session: EditorSession; onHome:
   const propertyFile = state.files.find(
     (file) => file.path === (asset || (doc && !nativeScenePath(doc.path) ? doc.path : "")),
   );
+  const conflictDocument = asset ? session.document(asset) : doc;
   const fileTreeActions = {
     disabled: state.saving,
     canPaste: Boolean(fileClipboard),
@@ -235,6 +255,51 @@ export function Workspace({ session, onHome }: { session: EditorSession; onHome:
   };
   return (
     <main className="workspace" data-mobile-page={mobilePage}>
+      {publicPicker && (
+        <Suspense fallback={null}>
+          <PublicResourcePicker
+            key={`${state.id}:${state.contextEpoch ?? 0}`}
+            session={session}
+            onClose={() => setPublicPicker(false)}
+          />
+        </Suspense>
+      )}
+      {nativeRecoveryView && (
+        <Suspense fallback={null}>
+          <NativeImportRecoveryDialog
+            key={`${state.id}:${state.contextEpoch ?? 0}:${nativeRecoveryView}`}
+            session={session}
+            backups={nativeRecoveryView === "backups"}
+            onClose={() => setNativeRecoveryView(undefined)}
+          />
+        </Suspense>
+      )}
+      {state.nativeImportRecovery && (
+        <section className="document-conflict-banner" role="status">
+          <div>
+            <strong>{tr("Unfinished native import")}</strong>
+            <p>{tr("Review folder changes before continuing to edit.")}</p>
+          </div>
+          <button
+            type="button"
+            className="secondary-button"
+            disabled={state.saving}
+            onClick={() => setNativeRecoveryView("recovery")}
+          >
+            {tr("Recover unfinished import")}
+          </button>
+        </section>
+      )}
+      {conflictTarget?.session === session &&
+        conflictTarget.projectId === state.id &&
+        conflictTarget.contextEpoch === (state.contextEpoch ?? 0) && (
+          <ConflictResolutionDialog
+            key={`${conflictTarget.projectId}:${conflictTarget.path}:${conflictTarget.contextEpoch}`}
+            session={session}
+            path={conflictTarget.path}
+            onClose={() => setConflictTarget(undefined)}
+          />
+        )}
       {historyPath && (
         <Suspense fallback={null}>
           <ProjectHistoryDialog session={session} path={historyPath} onClose={() => setHistoryPath("")} />
@@ -313,6 +378,9 @@ export function Workspace({ session, onHome }: { session: EditorSession; onHome:
               <DropdownMenu.Separator />
               <DropdownMenu.Item disabled={!doc || state.saving} onSelect={() => setHistoryPath(state.active)}>
                 {tr("Version history")}
+              </DropdownMenu.Item>
+              <DropdownMenu.Item disabled={state.saving} onSelect={() => setNativeRecoveryView("backups")}>
+                {tr("Native import backups")}
               </DropdownMenu.Item>
               <DropdownMenu.Item
                 onSelect={() => void exportProjectZip(session).catch((error) => setIssue(String(error)))}
@@ -490,6 +558,15 @@ export function Workspace({ session, onHome }: { session: EditorSession; onHome:
                     <Plus size={14} />
                     {tr("Import assets")}
                   </button>
+                  <button
+                    type="button"
+                    className="resource-import"
+                    disabled={state.saving}
+                    onClick={() => setPublicPicker(true)}
+                  >
+                    <Plus size={14} />
+                    {tr("Online assets")}
+                  </button>
                 </Tabs.Content>
               </Tabs.Root>
             </Panel>
@@ -562,6 +639,29 @@ export function Workspace({ session, onHome }: { session: EditorSession; onHome:
                 </Tabs.List>
               </Tabs.Root>
             </div>
+            {conflictDocument?.external !== undefined && (
+              <div className="document-conflict-banner" role="status">
+                <div>
+                  <strong>{tr("File changed on disk")}</strong>
+                  <p>{conflictDocument.path}</p>
+                </div>
+                <button
+                  type="button"
+                  className="secondary-button"
+                  disabled={state.saving}
+                  onClick={() =>
+                    setConflictTarget({
+                      session,
+                      projectId: state.id,
+                      path: conflictDocument.path,
+                      contextEpoch: state.contextEpoch ?? 0,
+                    })
+                  }
+                >
+                  {tr("Review conflict")}
+                </button>
+              </div>
+            )}
             {asset ? (
               <div className="asset-preview">
                 <h3>{asset}</h3>
@@ -595,20 +695,6 @@ export function Workspace({ session, onHome }: { session: EditorSession; onHome:
               </Suspense>
             ) : (
               <div className="document-editor">
-                {doc?.external !== undefined && (
-                  <div className="conflict-banner">
-                    <strong>{tr("File changed on disk")}</strong>
-                    <p>{tr("The file on disk differs from your changes.")}</p>
-                    <button onClick={() => session.resolveConflict(doc.path, "disk")}>{tr("Load disk version")}</button>
-                    <button onClick={() => session.resolveConflict(doc.path, "editor")}>
-                      {tr("Keep editor version")}
-                    </button>
-                    <details>
-                      <summary>{tr("View disk version")}</summary>
-                      <pre>{doc.external}</pre>
-                    </details>
-                  </div>
-                )}
                 {mode === "source" && doc ? (
                   <Suspense fallback={<div className="empty-panel">{tr("Opening source editor\u2026")}</div>}>
                     <SourceEditor session={session} document={doc} line={state.line} />

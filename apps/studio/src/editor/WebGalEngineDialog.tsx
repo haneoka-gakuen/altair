@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
-import { Boxes, Download, Trash2, Upload, X } from "lucide-react";
+import { Boxes, Download, FolderOpen, Trash2, Upload, X } from "lucide-react";
+import { BrowserWorkspaceService } from "@haneoka/altair-plugin-workspace-browser";
 import { parseAltairProjectDocument, serializeAltairDocument } from "@haneoka/altair";
 import { NATIVE_PROJECT_PATH } from "./native-project";
 import { projectLibrary } from "./library";
@@ -15,6 +16,7 @@ import {
 } from "./webgal-engines";
 import { prepareWebGalGame, createWebGalGameZip, downloadWebGalGame, type WebGalGamePlan } from "./webgal-export";
 import { RuntimeSettings } from "./RuntimeSettings";
+import { readWebGalEngineFolder } from "./webgal-engine-folder";
 import "./webgal-engine.css";
 
 export function WebGalEngineDialog({ session, exportMode = false }: { session: EditorSession; exportMode?: boolean }) {
@@ -28,6 +30,7 @@ export function WebGalEngineDialog({ session, exportMode = false }: { session: E
     [allowUnsupported, setAllowUnsupported] = useState(false),
     [locale, setLocale] = useState("");
   const task = useRef<AbortController | undefined>(undefined);
+  const activeOperation = useRef(false);
   const manifestText = session.document(NATIVE_PROJECT_PATH)?.text ?? "";
   const project = useMemo(() => {
     try {
@@ -42,6 +45,10 @@ export function WebGalEngineDialog({ session, exportMode = false }: { session: E
     setAllowUnsupported(false);
   }, [state.documents, state.files, state.directories, locale]);
   useEffect(() => {
+    task.current?.abort();
+    task.current = undefined;
+    activeOperation.current = false;
+    setBusy(false);
     if (!open) return;
     const controller = new AbortController();
     task.current = controller;
@@ -60,8 +67,10 @@ export function WebGalEngineDialog({ session, exportMode = false }: { session: E
       task.current?.abort();
       task.current = undefined;
     };
-  }, [open]);
+  }, [open, session, state.id, state.contextEpoch]);
   const run = async (action: (signal: AbortSignal) => Promise<void>) => {
+    if (activeOperation.current) return;
+    activeOperation.current = true;
     task.current?.abort();
     const controller = new AbortController();
     task.current = controller;
@@ -72,7 +81,11 @@ export function WebGalEngineDialog({ session, exportMode = false }: { session: E
     } catch (error) {
       if (!controller.signal.aborted) setIssue(error instanceof Error ? tr(error.message) : String(error));
     } finally {
-      if (task.current === controller) setBusy(false);
+      if (task.current === controller) {
+        task.current = undefined;
+        activeOperation.current = false;
+        setBusy(false);
+      }
     }
   };
   const bind = (engine: WebGalEngineMetadata) => {
@@ -100,7 +113,13 @@ export function WebGalEngineDialog({ session, exportMode = false }: { session: E
     <Dialog.Root
       open={open}
       onOpenChange={(next) => {
-        if (!busy) setOpen(next);
+        if (!next) {
+          task.current?.abort();
+          task.current = undefined;
+          activeOperation.current = false;
+          setBusy(false);
+        }
+        setOpen(next);
       }}
     >
       <Dialog.Trigger asChild>
@@ -120,7 +139,7 @@ export function WebGalEngineDialog({ session, exportMode = false }: { session: E
         <Dialog.Content className="modal-content webgal-engine-dialog">
           <Dialog.Title>{tr(exportMode ? "Export WebGAL game" : "WebGAL engines")}</Dialog.Title>
           <Dialog.Description>
-            {tr("Install a compiled WebGAL web ZIP, then select an exact engine version for this project.")}
+            {tr("Install a compiled WebGAL web ZIP or folder, then select an exact engine version for this project.")}
           </Dialog.Description>
           <div className="webgal-engine-actions">
             <RuntimeSettings />
@@ -145,6 +164,34 @@ export function WebGalEngineDialog({ session, exportMode = false }: { session: E
                 }}
               />
             </label>
+            <button
+              type="button"
+              className="secondary-button"
+              disabled={busy}
+              onClick={() =>
+                void run(async (signal) => {
+                  const workspace = new BrowserWorkspaceService({
+                    maxFiles: 20_000,
+                    maxTotalBytes: 512 * 1024 * 1024,
+                    includeHidden: true,
+                    ignoredDirectoryNames: [],
+                  });
+                  try {
+                    await workspace.pickDirectory({ signal, pickerOptions: { mode: "read" } });
+                    const contents = await readWebGalEngineFolder(workspace, signal);
+                    await webGalEngines.installFolder(contents, signal);
+                    const items = await webGalEngines.list();
+                    signal.throwIfAborted();
+                    setEngines(items);
+                  } finally {
+                    await workspace.dispose();
+                  }
+                })
+              }
+            >
+              <FolderOpen size={15} />
+              {tr("Install engine folder")}
+            </button>
             <a
               className="secondary-button"
               href="https://github.com/OpenWebGAL/WebGAL/releases"
@@ -312,7 +359,7 @@ export function WebGalEngineDialog({ session, exportMode = false }: { session: E
               {issue}
             </p>
           )}
-          <Dialog.Close className="modal-close" disabled={busy} aria-label={tr("Close")}>
+          <Dialog.Close className="modal-close" aria-label={tr("Close")}>
             <X size={16} />
           </Dialog.Close>
         </Dialog.Content>

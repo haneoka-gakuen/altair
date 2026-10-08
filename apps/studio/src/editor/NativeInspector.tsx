@@ -12,6 +12,7 @@ import { nativeCommands, NATIVE_PROJECT_PATH, type EditorStatement } from "./nat
 import type { EditorSession } from "./session";
 import { readLocalizedText, editLocalizedText } from "./localized-text";
 import { PluginPanel } from "./PluginPanel";
+import { WebGalAnimationFramesEditor } from "./WebGalAnimationFramesEditor";
 import { NumberInput, StructuredTextInput as YamlField } from "@haneoka/altair-ui-react";
 interface Field {
   key: string;
@@ -44,7 +45,8 @@ export function NativeInspector({
       (command) => command.name === node.type.name && node.type.plugin === "haneoka.altair-adv",
     );
   const timeline = node.type.plugin === "haneoka.altair" && node.type.name === "timeline";
-  const fields: readonly Field[] = timeline
+  const animationNode = node.type.plugin === "haneoka.altair-webgal" && node.type.name === "effect.setTempAnimation";
+  let fields: readonly Field[] = timeline
     ? [
         { key: "durationSeconds", label: tr("Minimum duration (s)"), kind: "number" },
         { key: "waitForPrevious", label: tr("Wait for previous timeline"), kind: "boolean" },
@@ -60,6 +62,7 @@ export function NativeInspector({
               durationMs: "Duration (ms)",
               ease: "Easing",
               transform: "Transform",
+              frames: "Animation frames",
               noWait: "Continue immediately",
               parallel: "Parallel",
               keep: "Keep animation",
@@ -80,6 +83,8 @@ export function NativeInspector({
                 ? "text"
                 : "json",
       })));
+  if (animationNode && !fields.some(field => field.key === "frames"))
+    fields = [...fields, { key: "frames", label: tr("Animation frames"), kind: "json" }];
   let locales: readonly string[] = [];
   try {
     locales = parseAltairProjectDocument(session.document(NATIVE_PROJECT_PATH)?.text ?? "").locales;
@@ -96,6 +101,7 @@ export function NativeInspector({
     const editor = session.editorHost
       ?.contributions("property-editor")
       .find((editor) => editor.matches(node, field.key));
+    const animation = animationNode && field.key === "frames";
     if (editor)
       control = (
         <PluginPanel
@@ -106,6 +112,7 @@ export function NativeInspector({
           inline
         />
       );
+    else if (animation) control = <WebGalAnimationFramesEditor key={node.id} session={session} nodeId={node.id} />;
     else if (field.kind === "boolean")
       control = (
         <input
@@ -221,7 +228,7 @@ export function NativeInspector({
         </div>
       );
     } else control = <YamlField value={value ?? null} onChange={update} />;
-    const Container = editor || ["localized-list", "resource-list"].includes(field.kind) ? "div" : "label";
+    const Container = editor || animation || ["localized-list", "resource-list"].includes(field.kind) ? "div" : "label";
     return (
       <Container className={field.kind === "boolean" ? "toggle-field" : "field"} key={`${node.id}/${field.key}`}>
         <span>{field.label}</span>
@@ -231,6 +238,8 @@ export function NativeInspector({
   };
   const primaryKeys = timeline
     ? fields.map((field) => field.key)
+    : animationNode
+      ? ["targetName", "frames"]
     : node.type.name === "Talk"
       ? ["targetTextNames", "text", "voiceRefs"]
       : fields

@@ -9,6 +9,7 @@ import { projectLibrary, type LibraryProject } from "./library";
 import { EditorSession } from "./session";
 import { readProjectZip } from "./archive";
 import { createNativeProject, normalizeImportedProject } from "./native-project";
+import { nativeImportForFolder } from "./native-import";
 import "./editor.css";
 const Workspace = lazy(() => import("./Workspace").then((module) => ({ default: module.Workspace })));
 export function EditorApp() {
@@ -44,6 +45,8 @@ export function EditorApp() {
       if (workspace.current !== service) await workspace.current?.dispose();
       workspace.current = service;
       const original = project;
+      const storedRecovery = await projectLibrary.nativeImport(project.id);
+      if (storedRecovery) project = storedRecovery.beforeProject;
       if (!service && project.directory) {
         service = new BrowserWorkspaceService();
         const snapshot = await service.connectDirectory(project.directory, {
@@ -62,17 +65,18 @@ export function EditorApp() {
         };
         workspace.current = service;
       }
+      const pending = service?.directory ? await nativeImportForFolder(service) : undefined;
       const sourceFiles = project.files;
-      project = await normalizeImportedProject(project);
-      const converted = project.files !== sourceFiles;
+      project = pending ? pending.beforeProject : await normalizeImportedProject(project);
+      const converted = !pending && project.files !== sourceFiles;
       if (converted) {
         await service?.dispose();
         service = undefined;
         workspace.current = undefined;
       }
       if (service?.directory) project = { ...project, directory: service.directory };
-      if (converted || original.id !== project.id || service) project = await projectLibrary.put(project);
-      if (original.id !== project.id) {
+      if (!pending && (converted || original.id !== project.id || service)) project = await projectLibrary.put(project);
+      if (!pending && original.id !== project.id) {
         await projectLibrary.remove(original.id);
       }
       const next = new EditorSession(project, service);
@@ -106,7 +110,7 @@ export function EditorApp() {
     setBusy(true);
     setError("");
     try {
-      const snapshot = await service.pickDirectory();
+      const snapshot = await service.pickDirectory({ pickerOptions: { mode: "readwrite" } });
       const files = await Promise.all(
         snapshot.files.map(async (file) => ({
           path: file.path,
@@ -120,7 +124,6 @@ export function EditorApp() {
         updatedAt: Date.now(),
         files,
       };
-      await projectLibrary.put(project);
       await open(project, service);
     } catch (error) {
       await service.dispose();

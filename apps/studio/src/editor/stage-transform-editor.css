@@ -1,0 +1,137 @@
+/* Scoped to the optional transform editor; existing Preview owns the renderer. */
+.editor-preview > .stage-transform-editor {
+  --transform-control: var(--control-height, 40px);
+  --transform-surface: var(--md-sys-color-surface-container-low, var(--panel-alt, Canvas));
+  --transform-text: var(--md-sys-color-on-surface, var(--text, CanvasText));
+  --transform-muted: var(--md-sys-color-on-surface-variant, var(--text-soft, GrayText));
+  --transform-outline: var(--md-sys-color-outline-variant, var(--line, ButtonBorder));
+  flex: none;
+  min-inline-size: 0;
+  padding: 12px;
+  border-block-start: 1px solid var(--transform-outline);
+  color: var(--transform-text);
+  background: var(--transform-surface);
+}
+.editor-preview > .stage-transform-editor > button,
+.editor-preview > .stage-transform-editor > section > button {
+  min-inline-size: var(--transform-control);
+  min-block-size: var(--transform-control);
+  padding: 8px 16px;
+  border: 1px solid var(--transform-outline);
+  border-radius: var(--md-sys-shape-corner-full, 9999px);
+  color: var(--transform-text);
+  background: var(--md-sys-color-surface, var(--panel, Canvas));
+  white-space: normal;
+  overflow-wrap: anywhere;
+  text-wrap: balance;
+  font-size: var(--md-sys-typescale-label-large-size, 14px);
+  line-height: var(--md-sys-typescale-label-large-line-height, 20px);
+}
+.editor-preview > .stage-transform-editor > button {
+  inline-size: 100%;
+  color: var(--md-sys-color-on-secondary-container, var(--transform-text));
+  background: var(--md-sys-color-secondary-container, var(--accent-muted, ButtonFace));
+  border-color: transparent;
+}
+.editor-preview > .stage-transform-editor > section {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px 8px;
+  min-inline-size: 0;
+}
+.editor-preview > .stage-transform-editor > section > p,
+.editor-preview > .stage-transform-editor > section > .transform-fields {
+  grid-column: 1 / -1;
+  min-inline-size: 0;
+}
+.editor-preview > .stage-transform-editor > section > p {
+  margin: 0;
+  overflow-wrap: anywhere;
+  font-size: var(--md-sys-typescale-body-small-size, 12px);
+  line-height: var(--md-sys-typescale-body-small-line-height, 16px);
+  color: var(--transform-muted);
+}
+.editor-preview > .stage-transform-editor > section > p:first-child {
+  color: var(--transform-text);
+  font-weight: var(--md-sys-typescale-emphasized-body-weight, 500);
+}
+.editor-preview > .stage-transform-editor .transform-fields {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: stretch;
+  gap: 12px 8px;
+  padding-block: 4px;
+}
+.editor-preview > .stage-transform-editor .transform-fields > label {
+  min-inline-size: 0;
+  gap: 4px;
+}
+.editor-preview > .stage-transform-editor .transform-fields > label > span {
+  color: var(--transform-text);
+  font-size: var(--md-sys-typescale-label-medium-size, 12px);
+  line-height: var(--md-sys-typescale-label-medium-line-height, 16px);
+}
+.editor-preview > .stage-transform-editor .transform-fields > label > small {
+  overflow-wrap: anywhere;
+  color: var(--transform-muted);
+  font-size: var(--md-sys-typescale-body-small-size, 12px);
+  line-height: var(--md-sys-typescale-body-small-line-height, 16px);
+}
+.editor-preview > .stage-transform-editor .transform-fields input {
+  inline-size: 100%;
+  min-inline-size: 0;
+  min-block-size: var(--transform-control);
+  margin-block-start: auto;
+  padding: 8px;
+  border-color: var(--transform-outline);
+  border-radius: var(--md-sys-shape-corner-extra-small, 4px);
+  color: var(--transform-text);
+  background: var(--md-sys-color-surface, var(--panel, Canvas));
+  font-variant-numeric: tabular-nums;
+}
+.editor-preview > .stage-transform-editor > section > button:first-of-type {
+  color: var(--md-sys-color-on-primary, HighlightText);
+  background: var(--md-sys-color-primary, var(--accent, Highlight));
+  border-color: transparent;
+}
+.editor-preview > .stage-transform-editor > [role="alert"] {
+  margin: 10px 0 0;
+  padding: 10px 12px;
+  border: 1px solid var(--md-sys-color-error, var(--danger-line, ButtonBorder));
+  border-radius: var(--md-sys-shape-corner-medium, 12px);
+  color: var(--md-sys-color-on-error-container, var(--danger-text, CanvasText));
+  background: var(--md-sys-color-error-container, var(--danger-bg, Canvas));
+  overflow-wrap: anywhere;
+}
+/* Only the open audition can overflow a short resizable preview panel.
+   Keep the stage in normal flow; scroll the host, never cover the stage. */
+.editor-preview:has(> .stage-transform-editor > section) {
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  scroll-padding-block: 12px;
+}
+.editor-preview:has(> .stage-transform-editor > section) > :is(.panel-heading, .preview-toolbar) {
+  flex: none;
+}
+.editor-preview:has(> .stage-transform-editor > section) > .preview-stage {
+  flex: 1 0 120px;
+  min-block-size: 120px;
+}
+@media (pointer: coarse) {
+  .editor-preview > .stage-transform-editor {
+    --transform-control: max(48px, var(--md-comp-control-height-touch, 48px));
+  }
+  .editor-preview > .stage-transform-editor .transform-fields input {
+    font-size: var(--md-sys-typescale-body-large-size, 16px);
+  }
+}
+@media (prefers-reduced-motion: no-preference) {
+  .editor-preview > .stage-transform-editor > button,
+  .editor-preview > .stage-transform-editor > section > button {
+    transition: border-radius var(--motion-spatial-fast, var(--editor-spatial, 180ms ease-out)), background-color var(--motion-effects-fast, var(--editor-effects, 140ms ease-out));
+  }
+}
+.editor-preview > .stage-transform-editor > button:active,
+.editor-preview > .stage-transform-editor > section > button:active {
+  border-radius: var(--md-sys-shape-corner-small, 8px);
+}

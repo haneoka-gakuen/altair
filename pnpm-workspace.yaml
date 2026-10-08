@@ -27,6 +27,8 @@ packages:
   - ".dependencies/altair-plugin-webgal"
   - ".dependencies/altair-plugin-workspace-browser"
   - ".dependencies/altair-preset-full"
+  - ".dependencies/altair-plugin-haneoka"
+  - ".dependencies/altair-plugin-bestdori"
 
 linkWorkspacePackages: true
 

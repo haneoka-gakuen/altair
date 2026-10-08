@@ -23,6 +23,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           path: altair
+          submodules: true
           persist-credentials: false
 
       # The three repositories are developed side by side. Building the shared
@@ -31,6 +32,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: haneoka-gakuen/vega
+          ref: 8e747ee25525ae822b2ab8f65052817ea8887849
           path: altair/.dependencies/vega
           persist-credentials: false
 
@@ -232,6 +234,12 @@ jobs:
           pnpm --filter @haneoka/altair-plugin-webgal build
           pnpm --filter @haneoka/altair-plugin-workspace-browser build
           pnpm --filter @haneoka/altair-preset-full build
+
+      - name: Build pinned public resource providers
+        working-directory: altair
+        run: |
+          pnpm --filter @haneoka/altair-plugin-haneoka build
+          pnpm --filter @haneoka/altair-plugin-bestdori build
 
       - name: Check Altair, preview client, and Studio
         working-directory: altair

@@ -44,6 +44,28 @@ import {
 import { projectLibrary, type LibraryProject, type ProjectFile, type ProjectRecoveryCopy } from "./library";
 import { prepareSharedAssetImport, type SharedAssetPack } from "./shared-assets";
 import { ProjectHistory } from "./project-history";
+import { preparePublicAssetImport, type PublicAssetByteReader } from "./public-asset-import";
+import { assertLocalPublicAssetAvailable, registerLocalPublicAsset } from "./public-asset-project";
+import type { EditorPublicAsset } from "./resource-manifest";
+import { abortableOperation } from "./abortable-operation";
+import {
+  assertNativeImportHost,
+  prepareNativeImport,
+  applyNativeImport,
+  NativeImportFailure,
+  nativeImportForFolder,
+  reviewNativeImport,
+  resolveNativeImport,
+  withNativeImportLock,
+  type NativeImportReview,
+  type NativeImportWrite,
+} from "./native-import";
+import {
+  captureConflictReview,
+  conflictReviewMatches,
+  conflictReplacement,
+  type ConflictReview,
+} from "./conflict-resolution";
 import {
   planProjectPathMove,
   planProjectPathCopy,
@@ -78,6 +100,8 @@ export interface EditorSnapshot {
   readonly canUndo: boolean;
   readonly canRedo: boolean;
   readonly localFolder?: string;
+  readonly contextEpoch?: number;
+  readonly nativeImportRecovery?: { readonly id: string; readonly fileCount: number };
 }
 const isScene = nativeScenePath;
 const isText = (path: string) =>
@@ -98,6 +122,14 @@ export class EditorSession {
   private draftTimer: ReturnType<typeof setTimeout> | undefined;
   private persistence: Promise<unknown> = Promise.resolve();
   private compilation: AbortController | undefined;
+  private readonly conflictLifetime = new AbortController();
+  get lifetimeSignal(): AbortSignal {
+    return this.conflictLifetime.signal;
+  }
+  private contextIdentity = "";
+  private contextEpoch = 0;
+  private contextLifetime = new AbortController();
+  private importOperation: AbortController | undefined;
   private saveTask: Promise<void> | undefined;
   private folderTask: Promise<void> | undefined;
   private pathTask: Promise<unknown> | undefined;
@@ -146,6 +178,7 @@ export class EditorSession {
   constructor(
     project: LibraryProject,
     private workspace?: AltairBrowserWorkspaceService,
+    private readonly options: { readonly ephemeral?: boolean } = {},
   ) {
     this.previewResources = new PreviewResources(project.id);
     this.projectHistory = new ProjectHistory(project.id, workspace);
@@ -182,7 +215,18 @@ export class EditorSession {
     for (const listener of this.listeners) listener();
   }
   async initialize(): Promise<void> {
-    this.libraryRevision ??= (await projectLibrary.get(this.state.id))?.revision;
+    const pending = this.options.ephemeral ? undefined : await projectLibrary.nativeImport(this.state.id);
+    if (pending) {
+      if (!this.workspace?.directory || (await nativeImportForFolder(this.workspace))?.id !== pending.id)
+        throw new Error(tr("Open the original folder to recover this import."));
+      this.libraryRevision = pending.beforeProject.revision;
+      this.publish({
+        files: pending.beforeProject.files,
+        directories: projectDirectories(pending.beforeProject.files, pending.beforeProject.directories),
+        nativeImportRecovery: { id: pending.id, fileCount: pending.entries.length },
+      });
+    }
+    if (!this.options.ephemeral) this.libraryRevision ??= (await projectLibrary.get(this.state.id))?.revision;
     const documents = await Promise.all(
       this.state.files
         .filter((file) => isText(file.path))
@@ -191,8 +235,8 @@ export class EditorSession {
           return { path: file.path, text, baseline: text, revision: 0 };
         }),
     );
-    if (this.disposed) return;
-    const draft = await projectLibrary.draft(this.state.id);
+    if (this.disposed || this.conflictLifetime.signal.aborted) return;
+    const draft = this.options.ephemeral ? undefined : await projectLibrary.draft(this.state.id);
     for (let i = 0; i < documents.length; i++) {
       const doc = documents[i]!,
         saved = draft?.documents.find((entry) => entry.path === doc.path);
@@ -258,11 +302,15 @@ export class EditorSession {
   private syncHistory() {
     const history = this.history.get(this.state.active);
     this.publish({
-      canUndo: history?.canUndo ?? false,
-      canRedo: history?.canRedo ?? false,
+      canUndo: !this.state.nativeImportRecovery && (history?.canUndo ?? false),
+      canRedo: !this.state.nativeImportRecovery && (history?.canRedo ?? false),
     });
   }
   update(path: string, text: string, merge = false) {
+    if (this.state.nativeImportRecovery) {
+      this.publish({ error: tr("Review the unfinished native import before saving this project.") });
+      return;
+    }
     const doc = this.document(path);
     if (!doc || doc.text === text) return;
     const history = this.history.get(path)!;
@@ -274,6 +322,7 @@ export class EditorSession {
     this.history.get(this.state.active)?.endMerge();
   }
   private applyText(path: string, text: string) {
+    this.importOperation?.abort(new DOMException("Project edited during import", "AbortError"));
     const line =
       path === this.state.active
         ? nativeStatements(text).find((node) => node.id === this.state.selectedNodeId)?.line
@@ -288,6 +337,7 @@ export class EditorSession {
     this.scheduleDraft();
   }
   undo() {
+    if (this.state.nativeImportRecovery) return;
     const history = this.history.get(this.state.active);
     if (history?.canUndo) {
       this.applyText(this.state.active, history.undo());
@@ -295,6 +345,7 @@ export class EditorSession {
     }
   }
   redo() {
+    if (this.state.nativeImportRecovery) return;
     const history = this.history.get(this.state.active);
     if (history?.canRedo) {
       this.applyText(this.state.active, history.redo());
@@ -431,6 +482,8 @@ export class EditorSession {
     } = {},
   ): Promise<void> {
     if (this.pathTask) throw new Error(tr("Saving"));
+    if (this.state.nativeImportRecovery)
+      throw new Error(tr("Review the unfinished native import before saving this project."));
     path = normalizeBrowserWorkspacePath(path);
     if (this.state.files.some((file) => file.path === path))
       throw new Error(tr("A file with this name already exists"));
@@ -451,6 +504,8 @@ export class EditorSession {
     await this.save();
   }
   async importSharedAssets(pack: SharedAssetPack, directory: string): Promise<readonly string[]> {
+    if (await projectLibrary.nativeImport(this.state.id))
+      throw new Error(tr("Review the unfinished native import before saving this project."));
     if (this.state.saving) throw new Error(tr("Saving"));
     const manifest = this.document(NATIVE_PROJECT_PATH);
     if (!manifest) throw new Error(tr("Project manifest is missing"));
@@ -491,10 +546,20 @@ export class EditorSession {
     return imported.files.map((file) => file.path);
   }
   /** Move a path and reconcile the authoring documents in its active storage. */
-  private runPathTask<T>(run: () => Promise<T>): Promise<T> {
+  private runPathTask<T>(run: () => Promise<T>, recovery = false): Promise<T> {
+    if (this.options.ephemeral) return Promise.reject(new Error("Preview sessions cannot save project files"));
     if (this.disposed || this.state.saving || this.pathTask) return Promise.reject(new Error(tr("Saving")));
+    const protectedRun = async () => {
+      if (!recovery && (await projectLibrary.nativeImport(this.state.id)))
+        throw new Error(tr("Review the unfinished native import before saving this project."));
+      return run();
+    };
     const task = Promise.resolve()
-      .then(run)
+      .then(() =>
+        this.workspace?.directory && globalThis.navigator?.locks
+          ? withNativeImportLock(this.state.id, protectedRun)
+          : protectedRun(),
+      )
       .finally(() => {
         this.pathTask = undefined;
       });
@@ -889,6 +954,7 @@ export class EditorSession {
     }
   }
   private startLocalWatch(): void {
+    if (this.state.nativeImportRecovery) return;
     this.localUnsubscribe?.();
     void this.localWatch?.dispose();
     if (!this.workspace?.directory) return;
@@ -904,6 +970,8 @@ export class EditorSession {
     this.localWatch = workspace.watch({ intervalMs: 1200 });
   }
   async refreshLocalFiles(): Promise<void> {
+    if (this.state.nativeImportRecovery)
+      throw new Error(tr("Review the unfinished native import before saving this project."));
     if (!this.workspace?.directory) return;
     if (this.saveTask) await this.saveTask;
     const workspace = this.workspace;
@@ -1007,6 +1075,7 @@ export class EditorSession {
     return this.localRefresh;
   }
   writeToFolder(directory?: BrowserWorkspaceDirectoryHandle): Promise<void> {
+    if (this.options.ephemeral) return Promise.reject(new Error("Preview sessions cannot save project files"));
     if (this.folderTask) return this.folderTask;
     if (this.state.saving) return Promise.reject(new Error(tr("Saving")));
     try {
@@ -1095,6 +1164,7 @@ export class EditorSession {
     }, 250);
   }
   private persistDraft() {
+    if (this.options.ephemeral) return Promise.resolve();
     const draft = {
       projectId: this.state.id,
       documents: this.state.documents
@@ -1116,6 +1186,7 @@ export class EditorSession {
     return this.persistence;
   }
   async compile(): Promise<void> {
+    if (this.disposed || this.conflictLifetime.signal.aborted) return;
     const active = this.document();
     if (!active) return;
     this.compilation?.abort();
@@ -1247,10 +1318,15 @@ export class EditorSession {
     readNativeWorkspace(documents);
   }
   save(): Promise<void> {
+    if (this.options.ephemeral) return Promise.reject(new Error("Preview sessions cannot save project files"));
     if (this.pathTask) return this.pathTask.then(() => this.save());
     if (this.folderTask) return this.folderTask.then(() => this.save());
     if (this.saveTask) return this.saveTask.then(() => this.save());
-    this.saveTask = this.saveNow().finally(() => {
+    this.saveTask = (
+      this.workspace?.directory && globalThis.navigator?.locks
+        ? withNativeImportLock(this.state.id, () => this.saveNow())
+        : this.saveNow()
+    ).finally(() => {
       this.saveTask = undefined;
     });
     return this.saveTask;
@@ -1260,6 +1336,8 @@ export class EditorSession {
     let documents = this.state.documents;
     const saved = new Map<string, string>();
     try {
+      if (await projectLibrary.nativeImport(this.state.id))
+        throw new Error(tr("Review the unfinished native import before saving this project."));
       if (this.localRefresh) await this.localRefresh;
       if (this.workspace?.directory) await this.syncLocalFiles(this.workspace, await this.workspace.refresh(), true);
       documents = this.state.documents;
@@ -1416,25 +1494,405 @@ export class EditorSession {
       this.publish({ saving: false });
     }
   }
-  resolveConflict(path: string, choice: "disk" | "editor") {
-    const doc = this.document(path);
-    if (doc?.external === undefined) return;
-    const external = doc.external;
-    this.publish({
-      documents: this.state.documents.map((current) =>
-        current.path === path ? { ...current, baseline: external, external: undefined } : current,
-      ),
-      error: "",
+  /** The host calls this when the authenticated identity/permission scope changes. */
+  setContextIdentity(identity: string): void {
+    if (identity === this.contextIdentity) return;
+    this.contextIdentity = identity;
+    this.contextEpoch++;
+    this.contextLifetime.abort(new DOMException("Account context changed", "AbortError"));
+    this.contextLifetime = new AbortController();
+    this.importOperation?.abort(new DOMException("Account context changed", "AbortError"));
+    this.publish({ contextEpoch: this.contextEpoch });
+  }
+  importPublicAsset(
+    asset: EditorPublicAsset,
+    reader: PublicAssetByteReader,
+    options: { directory: string; author: string; license: string; version: string; signal?: AbortSignal },
+  ): Promise<readonly string[]> {
+    const selected = structuredClone(asset),
+      settings = { ...options },
+      requestedEpoch = this.contextEpoch;
+    return this.runPathTask(async () => {
+      settings.signal?.throwIfAborted();
+      if (requestedEpoch !== this.contextEpoch) throw new DOMException("Account context changed", "AbortError");
+      const workspace = this.workspace,
+        native = Boolean(workspace?.directory),
+        root = workspace?.directory;
+      if (native) assertNativeImportHost(workspace!);
+      const controller = new AbortController(),
+        forward = () => controller.abort(settings.signal?.reason);
+      this.importOperation = controller;
+      settings.signal?.addEventListener("abort", forward, { once: true });
+      this.publish({ saving: true, error: "" });
+      try {
+        if (settings.signal?.aborted) forward();
+        const lifetime = () => {
+          controller.signal.throwIfAborted();
+          this.conflictLifetime.signal.throwIfAborted();
+          if (
+            this.contextEpoch !== requestedEpoch ||
+            this.workspace !== workspace ||
+            workspace?.directory !== root ||
+            this.disposed
+          )
+            throw new DOMException("Editor context changed", "AbortError");
+        };
+        lifetime();
+        if (native) {
+          if ((await workspace!.permission("readwrite", { request: true })) !== "granted")
+            throw new DOMException("Workspace write permission was denied", "NotAllowedError");
+          lifetime();
+          if (this.localRefresh) await this.localRefresh;
+          await this.syncLocalFiles(workspace!, await workspace!.refresh(), true);
+          lifetime();
+        }
+        const captured = this.state,
+          manifest = this.document(NATIVE_PROJECT_PATH);
+        if (!manifest) throw new Error(tr("Project manifest is missing"));
+        assertLocalPublicAssetAvailable(manifest.text, selected);
+        if (captured.documents.some((doc) => doc.external !== undefined))
+          throw new Error(tr("Resolve external changes before importing assets"));
+        const unchanged = () => {
+          lifetime();
+          if (
+            this.state.id !== captured.id ||
+            this.state.documents !== captured.documents ||
+            this.state.files !== captured.files ||
+            this.state.directories !== captured.directories
+          )
+            throw new Error(tr("The project changed during import"));
+        };
+        if (this.draftTimer) clearTimeout(this.draftTimer);
+        this.draftTimer = undefined;
+        await abortableOperation(() => this.persistence.catch(() => undefined), [controller.signal]);
+        unchanged();
+        const plan = await preparePublicAssetImport({
+          asset: selected,
+          reader,
+          ...settings,
+          existing: captured.files,
+          directories: captured.directories,
+          signal: controller.signal,
+        });
+        unchanged();
+        const text = registerLocalPublicAsset(manifest.text, selected, plan);
+        const documents = captured.documents.map((doc) => ({
+          ...doc,
+          baseline: doc.text,
+          ...(doc.path === manifest.path ? { text, baseline: text, revision: doc.revision + 1 } : {}),
+        }));
+        for (const file of plan.files) {
+          if (!isText(file.path)) continue;
+          const content = await file.blob.text();
+          this.validateDocument(file.path, content);
+          documents.push({ path: file.path, text: content, baseline: content, revision: 0 });
+        }
+        unchanged();
+        this.validateDocuments(documents);
+        const texts = new Map(documents.map((doc) => [doc.path, doc.text]));
+        const files = [...captured.files, ...plan.files].map((file) =>
+          texts.has(file.path)
+            ? { ...file, blob: new Blob([texts.get(file.path)!], { type: file.blob.type || "text/plain" }) }
+            : file,
+        );
+        const directories = projectDirectories(files, captured.directories);
+        const afterProject: LibraryProject = {
+          id: captured.id,
+          name: captured.name,
+          updatedAt: Date.now(),
+          files,
+          directories,
+        };
+        let saved: LibraryProject;
+        if (native) {
+          const current = await projectLibrary.get(captured.id);
+          unchanged();
+          if (!current || current.revision !== this.libraryRevision)
+            throw new Error(tr("The project changed in another window. Save again to check for conflicts."));
+          const newPaths = new Set(plan.files.map((file) => file.path));
+          const writes: NativeImportWrite[] = files
+            .filter(
+              (file) =>
+                newPaths.has(file.path) ||
+                this.pendingFiles.has(file.path) ||
+                captured.documents.some(
+                  (doc) => doc.path === file.path && (doc.text !== doc.baseline || doc.path === manifest.path),
+                ),
+            )
+            .map((file) => ({
+              path: file.path,
+              after: file.blob,
+              ...(!newPaths.has(file.path) && !this.pendingFiles.has(file.path)
+                ? { expected: captured.documents.find((doc) => doc.path === file.path)!.baseline }
+                : {}),
+            }))
+            .sort((a, b) => Number(!newPaths.has(a.path)) - Number(!newPaths.has(b.path)));
+          const journal = await prepareNativeImport(
+            workspace!,
+            { ...current, files: captured.files, directories: captured.directories },
+            afterProject,
+            writes,
+            unchanged,
+          );
+          saved = await applyNativeImport(workspace!, journal, unchanged, controller.signal);
+        } else {
+          saved = await projectLibrary.commit(
+            afterProject,
+            this.libraryRevision,
+            undefined,
+            undefined,
+            unchanged,
+            controller.signal,
+            true,
+          );
+        }
+        this.libraryRevision = saved.revision;
+        for (const doc of documents) {
+          if (!this.history.has(doc.path)) this.history.set(doc.path, this.histories.create(doc.path, doc.text));
+          else if (doc.path === manifest.path) this.history.get(doc.path)!.replace(doc.text);
+        }
+        for (const file of files) this.pendingFiles.delete(file.path);
+        this.publish({ files: saved.files, documents, directories });
+        this.syncHistory();
+        await abortableOperation(() => this.compile(), [this.conflictLifetime.signal, controller.signal]).catch(
+          (error) => {
+            if (!this.conflictLifetime.signal.aborted && !controller.signal.aborted) throw error;
+          },
+        );
+        return plan.files.map((file) => file.path);
+      } catch (error) {
+        if (error instanceof NativeImportFailure) {
+          if (error.restoredProject) this.libraryRevision = error.restoredProject.revision;
+          if (error.pending) {
+            this.localUnsubscribe?.();
+            this.localUnsubscribe = undefined;
+            await this.localWatch?.dispose();
+            this.localWatch = undefined;
+            this.publish({ nativeImportRecovery: { id: error.pending.id, fileCount: error.pending.entries.length } });
+            this.syncHistory();
+          }
+        }
+        if (!controller.signal.aborted && !this.disposed)
+          this.publish({ error: error instanceof Error ? error.message : String(error) });
+        throw error;
+      } finally {
+        settings.signal?.removeEventListener("abort", forward);
+        if (this.importOperation === controller) this.importOperation = undefined;
+        this.publish({ saving: false });
+        this.scheduleDraft();
+      }
     });
-    if (choice === "disk") this.update(path, external);
-    this.scheduleDraft();
+  }
+  private readonly nativeReviews = new WeakMap<
+    NativeImportReview,
+    {
+      epoch: number;
+      workspace: AltairBrowserWorkspaceService;
+      root: BrowserWorkspaceDirectoryHandle;
+      documents: readonly EditorDocument[];
+    }
+  >();
+  async reviewNativeImport(signal?: AbortSignal): Promise<NativeImportReview> {
+    const workspace = this.workspace,
+      epoch = this.contextEpoch,
+      documents = this.state.documents,
+      root = workspace?.directory;
+    if (!workspace?.directory) throw new Error(tr("Open the original folder to recover this import."));
+    if (this.state.saving || this.pathTask) throw new Error(tr("Saving"));
+    const guard = () => {
+      signal?.throwIfAborted();
+      this.conflictLifetime.signal.throwIfAborted();
+      if (
+        this.workspace !== workspace ||
+        workspace.directory !== root ||
+        this.contextEpoch !== epoch ||
+        this.state.documents !== documents
+      )
+        throw new Error(tr("The import recovery changed. Review it again."));
+    };
+    const journal = await projectLibrary.nativeImport(this.state.id);
+    guard();
+    if (!journal) throw new Error(tr("The import recovery changed. Review it again."));
+    const review = await abortableOperation(
+      () => reviewNativeImport(workspace, journal, guard),
+      [signal, this.conflictLifetime.signal, this.contextLifetime.signal],
+    );
+    guard();
+    this.nativeReviews.set(review, { epoch, workspace, root: root!, documents });
+    return review;
+  }
+  resolveNativeImport(review: NativeImportReview, choice: "finish" | "restore", signal?: AbortSignal): Promise<void> {
+    return this.runPathTask(async () => {
+      const captured = this.nativeReviews.get(review);
+      if (!captured) throw new Error(tr("The import recovery changed. Review it again."));
+      const guard = () => {
+        signal?.throwIfAborted();
+        this.conflictLifetime.signal.throwIfAborted();
+        if (
+          this.workspace !== captured.workspace ||
+          captured.workspace.directory !== captured.root ||
+          this.contextEpoch !== captured.epoch ||
+          this.state.documents !== captured.documents ||
+          this.state.nativeImportRecovery?.id !== review.journal.id
+        )
+          throw new Error(tr("The import recovery changed. Review it again."));
+      };
+      guard();
+      this.publish({ saving: true, error: "" });
+      try {
+        const saved = await resolveNativeImport(captured.workspace, review, choice, guard, signal);
+        this.libraryRevision = saved.revision;
+        const documents = await Promise.all(
+          saved.files
+            .filter((file) => isText(file.path))
+            .map(async (file) => {
+              const baseline = await file.blob.text(),
+                old = this.document(file.path),
+                text = choice === "restore" && old && old.text !== old.baseline ? old.text : baseline;
+              return { path: file.path, text, baseline, revision: (old?.revision ?? 0) + 1 };
+            }),
+        );
+        for (const doc of documents) {
+          if (!this.history.has(doc.path)) this.history.set(doc.path, this.histories.create(doc.path, doc.text));
+          else if (this.document(doc.path)?.text !== doc.text) this.history.get(doc.path)!.replace(doc.text);
+        }
+        const tabs = this.state.tabs.filter((path) => documents.some((doc) => doc.path === path));
+        this.publish({
+          files: saved.files,
+          directories: saved.directories ?? [],
+          documents,
+          tabs,
+          active: documents.some((doc) => doc.path === this.state.active)
+            ? this.state.active
+            : (tabs.at(-1) ?? documents[0]?.path ?? ""),
+          nativeImportRecovery: undefined,
+          error: "",
+        });
+        this.syncHistory();
+        this.scheduleDraft();
+        this.startLocalWatch();
+        await abortableOperation(() => this.compile(), [signal, this.conflictLifetime.signal]).catch((error) => {
+          if (!signal?.aborted && !this.conflictLifetime.signal.aborted) throw error;
+        });
+      } catch (error) {
+        if (!signal?.aborted && !this.conflictLifetime.signal.aborted && this.contextEpoch === captured.epoch)
+          this.publish({ error: error instanceof Error ? error.message : String(error) });
+        throw error;
+      } finally {
+        this.publish({ saving: false });
+      }
+    }, true);
+  }
+  conflictReview(path: string): ConflictReview | undefined {
+    return captureConflictReview(this.state.id, this.document(path), this.contextEpoch);
+  }
+  resolveReviewedConflict(review: ConflictReview, choice: "disk" | "editor", signal?: AbortSignal): Promise<void> {
+    return this.runPathTask(async () => {
+      if (choice !== "disk" && choice !== "editor") throw new TypeError("Invalid conflict resolution choice");
+      const workspace = this.workspace,
+        root = workspace?.directory,
+        contextSignal = this.contextLifetime?.signal;
+      const unchanged = () => {
+        signal?.throwIfAborted();
+        contextSignal?.throwIfAborted();
+        this.conflictLifetime.signal.throwIfAborted();
+        if (
+          this.disposed ||
+          this.workspace !== workspace ||
+          workspace?.directory !== root ||
+          !conflictReviewMatches(this.state.id, this.document(review.path), review, this.contextEpoch)
+        )
+          throw new Error(tr("The conflict changed while reviewing. Review it again."));
+      };
+      const readExternal = async (): Promise<{ text: string; missing: boolean }> => {
+        if (workspace?.directory) {
+          try {
+            return { text: await (await workspace.file(review.path)).text(), missing: false };
+          } catch (error) {
+            if (error instanceof DOMException && error.name === "NotFoundError") return { text: "", missing: true };
+            throw error;
+          }
+        }
+        const project = await projectLibrary.get(this.state.id);
+        if (!project) throw new Error(tr("The project is no longer available"));
+        const file = project.files.find((file) => file.path === review.path);
+        return file ? { text: await file.blob.text(), missing: false } : { text: "", missing: true };
+      };
+      const verifyExternal = async () => {
+        const external = await abortableOperation(readExternal, [signal, contextSignal, this.conflictLifetime.signal]);
+        unchanged();
+        if (external.text !== review.external) {
+          this.publish({
+            documents: this.state.documents.map((document) =>
+              document.path === review.path ? { ...document, external: external.text } : document,
+            ),
+          });
+          throw new Error(tr("The file changed again outside the editor. Review it again."));
+        }
+        return external;
+      };
+      unchanged();
+      if (choice === "disk") this.validateDocument(review.path, review.external);
+      this.publish({ saving: true, error: "" });
+      try {
+        const first = await verifyExternal();
+        if (choice === "disk" && first.missing)
+          throw new Error(tr("The file was removed outside the editor. Keep the editor version to recreate it."));
+        // Back up only the side about to be overwritten: retention max1 must still protect it.
+        await abortableOperation(
+          () =>
+            this.projectHistory.capture(
+              review.path,
+              choice === "disk" ? review.text : review.external,
+              choice === "disk" ? "before-restore" : "before-save",
+              true,
+            ),
+          [signal, contextSignal, this.conflictLifetime.signal],
+        );
+        unchanged();
+        const current = await verifyExternal();
+        unchanged();
+        if (choice === "disk" && current.missing)
+          throw new Error(tr("The file was removed outside the editor. Keep the editor version to recreate it."));
+        if (choice === "editor" && current.missing) this.pendingFiles.add(review.path);
+        const replacement = conflictReplacement(review, choice);
+        this.publish({
+          documents: this.state.documents.map((document) =>
+            document.path === review.path ? { ...document, ...replacement, external: undefined } : document,
+          ),
+          error: "",
+        });
+        if (choice === "disk") this.history.get(review.path)?.reset(review.external);
+        this.syncHistory();
+        this.scheduleDraft();
+        await this.compile();
+      } catch (error) {
+        if (!signal?.aborted && !contextSignal?.aborted && !this.conflictLifetime.signal.aborted)
+          this.publish({ error: error instanceof Error ? error.message : String(error) });
+        throw error;
+      } finally {
+        this.publish({ saving: false });
+      }
+    });
+  }
+  /** Existing plugin workspace API remains void; its errors stay visible in the session. */
+  resolveConflict(path: string, choice: "disk" | "editor") {
+    const review = this.conflictReview(path);
+    if (!review) return;
+    void this.resolveReviewedConflict(review, choice).catch((error) => {
+      if (!this.disposed && !this.conflictLifetime.signal.aborted && (review.contextEpoch ?? 0) === this.contextEpoch)
+        this.publish({ error: error instanceof Error ? error.message : String(error) });
+    });
   }
   async dispose() {
     if (this.disposed) return;
+    this.conflictLifetime.abort(new DOMException("Editor closed", "AbortError"));
+    this.importOperation?.abort(new DOMException("Editor closed", "AbortError"));
+    this.compilation?.abort();
+    this.authoringController.abort();
     await this.pathTask?.catch(() => undefined);
     await this.folderTask?.catch(() => undefined);
     await this.saveTask?.catch(() => undefined);
-    this.compilation?.abort();
     if (this.draftTimer) clearTimeout(this.draftTimer);
     await this.persistDraft();
     await this.projectHistory.dispose();

@@ -1,0 +1,217 @@
+.modal-content.conflict-resolution-dialog {
+  --conflict-control-size: var(--control-height, 40px);
+  --conflict-spatial: var(--motion-spatial-fast, linear(0, 0.028, 0.099, 0.2, 0.317, 0.44, 0.561, 0.674, 0.775, 0.862, 0.934, 0.991, 1.034, 1.064, 1.083, 1.092, 1.095, 1.091, 1.084, 1.074, 1.063, 1.051, 1.04, 1.03, 1.02, 1.012, 1.005, 1, 0.996, 0.994, 0.992, 0.991, 0.991, 0.991, 0.992, 0.993, 0.994, 0.995, 0.996, 0.997, 1) 350ms);
+  --conflict-effects: var(--motion-effects-fast, linear(0, 0.102, 0.293, 0.481, 0.635, 0.751, 0.833, 0.891, 0.929, 0.954, 0.971, 0.982, 0.988, 0.993, 0.996, 0.997, 1) 140ms);
+  width: min(960px, calc(100vw - 24px));
+  height: min(720px, calc(100dvh - 24px));
+  max-height: calc(100dvh - 24px);
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  overflow: auto;
+  border-radius: var(--md-sys-shape-corner-extra-large, 28px);
+  background: var(--md-sys-color-surface-container-high, var(--panel, Canvas));
+  color: var(--md-sys-color-on-surface, var(--text, CanvasText));
+}
+.conflict-resolution-header {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  flex: none;
+}
+.conflict-resolution-header > div {
+  flex: 1;
+  min-width: 0;
+}
+.conflict-resolution-header p {
+  overflow-wrap: anywhere;
+  max-height: 4.5em;
+  overflow: auto;
+  color: var(--md-sys-color-on-surface-variant, inherit);
+}
+.conflict-resolution-header > button {
+  flex: none;
+  min-width: var(--conflict-control-size);
+  min-height: var(--conflict-control-size);
+}
+.conflict-resolution-dialog > .conflict-resolution-help {
+  margin: 0;
+  color: var(--md-sys-color-on-surface-variant, inherit);
+  flex: none;
+}
+.conflict-resolution-notice {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+  flex: none;
+  padding: 10px 12px;
+  border: 1px solid var(--md-sys-color-outline-variant, ButtonBorder);
+  border-radius: var(--md-sys-shape-corner-small, 8px);
+  max-height: min(24dvh, 140px);
+  overflow: auto;
+}
+.conflict-resolution-notice > span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.conflict-resolution-comparison {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 160px;
+  min-width: 0;
+  gap: 8px;
+}
+.conflict-resolution-tabs {
+  display: flex;
+  flex: none;
+  gap: 2px;
+}
+.conflict-resolution-tabs > button {
+  flex: 1;
+  min-width: 0;
+  padding: 4px 16px;
+  border: 0;
+  color: var(--md-sys-color-on-surface-variant, var(--text-soft, CanvasText));
+  background: var(--md-sys-color-surface-container-highest, var(--panel-3, ButtonFace));
+  white-space: normal;
+  min-height: var(--conflict-control-size);
+  border-radius: var(--md-sys-shape-corner-small, 8px);
+}
+.conflict-resolution-tabs > button[data-state="active"] {
+  background: var(--md-sys-color-secondary, var(--accent, Highlight));
+  color: var(--md-sys-color-on-secondary, HighlightText);
+  border-color: var(--md-sys-color-outline, ButtonBorder);
+  font-weight: var(--md-sys-typescale-emphasized-label-weight, 700);
+  border-radius: var(--md-sys-shape-corner-full, 9999px);
+}
+.conflict-resolution-legend {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: none;
+  color: var(--md-sys-color-on-surface-variant, inherit);
+}
+.conflict-resolution-diff {
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid var(--md-sys-color-outline-variant, ButtonBorder);
+}
+.conflict-resolution-diff .history-diff-mount {
+  height: 100%;
+  width: 100%;
+}
+.conflict-resolution-footer {
+  flex: none;
+  display: grid;
+  gap: 8px;
+}
+.conflict-resolution-progress {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 20px;
+  font-size: 12px;
+  color: var(--md-sys-color-on-surface-variant, inherit);
+}
+.conflict-resolution-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.conflict-resolution-actions > button {
+  min-height: var(--conflict-control-size);
+  white-space: normal;
+}
+.document-conflict-banner {
+  --conflict-control-size: var(--control-height, 40px);
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  padding: 12px 16px;
+  background: var(--md-sys-color-secondary-container, var(--surface-hover, ButtonFace));
+  color: var(--md-sys-color-on-secondary-container, inherit);
+  border-bottom: 1px solid var(--md-sys-color-outline-variant, ButtonBorder);
+}
+.document-conflict-banner > div {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.document-conflict-banner > button {
+  min-height: var(--conflict-control-size);
+}
+.conflict-resolution-spinner {
+  animation: conflict-resolution-spin 1s linear infinite;
+}
+@keyframes conflict-resolution-spin {
+  to { transform: rotate(360deg); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .conflict-resolution-spinner { animation: none; }
+}
+@media (max-width: 600px) {
+  .conflict-resolution-actions {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .conflict-resolution-actions > button:first-child {
+    grid-column: 1 / -1;
+  }
+}
+
+/* Expressive control surfaces; visual density follows the host, touch stays 48. */
+.conflict-resolution-dialog :is(.conflict-resolution-header, .conflict-resolution-notice, .conflict-resolution-actions) > button,
+.document-conflict-banner > button {
+  min-width: var(--conflict-control-size);
+  min-height: var(--conflict-control-size);
+  border-radius: var(--md-sys-shape-corner-full, 9999px);
+  transition: border-radius var(--conflict-spatial, 180ms ease-out), background-color var(--conflict-effects, 140ms ease-out);
+}
+.conflict-resolution-tabs > button {
+  transition: border-radius var(--conflict-spatial), background-color var(--conflict-effects), color var(--conflict-effects);
+}
+.conflict-resolution-tabs > button:first-child {
+  border-start-start-radius: var(--md-sys-shape-corner-full, 9999px);
+  border-end-start-radius: var(--md-sys-shape-corner-full, 9999px);
+}
+.conflict-resolution-tabs > button:last-child {
+  border-start-end-radius: var(--md-sys-shape-corner-full, 9999px);
+  border-end-end-radius: var(--md-sys-shape-corner-full, 9999px);
+}
+.conflict-resolution-dialog button:active,
+.document-conflict-banner > button:active {
+  border-radius: var(--md-sys-shape-corner-extra-small, 4px);
+}
+.conflict-resolution-actions > .primary-button {
+  color: var(--md-sys-color-on-primary, HighlightText);
+  background: var(--md-sys-color-primary, var(--accent, Highlight));
+  border-color: transparent;
+}
+.conflict-resolution-dialog .secondary-button,
+.document-conflict-banner > button {
+  color: var(--md-sys-color-on-surface, var(--text, CanvasText));
+  background: var(--md-sys-color-surface-container-low, var(--panel, Canvas));
+  border-color: var(--md-sys-color-outline-variant, var(--line, ButtonBorder));
+}
+@media (pointer: coarse) {
+  .modal-content.conflict-resolution-dialog,
+  .document-conflict-banner {
+    --conflict-control-size: max(48px, var(--md-comp-control-height-touch, 48px));
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .modal-content.conflict-resolution-dialog,
+  .document-conflict-banner {
+    --conflict-spatial: 0s;
+    --conflict-effects: 0s;
+  }
+}

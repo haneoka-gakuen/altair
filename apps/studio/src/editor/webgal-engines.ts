@@ -1,4 +1,6 @@
 import { readProjectZip, type ProjectArchive } from "./archive";
+import { projectDirectories, projectFilePath } from "./file-operations";
+import { abortableOperation } from "./abortable-operation";
 
 export interface WebGalEngineManifest {
   readonly schemaVersion: string;
@@ -10,6 +12,8 @@ export interface WebGalEngineManifest {
   readonly license?: string;
 }
 export interface WebGalEngine extends ProjectArchive {
+  readonly contentHash?: string;
+  readonly sourceKind?: "zip" | "folder";
   readonly key: string;
   readonly manifest: WebGalEngineManifest;
   readonly hash: string;
@@ -35,10 +39,30 @@ export function webGalEngineRef(value: unknown): WebGalEngineRef | undefined {
     : undefined;
 }
 export const webGalEngineKey = (id: string, version: string) => JSON.stringify([id, version]);
-/** Validate compiled web distributions; never evaluate archive JavaScript during installation. */
-export async function inspectWebGalEngine(archive: Blob, signal?: AbortSignal): Promise<WebGalEngine> {
-  if (archive.size > 256 * 1024 * 1024) throw new Error("The engine archive exceeds 256 MB");
-  const contents = await readProjectZip(archive, signal, { maxBytes: 512 * 1024 * 1024 });
+const digest = async (bytes: ArrayBuffer | Uint8Array<ArrayBuffer>): Promise<string> =>
+  Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", bytes)), (byte) =>
+    byte.toString(16).padStart(2, "0"),
+  ).join("");
+async function contentHash(contents: ProjectArchive, signal?: AbortSignal): Promise<string> {
+  const rows: [string, number, string][] = [];
+  for (const file of [...contents.files].sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0))) {
+    signal?.throwIfAborted();
+    rows.push([file.path, file.blob.size, await digest(await file.blob.arrayBuffer())]);
+  }
+  signal?.throwIfAborted();
+  return digest(
+    new TextEncoder().encode(
+      JSON.stringify(["webgal-engine-files-v1", rows, projectDirectories(contents.files, contents.directories)]),
+    ),
+  );
+}
+/** Validate compiled web distributions; never evaluate engine JavaScript during installation. */
+async function inspectContents(
+  contents: ProjectArchive,
+  hash: string,
+  kind: "zip" | "folder",
+  signal?: AbortSignal,
+): Promise<WebGalEngine> {
   const byPath = new Map(contents.files.map((file) => [file.path, file]));
   const descriptor = byPath.get("webgal-engine.json");
   if (!descriptor || descriptor.blob.size > 64 * 1024) throw new Error("Engine manifest is missing or too large");
@@ -70,33 +94,79 @@ export async function inspectWebGalEngine(archive: Blob, signal?: AbortSignal): 
   )
     throw new Error("This archive is not a compiled WebGAL engine");
   signal?.throwIfAborted();
-  const hash = Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256", await archive.arrayBuffer())), (byte) =>
-    byte.toString(16).padStart(2, "0"),
-  ).join("");
+  const filesHash = await contentHash(contents, signal);
   signal?.throwIfAborted();
   return {
     ...contents,
     key: webGalEngineKey(manifest.id, manifest.version),
     manifest,
-    hash,
+    hash: kind === "folder" ? filesHash : hash,
+    contentHash: filesHash,
+    sourceKind: kind,
     installedAt: Date.now(),
     size,
   };
+}
+export async function inspectWebGalEngine(archive: Blob, signal?: AbortSignal): Promise<WebGalEngine> {
+  if (archive.size > 256 * 1024 * 1024) throw new Error("The engine archive exceeds 256 MB");
+  const contents = await readProjectZip(archive, signal, { maxBytes: 512 * 1024 * 1024 });
+  signal?.throwIfAborted();
+  return inspectContents(contents, await digest(await archive.arrayBuffer()), "zip", signal);
+}
+export async function inspectWebGalEngineFolder(contents: ProjectArchive, signal?: AbortSignal): Promise<WebGalEngine> {
+  signal?.throwIfAborted();
+  const captured = contents.files.map((file) => ({ path: file.path, blob: file.blob })),
+    dirs = [...contents.directories],
+    paths = new Set<string>();
+  let total = 0;
+  for (const file of captured) {
+    projectFilePath(file.path);
+    if (!(file.blob instanceof Blob) || paths.has(file.path))
+      throw new Error("The engine folder contains duplicate or invalid files");
+    paths.add(file.path);
+    total += file.blob.size;
+  }
+  const directories = projectDirectories(captured, dirs);
+  if (total > 512 * 1024 * 1024) throw new Error("The installed engine exceeds 512 MB");
+  if (captured.length + directories.length > 20_000) throw new Error("The engine folder contains too many entries");
+  const files = [];
+  for (const file of captured) {
+    signal?.throwIfAborted();
+    const blob =
+      file.blob instanceof File
+        ? new Blob([await abortableOperation(() => file.blob.arrayBuffer(), [signal])], { type: file.blob.type })
+        : file.blob;
+    files.push({ path: file.path, blob });
+  }
+  signal?.throwIfAborted();
+  return inspectContents({ files, directories }, "", "folder", signal);
 }
 let database: Promise<IDBDatabase> | undefined;
 function open(): Promise<IDBDatabase> {
   return (database ??= new Promise((resolve, reject) => {
     const request = indexedDB.open("altair-webgal-engines", 1);
+    let blocked = false;
     request.onupgradeneeded = () => {
       request.result.createObjectStore("engines", { keyPath: "key" });
       request.result.createObjectStore("metadata", { keyPath: "key" });
     };
-    request.onsuccess = () => resolve(request.result);
+    request.onsuccess = () => {
+      if (blocked) {
+        request.result.close();
+        return;
+      }
+      request.result.onversionchange = () => {
+        request.result.close();
+        database = undefined;
+      };
+      resolve(request.result);
+    };
     request.onerror = () => {
       database = undefined;
       reject(request.error);
     };
     request.onblocked = () => {
+      blocked = true;
       database = undefined;
       reject(new Error("Engine storage is blocked"));
     };
@@ -123,52 +193,94 @@ export const webGalEngines = {
     return engine;
   },
   async install(archive: Blob, signal?: AbortSignal): Promise<WebGalEngineRef> {
-    const engine = await inspectWebGalEngine(archive, signal),
-      db = await open();
-    signal?.throwIfAborted();
-    await new Promise<void>((resolve, reject) => {
-      const tx = db.transaction(["engines", "metadata"], "readwrite");
-      const abort = () => tx.abort();
-      signal?.addEventListener("abort", abort, { once: true });
-      const request = tx.objectStore("metadata").get(engine.key);
-      let conflict = false;
-      request.onsuccess = () => {
-        if (request.result) {
-          if (request.result.hash !== engine.hash) {
-            conflict = true;
-            tx.abort();
-          }
-          return;
-        }
-        const { files: _, directories: __, ...metadata } = engine;
-        tx.objectStore("engines").add(engine);
-        tx.objectStore("metadata").add(metadata);
-      };
-      tx.oncomplete = () => {
-        signal?.removeEventListener("abort", abort);
-        resolve();
-      };
-      tx.onabort = tx.onerror = () => {
-        signal?.removeEventListener("abort", abort);
-        reject(
-          conflict
-            ? new Error("A different archive with this engine ID and version is already installed")
-            : (signal?.reason ?? tx.error ?? new Error("Engine storage was interrupted")),
-        );
-      };
-      if (signal?.aborted) abort();
-    });
-    return { id: engine.manifest.id, version: engine.manifest.version, hash: engine.hash };
+    return installEngine(await inspectWebGalEngine(archive, signal), signal);
+  },
+  async installFolder(contents: ProjectArchive, signal?: AbortSignal): Promise<WebGalEngineRef> {
+    return installEngine(await inspectWebGalEngineFolder(contents, signal), signal);
   },
   async remove(ref: WebGalEngineRef): Promise<void> {
     const db = await open();
     await new Promise<void>((resolve, reject) => {
       const tx = db.transaction(["engines", "metadata"], "readwrite");
       const key = webGalEngineKey(ref.id, ref.version);
-      tx.objectStore("engines").delete(key);
-      tx.objectStore("metadata").delete(key);
+      const data = tx.objectStore("engines").get(key),
+        metadata = tx.objectStore("metadata").get(key);
+      let failure: Error | undefined;
+      metadata.onsuccess = () => {
+        if ((data.result && data.result.hash !== ref.hash) || (metadata.result && metadata.result.hash !== ref.hash)) {
+          failure = new Error("Engine changed while uninstalling. Refresh the list.");
+          tx.abort();
+          return;
+        }
+        tx.objectStore("engines").delete(key);
+        tx.objectStore("metadata").delete(key);
+      };
       tx.oncomplete = () => resolve();
-      tx.onabort = tx.onerror = () => reject(tx.error ?? new Error("Engine storage was interrupted"));
+      tx.onabort = () => reject(failure ?? tx.error ?? new Error("Engine storage was interrupted"));
     });
   },
 };
+
+async function installEngine(engine: WebGalEngine, signal?: AbortSignal): Promise<WebGalEngineRef> {
+  const db = await open();
+  signal?.throwIfAborted();
+  const previous = await new Promise<WebGalEngine | undefined>((resolve, reject) => {
+    const tx = db.transaction("engines"),
+      read = tx.objectStore("engines").get(engine.key);
+    let value: WebGalEngine | undefined;
+    read.onsuccess = () => {
+      value = read.result;
+    };
+    tx.oncomplete = () => resolve(value);
+    tx.onabort = () => reject(tx.error ?? new Error("Engine storage was interrupted"));
+  });
+  const previousContentHash = previous ? await contentHash(previous, signal) : undefined;
+  signal?.throwIfAborted();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(["engines", "metadata"], "readwrite");
+    let failure: unknown, ref: WebGalEngineRef;
+    const abort = () => {
+      try {
+        tx.abort();
+      } catch (error) {
+        if (!(error instanceof DOMException && error.name === "InvalidStateError")) throw error;
+      }
+    };
+    signal?.addEventListener("abort", abort, { once: true });
+    const existingData = tx.objectStore("engines").get(engine.key),
+      existingMeta = tx.objectStore("metadata").get(engine.key);
+    existingMeta.onsuccess = () => {
+      try {
+        signal?.throwIfAborted();
+        const stored = existingData.result as WebGalEngine | undefined,
+          metadata = existingMeta.result as WebGalEngineMetadata | undefined;
+        if (stored || metadata) {
+          if (!stored || !metadata || stored.hash !== metadata.hash) throw new Error("Engine storage is incomplete");
+          const equal =
+            stored.hash === engine.hash ||
+            (stored.hash === previous?.hash ? previousContentHash : stored.contentHash) === engine.contentHash;
+          if (!equal) throw new Error("A different archive with this engine ID and version is already installed");
+          ref = { id: stored.manifest.id, version: stored.manifest.version, hash: stored.hash };
+          return;
+        }
+        const { files: _, directories: __, ...metadataValue } = engine;
+        tx.objectStore("engines").add(engine);
+        tx.objectStore("metadata").add(metadataValue);
+        ref = { id: engine.manifest.id, version: engine.manifest.version, hash: engine.hash };
+      } catch (error) {
+        failure = error;
+        abort();
+      }
+    };
+    const clean = () => signal?.removeEventListener("abort", abort);
+    tx.oncomplete = () => {
+      clean();
+      resolve(ref);
+    };
+    tx.onabort = () => {
+      clean();
+      reject(failure ?? signal?.reason ?? tx.error ?? new Error("Engine storage was interrupted"));
+    };
+    if (signal?.aborted) abort();
+  });
+}

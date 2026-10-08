@@ -1,0 +1,362 @@
+/* Local PublicResourcePicker presentation; existing Dialog/Tabs own behavior. */
+.modal-content.public-resource-picker {
+  --picker-surface: var(--md-sys-color-surface, var(--background, Canvas));
+  --picker-panel: var(--md-sys-color-surface-container-low, var(--panel-alt, Canvas));
+  --picker-container: var(--md-sys-color-surface-container-high, var(--panel-3, ButtonFace));
+  --picker-text: var(--md-sys-color-on-surface, var(--text, CanvasText));
+  --picker-muted: var(--md-sys-color-on-surface-variant, var(--text-soft, GrayText));
+  --picker-outline: var(--md-sys-color-outline-variant, var(--line, ButtonBorder));
+  --picker-selected: var(--md-sys-color-secondary, var(--accent, Highlight));
+  --picker-on-selected: var(--md-sys-color-on-secondary, HighlightText);
+  --picker-control: var(--control-height, 40px);
+  inline-size: min(1184px, calc(100vw - 24px));
+  block-size: min(800px, calc(100dvh - 24px));
+  max-block-size: calc(100dvh - 24px);
+  display: flex;
+  flex-direction: column;
+  padding: 0;
+  overflow: hidden;
+  border: 1px solid var(--picker-outline);
+  border-radius: var(--md-sys-shape-corner-extra-large, 28px);
+  color: var(--picker-text);
+  background: var(--picker-surface);
+}
+.public-resource-picker .public-resource-picker__header {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 12px;
+  min-inline-size: 0;
+  min-block-size: 64px;
+  padding: 12px 16px 12px 24px;
+  border-block-end: 1px solid var(--picker-outline);
+}
+.public-resource-picker .public-resource-picker__header > :is(h2, h3, div) {
+  flex: 1;
+  min-inline-size: 0;
+}
+.public-resource-picker .public-resource-picker__header :is(h2, h3) {
+  margin: 0;
+  overflow-wrap: anywhere;
+  font-size: var(--md-sys-typescale-title-large-size, 22px);
+  line-height: var(--md-sys-typescale-title-large-line-height, 28px);
+  font-weight: var(--md-sys-typescale-emphasized-title-large-weight, 500);
+}
+.public-resource-picker .public-resource-picker__header p {
+  margin: 4px 0 0;
+  color: var(--picker-muted);
+  overflow-wrap: anywhere;
+}
+.public-resource-picker :is(.public-resource-picker__header, .public-resource-picker__actions) > button {
+  min-inline-size: var(--picker-control);
+  min-block-size: var(--picker-control);
+  border-radius: var(--md-sys-shape-corner-full, 9999px);
+  white-space: normal;
+}
+.public-resource-picker .public-resource-picker__pages {
+  display: none;
+}
+.public-resource-picker .public-resource-picker__body {
+  display: grid;
+  grid-template-columns: minmax(184px, 224px) minmax(240px, 1fr) minmax(256px, 320px);
+  flex: 1;
+  min-inline-size: 0;
+  min-block-size: 0;
+  overflow: hidden;
+}
+.public-resource-picker :is(.public-resource-picker__source, .public-resource-picker__browser, .public-resource-picker__selected) {
+  min-inline-size: 0;
+  min-block-size: 0;
+  padding: 16px;
+  overflow: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+}
+.public-resource-picker .public-resource-picker__source {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  border-inline-end: 1px solid var(--picker-outline);
+  background: var(--picker-panel);
+}
+.public-resource-picker .public-resource-picker__source > :is(h3, p) {
+  margin: 0;
+}
+.public-resource-picker .public-resource-picker__source p {
+  color: var(--picker-muted);
+  overflow-wrap: anywhere;
+}
+.public-resource-picker :is(input:not([type="checkbox"], [type="radio"]), select, textarea) {
+  min-inline-size: 0;
+  inline-size: 100%;
+  max-inline-size: 100%;
+}
+.public-resource-picker .public-resource-picker__source > label,
+.public-resource-picker .public-resource-picker__metadata > label {
+  display: grid;
+  min-inline-size: 0;
+  gap: 6px;
+}
+.public-resource-picker .public-resource-picker__browser {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.public-resource-picker .public-resource-picker__breadcrumbs {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 4px;
+  min-inline-size: 0;
+  margin: 0;
+  padding: 0;
+  overflow-x: auto;
+  overscroll-behavior-inline: contain;
+  list-style: none;
+  scrollbar-width: thin;
+}
+.public-resource-picker .public-resource-picker__breadcrumbs :is(button, a) {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  min-block-size: var(--picker-control);
+  padding-inline: 8px;
+  white-space: nowrap;
+}
+.public-resource-picker .public-resource-picker__entries {
+  display: grid;
+  align-content: start;
+  min-inline-size: 0;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.public-resource-picker .public-resource-picker__entry {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-inline-size: 0;
+  min-block-size: max(var(--picker-control), var(--row-height, 56px));
+  inline-size: 100%;
+  padding: 8px 12px;
+  border: 1px solid transparent;
+  border-radius: var(--md-sys-shape-corner-medium, 12px);
+  text-align: start;
+  white-space: normal;
+  color: var(--picker-text);
+  background: var(--picker-panel);
+}
+.public-resource-picker .public-resource-picker__entry > :is(div, span) {
+  min-inline-size: 0;
+  overflow-wrap: anywhere;
+}
+.public-resource-picker .public-resource-picker__entry :is(svg, input[type="checkbox"]) {
+  flex: none;
+}
+.public-resource-picker .public-resource-picker__entry:is([aria-selected="true"], [aria-checked="true"], [aria-pressed="true"]) {
+  color: var(--md-sys-color-on-secondary-container, var(--picker-text));
+  background: var(--md-sys-color-secondary-container, var(--accent-muted, ButtonFace));
+  border-color: var(--picker-selected);
+}
+.public-resource-picker .public-resource-picker__entry small {
+  display: block;
+  margin-block-start: 4px;
+  color: var(--picker-muted);
+}
+.public-resource-picker .public-resource-picker__selected {
+  display: grid;
+  grid-auto-rows: max-content;
+  align-content: start;
+  gap: 16px;
+  border-inline-start: 1px solid var(--picker-outline);
+  background: var(--picker-panel);
+}
+.public-resource-picker .public-resource-picker__preview {
+  min-inline-size: 0;
+  min-block-size: 160px;
+  border-radius: var(--md-sys-shape-corner-large, 16px);
+  background: var(--picker-container);
+}
+.public-resource-picker .public-resource-picker__preview > .editor-preview {
+  block-size: clamp(240px, 45dvh, 360px);
+  min-block-size: 240px;
+  max-block-size: 360px;
+}
+.public-resource-picker .public-resource-picker__preview > :is(img, video) {
+  display: block;
+  inline-size: 100%;
+  block-size: auto;
+  max-block-size: 320px;
+  object-fit: contain;
+  border-radius: inherit;
+}
+.public-resource-picker :is(.public-resource-picker__dependencies, .public-resource-picker__metadata) {
+  display: grid;
+  min-inline-size: 0;
+  gap: 12px;
+  padding-block-start: 16px;
+  border-block-start: 1px solid var(--picker-outline);
+}
+.public-resource-picker :is(.public-resource-picker__dependencies, .public-resource-picker__metadata) > :is(h3, p, dl, ul, ol) {
+  margin: 0;
+}
+.public-resource-picker .public-resource-picker__dependencies :is(ul, ol) {
+  display: grid;
+  gap: 8px;
+  padding: 0;
+  list-style: none;
+}
+.public-resource-picker .public-resource-picker__dependencies li {
+  display: grid;
+  gap: 4px;
+  min-inline-size: 0;
+  padding: 10px 12px;
+  border-radius: var(--md-sys-shape-corner-small, 8px);
+  background: var(--picker-surface);
+  overflow-wrap: anywhere;
+}
+.public-resource-picker .public-resource-picker__dependencies :is(code, small) {
+  overflow-wrap: anywhere;
+  font-size: var(--md-sys-typescale-body-small-size, 12px);
+  line-height: var(--md-sys-typescale-body-small-line-height, 16px);
+  color: var(--picker-muted);
+}
+.public-resource-picker .public-resource-picker__metadata dl {
+  display: grid;
+  grid-template-columns: minmax(4em, max-content) minmax(0, 1fr);
+  gap: 8px 12px;
+}
+.public-resource-picker .public-resource-picker__metadata dt {
+  color: var(--picker-muted);
+}
+.public-resource-picker .public-resource-picker__metadata dd {
+  min-inline-size: 0;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.public-resource-picker .public-resource-picker__notice {
+  flex: none;
+  min-inline-size: 0;
+  max-block-size: 20dvh;
+  margin: 12px 16px 0;
+  padding: 10px 12px;
+  overflow: auto;
+  overflow-wrap: anywhere;
+  border-radius: var(--md-sys-shape-corner-medium, 12px);
+  color: var(--picker-text);
+  background: var(--picker-container);
+}
+.public-resource-picker .public-resource-picker__notice[role="alert"] {
+  color: var(--md-sys-color-on-error-container, var(--danger-text, CanvasText));
+  background: var(--md-sys-color-error-container, var(--danger-bg, Canvas));
+  border: 1px solid var(--md-sys-color-error, var(--danger-line, ButtonBorder));
+}
+.public-resource-picker .public-resource-picker__actions {
+  display: flex;
+  flex: none;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  min-inline-size: 0;
+  padding: 12px 16px max(12px, env(safe-area-inset-bottom));
+  border-block-start: 1px solid var(--picker-outline);
+  background: var(--picker-surface);
+}
+.public-resource-picker .public-resource-picker__actions > [role="status"] {
+  flex: 1 1 160px;
+  min-inline-size: 0;
+  margin: 0;
+  overflow-wrap: anywhere;
+  color: var(--picker-muted);
+}
+.public-resource-picker .public-resource-picker__actions > .primary-button {
+  color: var(--md-sys-color-on-primary, HighlightText);
+  background: var(--md-sys-color-primary, var(--accent, Highlight));
+  border-color: transparent;
+}
+.public-resource-picker .public-resource-picker__actions > .secondary-button {
+  color: var(--picker-text);
+  background: var(--picker-panel);
+  border-color: var(--picker-outline);
+}
+@media (pointer: coarse) {
+  .modal-content.public-resource-picker {
+    --picker-control: max(48px, var(--md-comp-control-height-touch, 48px));
+  }
+}
+@media (max-width: 900px) {
+  .modal-content.public-resource-picker {
+    inline-size: calc(100vw - 16px);
+    block-size: calc(100dvh - 16px);
+    max-block-size: calc(100dvh - 16px);
+  }
+  .public-resource-picker .public-resource-picker__header {
+    padding: 8px 12px;
+  }
+  .public-resource-picker .public-resource-picker__pages {
+    display: flex;
+    flex: none;
+    min-inline-size: 0;
+    gap: 2px;
+    padding: 8px 12px;
+  }
+  .public-resource-picker .public-resource-picker__pages > [role="tab"] {
+    flex: 1 1 0;
+    min-inline-size: 0;
+    min-block-size: max(48px, var(--picker-control));
+    padding: 6px 8px;
+    border: 0;
+    border-radius: var(--md-sys-shape-corner-small, 8px);
+    color: var(--picker-muted);
+    background: var(--picker-container);
+    white-space: normal;
+    overflow-wrap: normal;
+    text-wrap: balance;
+  }
+  .public-resource-picker .public-resource-picker__pages > [role="tab"]:first-child {
+    border-start-start-radius: var(--md-sys-shape-corner-full, 9999px);
+    border-end-start-radius: var(--md-sys-shape-corner-full, 9999px);
+  }
+  .public-resource-picker .public-resource-picker__pages > [role="tab"]:last-child {
+    border-start-end-radius: var(--md-sys-shape-corner-full, 9999px);
+    border-end-end-radius: var(--md-sys-shape-corner-full, 9999px);
+  }
+  .public-resource-picker .public-resource-picker__pages > [role="tab"][data-state="active"] {
+    border-radius: var(--md-sys-shape-corner-full, 9999px);
+    color: var(--picker-on-selected);
+    background: var(--picker-selected);
+    font-weight: var(--md-sys-typescale-emphasized-label-weight, 700);
+  }
+  .public-resource-picker .public-resource-picker__body {
+    display: block;
+    overflow: auto;
+  }
+  .public-resource-picker .public-resource-picker__body > :is(.public-resource-picker__source, .public-resource-picker__browser, .public-resource-picker__selected) {
+    border: 0;
+    overflow: visible;
+  }
+  /* Attribute is supplied by the functional owner; no default page is inferred. */
+  .public-resource-picker[data-mobile-page="source"] .public-resource-picker__body > :is(.public-resource-picker__browser, .public-resource-picker__selected),
+  .public-resource-picker[data-mobile-page="browse"] .public-resource-picker__body > :is(.public-resource-picker__source, .public-resource-picker__selected),
+  .public-resource-picker[data-mobile-page="selected"] .public-resource-picker__body > :is(.public-resource-picker__source, .public-resource-picker__browser) {
+    display: none;
+  }
+  .public-resource-picker .public-resource-picker__metadata dl {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 4px;
+  }
+  .public-resource-picker .public-resource-picker__metadata dd + dt {
+    margin-block-start: 8px;
+  }
+}
+@media (prefers-reduced-motion: no-preference) {
+  .public-resource-picker :is(.public-resource-picker__pages > [role="tab"], .public-resource-picker__entry, .public-resource-picker__actions > button) {
+    transition: background-color var(--motion-effects-fast, 140ms ease-out), color var(--motion-effects-fast, 140ms ease-out), border-radius var(--motion-spatial-fast, 180ms ease-out);
+  }
+}
+
+.public-resource-picker :is(.public-resource-picker__pages > [role="tab"], .public-resource-picker__actions > button):active {
+  border-radius: var(--md-sys-shape-corner-extra-small, 4px);
+}

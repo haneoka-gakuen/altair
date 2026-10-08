@@ -73,7 +73,7 @@ export function serializeAuthoredText(value: unknown, source?: string): string {
     }
     return node;
   };
-  const merge = (node: Node | null, value: unknown): Node => {
+  const merge = (node: Node | null, value: unknown, previousValue?: unknown): Node => {
     if (isAlias(node)) return create(value, node);
     if (isMap(node) && value && typeof value === "object" && !Array.isArray(value)) {
       const entries = Object.entries(value).filter(([, value]) => value !== undefined);
@@ -81,23 +81,70 @@ export function serializeAuthoredText(value: unknown, source?: string): string {
       node.items = node.items.filter((pair) => isScalar(pair.key) && keys.has(String(pair.key.value)));
       for (const [key, item] of entries) {
         const pair = node.items.find((pair) => isScalar(pair.key) && pair.key.value === key);
-        if (pair) pair.value = merge(pair.value as Node | null, item);
+        if (pair)
+          pair.value = merge(
+            pair.value as Node | null,
+            item,
+            previousValue && typeof previousValue === "object"
+              ? (previousValue as Record<string, unknown>)[key]
+              : undefined,
+          );
         else node.add(doc.createPair(key, item, { aliasDuplicateObjects: false }));
       }
       return node;
     }
     if (isSeq(node) && Array.isArray(value)) {
       const old = [...node.items];
-      const byId = new Map(
-        old.flatMap((item) => {
-          const id = isMap(item) ? item.get("id") : undefined;
-          return typeof id === "string" ? [[id, item] as const] : [];
-        }),
-      );
-      const keyed = value.some((item) => recordId(item) !== undefined);
-      node.items = value.map((item, index) =>
-        merge(((keyed ? byId.get(recordId(item) ?? "") : old[index]) as Node | null) ?? null, item),
-      );
+      const oldValues = Array.isArray(previousValue) ? previousValue : [];
+      const byId = new Map<string, number[]>();
+      const newCounts = new Map<string, number>();
+      old.forEach((item, index) => {
+        const id = isMap(item) ? item.get("id") : undefined;
+        if (typeof id === "string") {
+          const indices = byId.get(id) ?? [];
+          indices.push(index);
+          byId.set(id, indices);
+        }
+      });
+      for (const item of value) {
+        const id = recordId(item);
+        if (id !== undefined) newCounts.set(id, (newCounts.get(id) ?? 0) + 1);
+      }
+      const matches = new Map<number, number>();
+      const used = new Set<unknown>();
+      const reserve = (index: number, oldIndex: number) => {
+        matches.set(index, oldIndex);
+        used.add(old[oldIndex]);
+      };
+      // Plan all matches before mutating nodes: unique IDs, then unchanged
+      // duplicate payloads, then remaining occurrences of the same ID.
+      value.forEach((item, index) => {
+        const id = recordId(item);
+        const indices = id === undefined ? undefined : byId.get(id);
+        if (indices?.length === 1 && newCounts.get(id!) === 1) reserve(index, indices[0]!);
+      });
+      for (const exact of [true, false]) {
+        value.forEach((item, index) => {
+          if (matches.has(index)) return;
+          const id = recordId(item);
+          const indices = id === undefined ? undefined : byId.get(id);
+          const oldIndex = indices?.find(
+            (candidate) => !used.has(old[candidate]) && (!exact || same(oldValues[candidate], item)),
+          );
+          if (oldIndex !== undefined) reserve(index, oldIndex);
+        });
+      }
+      value.forEach((_, index) => {
+        if (!matches.has(index) && index < old.length && !used.has(old[index])) reserve(index, index);
+      });
+      node.items = value.map((item, index) => {
+        const oldIndex = matches.get(index);
+        return merge(
+          oldIndex === undefined ? null : (old[oldIndex] as Node | null),
+          item,
+          oldIndex === undefined ? undefined : oldValues[oldIndex],
+        );
+      });
       return node;
     }
     if (isScalar(node) && (value === null || typeof value !== "object")) {
@@ -109,7 +156,7 @@ export function serializeAuthoredText(value: unknown, source?: string): string {
     }
     return create(value, node);
   };
-  doc.contents = merge(doc.contents, value);
+  doc.contents = merge(doc.contents, value, previous);
   const output = doc.toString(style);
   if (!same(parseAuthoredText(output), value)) throw new Error("Document serialization changed a value");
   return output;

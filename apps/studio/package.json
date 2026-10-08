@@ -53,7 +53,9 @@
     "@haneoka/altair-ui-react": "workspace:*",
     "@haneoka/altair-plugin-models": "workspace:*",
     "vue": "^3.5.39",
-    "@haneoka/vega-protocol": "workspace:*"
+    "@haneoka/vega-protocol": "workspace:*",
+    "@haneoka/altair-plugin-haneoka": "link:../../.dependencies/altair-plugin-haneoka",
+    "@haneoka/altair-plugin-bestdori": "link:../../.dependencies/altair-plugin-bestdori"
   },
   "devDependencies": {
     "@types/react": "^19.2.14",

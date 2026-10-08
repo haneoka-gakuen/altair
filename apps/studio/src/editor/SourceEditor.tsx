@@ -131,6 +131,7 @@ export default function SourceEditor({
       onChange={(value) => session.update(document.path, value ?? "", true)}
       onMount={onMount}
       options={{
+        readOnly: Boolean(session.getSnapshot().nativeImportRecovery),
         fontSize: 14,
         lineHeight: 24,
         fontFamily: '"Noto Sans Mono", monospace',
