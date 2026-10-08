@@ -87,6 +87,9 @@ export function Workspace({ session, onHome }: { session: EditorSession; onHome:
     assetFolderInput = useRef<HTMLInputElement>(null);
   const state = useSyncExternalStore(session.subscribe, session.getSnapshot),
     doc = session.document();
+  useEffect(() => {
+    if (state.previewReveal) setMobilePage("files");
+  }, [state.previewReveal]);
   const [fileAction, setFileAction] = useState<{
     action: "move" | "copy" | "folder";
     source: string;

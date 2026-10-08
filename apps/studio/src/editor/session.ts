@@ -1,4 +1,5 @@
 import { tr } from "./i18n";
+import type { AnimationAudition, AnimationAuditionState } from "./animation-audition";
 import { PreviewResources } from "./PreviewResources";
 import { COMMAND_LIBRARY_PATH } from "./command-library";
 import { validateAuthoredDocument } from "./validation";
@@ -15,6 +16,7 @@ import {
   type AltairCommandGroup,
   type AltairAuthoredNode,
   type JsonValue,
+  type JsonObject,
 } from "@haneoka/altair";
 import {
   readNativeWorkspace,
@@ -102,11 +104,40 @@ export interface EditorSnapshot {
   readonly localFolder?: string;
   readonly contextEpoch?: number;
   readonly nativeImportRecovery?: { readonly id: string; readonly fileCount: number };
+  readonly animationAudition?: AnimationAuditionState;
+  readonly previewReveal?: number;
 }
 const isScene = nativeScenePath;
 const isText = (path: string) =>
   /\.(?:txt|wg|webgal|json|jsonl|ndjson|wgcp|css|html|js|yaml|yml|atlas|mtn|exp)$/iu.test(path);
 export class EditorSession {
+  private auditionService: AnimationAudition | undefined;
+  get animationAudition(): AnimationAudition | undefined { return this.auditionService; }
+  registerAnimationAudition(service: AnimationAudition): () => void {
+    this.auditionService = service;
+    const unsubscribe = service.subscribe(() => {
+      if (this.auditionService === service) this.publish({ animationAudition: service.getSnapshot() });
+    });
+    this.publish({ animationAudition: service.getSnapshot() });
+    return () => {
+      unsubscribe();
+      if (this.auditionService === service) {
+        this.auditionService = undefined;
+        this.publish({ animationAudition: undefined });
+      }
+    };
+  }
+  auditionAnimationDraft(nodeId: string, frames: readonly JsonObject[]): Promise<void> {
+    const service = this.auditionService;
+    if (!service) return Promise.reject(new Error("Animation preview is not available"));
+    this.publish({ previewReveal: (this.state.previewReveal ?? 0) + 1 });
+    return service.start(nodeId, frames);
+  }
+  stopAnimationAudition(nodeId?: string): Promise<void> {
+    const service = this.auditionService;
+    if (!service || (nodeId && service.getSnapshot().nodeId !== nodeId)) return Promise.resolve();
+    return service.stop();
+  }
   private state: EditorSnapshot;
   private readonly listeners = new Set<() => void>();
   private readonly histories = createAltairHistoryService();

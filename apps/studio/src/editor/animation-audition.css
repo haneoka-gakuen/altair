@@ -1,0 +1,122 @@
+/* Phase7 presentation only; the existing runtime owns trial/play/restore state. */
+.editor-preview > .animation-audition-controls,
+.webgal-animation-frames-editor .animation-frames-preview-actions {
+  --audition-control: var(--control-height, 40px);
+  --audition-surface: var(
+    --md-sys-color-surface-container-low,
+    var(--panel-alt, Canvas)
+  );
+  --audition-text: var(--md-sys-color-on-surface, var(--text, CanvasText));
+  --audition-outline: var(
+    --md-sys-color-outline-variant,
+    var(--line, ButtonBorder)
+  );
+  min-inline-size: 0;
+  color: var(--audition-text);
+}
+.editor-preview > .animation-audition-controls {
+  display: grid;
+  flex: none;
+  gap: 8px;
+  padding: 12px;
+  border-block-start: 1px solid var(--audition-outline);
+  background: var(--audition-surface);
+}
+.animation-audition-controls > [role="status"] {
+  margin: 0;
+  overflow-wrap: anywhere;
+  font-size: var(--md-sys-typescale-body-small-size, 12px);
+  line-height: var(--md-sys-typescale-body-small-line-height, 16px);
+}
+.animation-audition-controls > [role="group"],
+.webgal-animation-frames-editor .animation-frames-preview-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: stretch;
+  gap: 8px;
+}
+.webgal-animation-frames-editor .animation-frames-preview-actions {
+  padding-block: 12px;
+  border-block: 1px solid var(--audition-outline);
+}
+.animation-audition-controls > [role="group"] > button,
+.webgal-animation-frames-editor .animation-frames-preview-actions > button {
+  flex: 1 1 96px;
+  min-inline-size: var(--audition-control);
+  min-block-size: var(--audition-control);
+  padding: 8px 12px;
+  border: 1px solid var(--audition-outline);
+  border-radius: var(--md-sys-shape-corner-full, 9999px);
+  color: var(--audition-text);
+  background: var(--md-sys-color-surface, var(--panel, Canvas));
+  white-space: normal;
+  overflow-wrap: anywhere;
+  text-wrap: balance;
+  font-size: var(--md-sys-typescale-label-large-size, 14px);
+  line-height: var(--md-sys-typescale-label-large-line-height, 20px);
+}
+.webgal-animation-frames-editor
+  .animation-frames-preview-actions
+  > button:first-child {
+  color: var(--md-sys-color-on-secondary-container, var(--audition-text));
+  background: var(
+    --md-sys-color-secondary-container,
+    var(--accent-muted, ButtonFace)
+  );
+  border-color: transparent;
+}
+.animation-audition-controls > [role="group"] > button:focus-visible,
+.webgal-animation-frames-editor
+  .animation-frames-preview-actions
+  > button:focus-visible {
+  outline: 3px solid var(--md-sys-color-secondary, var(--accent, Highlight));
+  outline-offset: 2px;
+}
+.animation-audition-controls > [role="group"] > button:active,
+.webgal-animation-frames-editor
+  .animation-frames-preview-actions
+  > button:active {
+  border-radius: var(--md-sys-shape-corner-small, 8px);
+}
+.animation-audition-controls > [role="alert"] {
+  margin: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--md-sys-color-error, var(--danger-line, ButtonBorder));
+  border-radius: var(--md-sys-shape-corner-medium, 12px);
+  color: var(--md-sys-color-on-error-container, var(--danger-text, CanvasText));
+  background: var(--md-sys-color-error-container, var(--danger-bg, Canvas));
+  overflow-wrap: anywhere;
+}
+/* Apply only while the real owned playback group exists. Keep the stage in
+   normal flow; short resizable panes scroll rather than cover the renderer. */
+.editor-preview:has(> .animation-audition-controls > [role="group"]) {
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  scroll-padding-block: 12px;
+}
+.editor-preview:has(> .animation-audition-controls > [role="group"])
+  > :is(.panel-heading, .preview-toolbar) {
+  flex: none;
+}
+.editor-preview:has(> .animation-audition-controls > [role="group"])
+  > .preview-stage {
+  flex: 1 0 120px;
+  min-block-size: 120px;
+}
+@media (pointer: coarse) {
+  .editor-preview > .animation-audition-controls,
+  .webgal-animation-frames-editor .animation-frames-preview-actions {
+    --audition-control: max(48px, var(--md-comp-control-height-touch, 48px));
+  }
+}
+@media (prefers-reduced-motion: no-preference) {
+  .animation-audition-controls > [role="group"] > button,
+  .webgal-animation-frames-editor .animation-frames-preview-actions > button {
+    transition:
+      border-radius
+        var(--motion-spatial-fast, var(--editor-spatial, 180ms ease-out)),
+      background-color
+        var(--motion-effects-fast, var(--editor-effects, 140ms ease-out));
+  }
+}

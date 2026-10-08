@@ -11,22 +11,38 @@ import {
 } from "../studio-plugin-catalog";
 import type { EditorSession } from "./session";
 import { StageTransformEditor } from "./StageTransformEditor";
+import { AnimationAudition } from "./animation-audition";
+import { AnimationAuditionControls } from "./AnimationAuditionControls";
+import type { VegaPreviewBreakpoint } from "@haneoka/altair-preview-client";
 export function Preview({ session }: { session: EditorSession }) {
   const state = useSyncExternalStore(session.subscribe, session.getSnapshot);
   const pluginSignature = JSON.stringify(state.project?.plugins ?? DEFAULT_STUDIO_PROJECT_PLUGINS);
   const projectReady = Boolean(state.project);
   const mount = useRef<HTMLDivElement>(null),
     bridge = useRef(new StudioPreviewBridge());
+  const audition = useRef<AnimationAudition | undefined>(undefined);
+  const restoredBreakpoints = useRef<readonly VegaPreviewBreakpoint[] | undefined>(undefined);
   const [status, setStatus] = useState("Connecting preview"),
     [ready, setReady] = useState(false),
     [synchronized, setSynchronized] = useState(false),
     [editingTransform, setEditingTransform] = useState(false),
     [revision, setRevision] = useState(0);
   useEffect(() => {
-    if (!projectReady) return;
+    if (!projectReady || session.lifetimeSignal.aborted) {
+      setReady(false);
+      setSynchronized(false);
+      return;
+    }
     const controller = new AbortController();
+    const closeSession = () => {
+      controller.abort();
+      setReady(false);
+      setSynchronized(false);
+    };
+    session.lifetimeSignal.addEventListener("abort", closeSession, { once: true });
     let service: AltairVegaPreviewService | undefined;
     let unsubscribe: (() => void) | undefined;
+    let unregisterAudition: (() => void) | undefined;
     setReady(false);
     setSynchronized(false);
     setStatus("Connecting preview");
@@ -63,7 +79,15 @@ export function Preview({ session }: { session: EditorSession }) {
         await preview.dispose();
         return;
       }
-      bridge.current.connectSession(preview);
+      // The newly created owned runtime starts with an empty breakpoint configuration.
+      bridge.current.connectSession(preview, [], identity);
+      const owner = new AnimationAudition(session, bridge.current, mount.current!, controller.signal, breakpoints => {
+        restoredBreakpoints.current = breakpoints;
+        bridge.current.close();
+        setRevision(value => value + 1);
+      });
+      audition.current = owner;
+      unregisterAudition = session.registerAnimationAudition(owner);
       unsubscribe = bridge.current.onEvent((event) => {
         if (!controller.signal.aborted && event.event === "runtime.diagnostic" && event.level === "error")
           setStatus(event.message);
@@ -74,7 +98,11 @@ export function Preview({ session }: { session: EditorSession }) {
       if (!controller.signal.aborted) setStatus(error instanceof Error ? error.message : String(error));
     });
     return () => {
+      session.lifetimeSignal.removeEventListener("abort", closeSession);
       controller.abort();
+      unregisterAudition?.();
+      audition.current?.dispose();
+      audition.current = undefined;
       unsubscribe?.();
       bridge.current.close();
       void service?.dispose();
@@ -93,8 +121,14 @@ export function Preview({ session }: { session: EditorSession }) {
         session.runtimeIndex(),
         controller.signal,
       )
-      .then((executed) => {
+      .then(async (executed) => {
         if (!controller.signal.aborted && executed) {
+          const breakpoints = restoredBreakpoints.current;
+          if (breakpoints) {
+            await bridge.current.setBreakpoints(breakpoints, controller.signal);
+            if (controller.signal.aborted) return;
+            restoredBreakpoints.current = undefined;
+          }
           setSynchronized(true);
           setStatus("Preview synchronized");
         }
@@ -104,6 +138,10 @@ export function Preview({ session }: { session: EditorSession }) {
       });
     return () => controller.abort();
   }, [ready, state.compilation, session]);
+  useEffect(() => {
+    audition.current?.setReady(ready && synchronized && !editingTransform && !state.compiling && !state.error);
+  }, [ready, synchronized, editingTransform, state.compiling, state.error]);
+  const auditionOwned = Boolean(state.animationAudition?.owned);
   const run = (operation: (bridge: StudioPreviewBridge) => Promise<void>) =>
     void operation(bridge.current).catch((error) => setStatus(String(error)));
   return (
@@ -111,7 +149,7 @@ export function Preview({ session }: { session: EditorSession }) {
       <div className="panel-heading">
         <span>{tr("Live preview")}</span>
         <button
-          disabled={editingTransform}
+          disabled={editingTransform || auditionOwned}
           title={tr("Refresh preview")}
           aria-label={tr("Refresh preview")}
           onClick={() => setRevision((v) => v + 1)}
@@ -126,10 +164,10 @@ export function Preview({ session }: { session: EditorSession }) {
           <Maximize2 size={14} />
         </button>
       </div>
-      <div className="preview-stage" ref={mount} />
+      <div className="preview-stage" ref={mount} inert={auditionOwned} />
       <div className="preview-toolbar">
         <button
-          disabled={!ready || !synchronized || state.compiling || editingTransform}
+          disabled={!ready || !synchronized || state.compiling || editingTransform || auditionOwned}
           onClick={() => run((b) => b.play())}
           aria-label={tr("Play")}
           title={tr("Play")}
@@ -137,7 +175,7 @@ export function Preview({ session }: { session: EditorSession }) {
           <Play size={14} />
         </button>
         <button
-          disabled={!ready || !synchronized || state.compiling || editingTransform}
+          disabled={!ready || !synchronized || state.compiling || editingTransform || auditionOwned}
           onClick={() => run((b) => b.runScene(0))}
           aria-label={tr("Run from the beginning")}
           title={tr("Run from the beginning")}
@@ -145,20 +183,21 @@ export function Preview({ session }: { session: EditorSession }) {
           <RotateCcw size={14} />
         </button>
         <button
-          disabled={!ready || !synchronized || state.compiling || editingTransform}
+          disabled={!ready || !synchronized || state.compiling || editingTransform || auditionOwned}
           onClick={() => run((b) => b.runFrom(session.runtimeIndex()))}
         >
           <StepForward size={14} />
           {tr("Run from current statement")}
         </button>
-        <button disabled={!ready || editingTransform} onClick={() => run((b) => b.pause())} aria-label={tr("Pause")} title={tr("Pause")}>
+        <button disabled={!ready || editingTransform || auditionOwned} onClick={() => run((b) => b.pause())} aria-label={tr("Pause")} title={tr("Pause")}>
           <Pause size={14} />
         </button>
         <span title={state.error || tr(status)}>
           {state.error ? tr("Preview shows the last valid version") : state.compiling ? tr("Compiling") : tr(status)}
         </span>
       </div>
-      <StageTransformEditor session={session} bridge={bridge.current} ready={ready && synchronized}
+      <AnimationAuditionControls session={session} />
+      <StageTransformEditor session={session} bridge={bridge.current} ready={ready && synchronized && !auditionOwned}
         onEditingChange={setEditingTransform} />
     </section>
   );

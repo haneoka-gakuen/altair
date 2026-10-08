@@ -54,6 +54,8 @@ export const studioPreviewConfig = (): AltairStudioEmbeddedPreviewConfig | undef
 export class StudioPreviewBridge {
   private client: AltairPreviewClient | undefined;
   private session: AltairPreviewSession | undefined;
+  private breakpointConfiguration: readonly VegaPreviewBreakpoint[] | undefined;
+  private connectionIdentity: VegaPreviewIdentity | undefined;
 
   async connect(target: Window, config: AltairStudioEmbeddedPreviewConfig): Promise<void> {
     this.close();
@@ -61,6 +63,7 @@ export class StudioPreviewBridge {
       timeoutMs: 8_000,
     });
     await this.adoptClient(client);
+    this.connectionIdentity = { ...config.identity };
   }
 
   /**
@@ -75,15 +78,18 @@ export class StudioPreviewBridge {
       timeoutMs: 8_000,
     });
     await this.adoptClient(client);
+    this.connectionIdentity = { ...identity };
   }
 
   /** Adopt a preview provider session contributed through Altair API 2. */
-  connectSession(session: AltairPreviewSession): void {
+  connectSession(session: AltairPreviewSession, initialBreakpoints?: readonly VegaPreviewBreakpoint[], identity?: VegaPreviewIdentity): void {
     if (!session || typeof session.request !== "function") {
       throw new TypeError("Altair preview session is invalid");
     }
     this.close();
     this.session = session;
+    this.breakpointConfiguration = initialBreakpoints ? structuredClone(initialBreakpoints) : undefined;
+    this.connectionIdentity = identity ? { ...identity } : undefined;
   }
 
   private async adoptClient(client: AltairPreviewClient): Promise<void> {
@@ -159,6 +165,29 @@ export class StudioPreviewBridge {
     await this.request({ name: "editor.run-from", commandIndex }, signal);
   }
 
+  /** Audition owners must distinguish executed requests from superseded ones. */
+  async auditionCommand(
+    command: Parameters<AltairPreviewClient["request"]>[0],
+    signal?: AbortSignal,
+  ): Promise<VegaJsonValue | undefined> {
+    const response = await this.request(command, signal);
+    if (response.status !== "executed") throw new Error("Animation audition was superseded");
+    return response.result;
+  }
+
+  async auditionCommandReceipt(
+    command: Parameters<AltairPreviewClient["request"]>[0],
+    signal?: AbortSignal,
+  ): Promise<{ readonly result: VegaJsonValue | undefined; readonly revision: number; readonly identity: VegaPreviewIdentity }> {
+    const identity = this.connectionIdentity;
+    if (!identity) throw new Error("Animation audition was superseded");
+    const response = await this.request(command, signal);
+    if (response.status !== "executed") throw new Error("Animation audition was superseded");
+    if (this.connectionIdentity !== identity || !Number.isSafeInteger(response.revision) || response.revision < 0)
+      throw new Error("Animation audition was superseded");
+    return { result: response.result, revision: response.revision, identity: { ...identity } };
+  }
+
   async runSnippet(commands: readonly VegaJsonValue[], label?: string, signal?: AbortSignal): Promise<void> {
     await this.request({ name: "editor.run-snippet", commands, ...(label ? { label } : {}) }, signal);
   }
@@ -172,7 +201,13 @@ export class StudioPreviewBridge {
   }
 
   async setBreakpoints(breakpoints: readonly VegaPreviewBreakpoint[], signal?: AbortSignal): Promise<void> {
-    await this.request({ name: "debug.breakpoints.set", breakpoints }, signal);
+    const response = await this.request({ name: "debug.breakpoints.set", breakpoints }, signal);
+    if (response.status !== "executed") throw new Error("Preview breakpoint update was superseded");
+    this.breakpointConfiguration = structuredClone(breakpoints);
+  }
+
+  get configuredBreakpoints(): readonly VegaPreviewBreakpoint[] | undefined {
+    return this.breakpointConfiguration ? structuredClone(this.breakpointConfiguration) : undefined;
   }
 
   async variables(signal?: AbortSignal): Promise<VegaJsonValue | undefined> {
@@ -214,6 +249,8 @@ export class StudioPreviewBridge {
   }
 
   close(): void {
+    this.connectionIdentity = undefined;
+    this.breakpointConfiguration = undefined;
     this.client?.close();
     this.client = undefined;
     const session = this.session;
