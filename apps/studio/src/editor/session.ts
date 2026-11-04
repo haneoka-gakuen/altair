@@ -3,7 +3,7 @@ import { downloadStudioFile } from "./studio-host";
 import type { AnimationAudition, AnimationAuditionState } from "./animation-audition";
 import { PreviewResources } from "./PreviewResources";
 import { COMMAND_LIBRARY_PATH } from "./command-library";
-import { validateAuthoredDocument } from "./validation";
+import { authoredError, validateAuthoredDocument } from "./validation";
 import type { StoryProject, StoryDiagnostic, AltairPluginHost, AltairEditorWorkspace } from "@haneoka/altair";
 import { createAltairHistoryService, type AltairHistory } from "@haneoka/altair-plugin-history";
 import {
@@ -11,7 +11,6 @@ import {
   parseAltairSceneDocument,
   parseAltairProjectDocument,
   serializeAltairDocument,
-  serializeAuthoredText,
   cloneAltairNodeGroup,
   type AltairCommandGroup,
   type AltairAuthoredNode,
@@ -126,6 +125,7 @@ const isScene = nativeScenePath;
 const isText = (path: string) =>
   /\.(?:txt|wg|webgal|json|jsonl|ndjson|wgcp|css|html|js|yaml|yml|atlas|mtn|exp)$/iu.test(path);
 export class EditorSession {
+  private compilationError = "";
   setAuthoringSelection(sceneId: string, lines: readonly string[], cursor: string | null = null): void {
     const selection = { sceneId, lines: [...lines], cursor };
     if (JSON.stringify(selection) !== JSON.stringify(this.state.authoringSelection))
@@ -320,6 +320,7 @@ export class EditorSession {
   };
   private publish(patch: Partial<EditorSnapshot>) {
     if (this.disposed) return;
+    if (patch.error === "" && this.compilationError) patch = { ...patch, error: this.compilationError };
     const files = new Map(this.state.files.map((file) => [file.path, file.blob]));
     const documents = new Map(this.state.documents.map((document) => [document.path, document]));
     const filesChanged =
@@ -605,7 +606,7 @@ export class EditorSession {
             ),
           };
           const supported = withNativeScriptProviders(workspace);
-          const compiled = this.editorHost?.compileDocuments(supported) ?? nativeScriptRegistry().compile(supported);
+          const compiled = nativeScriptRegistry().compileDraft(supported);
           const draft = rebaseNativeScriptDraft(compiled, cleanNativeScriptScene(next), previous);
           text = serializeAltairDocument(
             { ...next, extensions: { ...next.extensions, [NATIVE_SCRIPT_STATE]: draft as unknown as JsonObject } },
@@ -1667,6 +1668,7 @@ export class EditorSession {
             )
           : undefined;
         if (!preview) {
+          this.compilationError = "";
           this.publish({ project: result.project, compiling: false, compilation: undefined, error: "" });
           return;
         }
@@ -1695,6 +1697,7 @@ export class EditorSession {
           this.editorFor(file.path)?.affectsPreview !== false,
       );
       this.previewResources.publish(resourceFiles, this.state.documents);
+      this.compilationError = "";
       this.publish({
         project: result.project,
         name: result.project.meta.title || this.state.name,
@@ -1708,9 +1711,10 @@ export class EditorSession {
       });
     } catch (error) {
       if (controller.signal.aborted || this.disposed) return;
+      this.compilationError = authoredError(error);
       this.publish({
         compiling: false,
-        error: tr(error instanceof Error ? error.message : String(error)),
+        error: this.compilationError,
       });
     }
   }

@@ -1574,5 +1574,8 @@
   "Keep manual camera": "手動カメラを維持",
   "Shot overlaps a locked range": "ロック範囲とショットが重なっています",
   "field.Focus.focusTargets": "ショットの人物",
-  "Camera commands": "カメラコマンド"
+  "Camera commands": "カメラコマンド",
+  "Missing scene: {{scene}}": "シーンがありません：{{scene}}",
+  "Missing command: {{node}}": "コマンドがありません：{{node}}",
+  "Select a target scene": "移動先のシーンを選択"
 }

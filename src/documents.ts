@@ -183,6 +183,13 @@ export class AltairDocumentRegistry {
     };
   }
   compile(workspace: AltairAuthoredWorkspace): StoryProject {
+    return this.compileWorkspace(workspace, false);
+  }
+  /** Script projection retains unfinished nodes; executable builds use compile(). */
+  compileDraft(workspace: AltairAuthoredWorkspace): StoryProject {
+    return this.compileWorkspace(workspace, true);
+  }
+  private compileWorkspace(workspace: AltairAuthoredWorkspace, draft: boolean): StoryProject {
     const project = parseAltairProjectDocument(workspace.project),
       sceneById = new Map(workspace.scenes.map((scene) => [scene.id, parseAltairSceneDocument(scene)]));
     if (sceneById.size !== workspace.scenes.length) throw new Error("Duplicate scene document");
@@ -198,6 +205,24 @@ export class AltairDocumentRegistry {
       return token;
     };
     const lower = (node: AltairAuthoredNode, scene: AltairSceneDocument): StoryProjectCommand[] => {
+      try {
+        return lowerNode(node, scene);
+      } catch (error) {
+        if (!draft) throw error;
+        return [
+          {
+            id: node.id,
+            command: "haneoka.altair-authoring:incomplete@1",
+            fields: { key: nodeKey(scene.id, node.id) },
+            extensions: {
+              altairDraftError: error instanceof Error ? error.message : String(error),
+              altairNode: { sceneId: scene.id, nodeId: node.id },
+            },
+          },
+        ];
+      }
+    };
+    const lowerNode = (node: AltairAuthoredNode, scene: AltairSceneDocument): StoryProjectCommand[] => {
       if (node.disabled) return [];
       if (node.type.plugin === "haneoka.altair" && node.schemaVersion !== 1)
         throw new Error(`Unsupported core node schema: ${node.schemaVersion}`);
@@ -421,6 +446,7 @@ export class AltairDocumentRegistry {
       const command = compiled.scenes
         .find((scene) => scene.id === reference.sceneId)
         ?.commands.find((command) => command.id === reference.nodeId);
+      if (draft && (!command || typeof command.fields.key !== "string")) return value;
       if (!command || typeof command.fields.key !== "string")
         throw new Error(`Target node is not executable: ${reference.sceneId}/${reference.nodeId}`);
       return `vega:command:${encodeURIComponent(reference.sceneId)}:${encodeURIComponent(command.fields.key)}`;

@@ -57,7 +57,7 @@ export function nativePresentationWorkspace(workspace: AltairAuthoredWorkspace):
   const canonical = canonicalizeNativeWorkspace(prepared, registry);
   const sourceStates = new Map(workspace.scenes.map((scene) => [scene.id, nativeScriptState(scene)]));
   if (![...sourceStates.values()].some(Boolean)) return canonical;
-  const compiled = registry.compile(canonical);
+  const compiled = registry.compileDraft(canonical);
   return {
     ...canonical,
     scenes: canonical.scenes.map((scene) => {

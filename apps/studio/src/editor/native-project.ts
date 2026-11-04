@@ -284,7 +284,7 @@ export async function normalizeImportedProject(project: LibraryProject): Promise
       let compiled: ReturnType<AltairDocumentRegistry["compile"]> | undefined;
       try {
         resolved = resolveNativeScriptWorkspace({ project: parsed, scenes }, sources);
-        compiled = nativeScriptRegistry().compile(resolved);
+        compiled = nativeScriptRegistry().compileDraft(resolved);
       } catch {
         resolved = { project: parsed, scenes };
       }

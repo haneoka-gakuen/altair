@@ -1574,5 +1574,8 @@
   "Keep manual camera": "수동 카메라 유지",
   "Shot overlaps a locked range": "잠긴 범위와 샷이 겹칩니다",
   "field.Focus.focusTargets": "샷 인물",
-  "Camera commands": "카메라 명령"
+  "Camera commands": "카메라 명령",
+  "Missing scene: {{scene}}": "없는 장면: {{scene}}",
+  "Missing command: {{node}}": "없는 명령: {{node}}",
+  "Select a target scene": "대상 장면 선택"
 }
