@@ -281,6 +281,8 @@ jobs:
           node-version: 24
           cache: pnpm
           cache-dependency-path: altair/pnpm-lock.yaml
+      - name: Set up locked Vega Rust and WASM tools
+        uses: ./altair/.dependencies/vega/.github/actions/setup-wasm
 
       - name: Install dependencies
         working-directory: altair
