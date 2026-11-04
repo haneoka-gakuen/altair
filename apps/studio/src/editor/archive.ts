@@ -1,8 +1,11 @@
+import { downloadStudioFile } from "./studio-host";
+import { createWorkspaceZip } from "@haneoka/altair-plugin-workspace-browser/archive";
 import { tr } from "./i18n";
-import { Zip, ZipDeflate, ZipPassThrough, Unzip, UnzipInflate, strFromU8, type UnzipFile } from "fflate";
+import { Unzip, UnzipInflate, strFromU8, type UnzipFile } from "fflate";
 import type { EditorSession } from "./session";
 import type { ProjectFile } from "./library";
 import { projectDirectories, projectFilePath } from "./file-operations";
+import { authoringProjectFiles } from "./authoring-project";
 
 const MAX_ARCHIVE_BYTES = 2 * 1024 * 1024 * 1024;
 const MAX_ARCHIVE_ENTRIES = 20_000;
@@ -15,92 +18,42 @@ export interface ProjectArchive {
   readonly files: readonly ProjectFile[];
   readonly directories: readonly string[];
 }
+export const compressibleArchivePaths = (files: readonly Pick<ProjectFile, "path">[]): Set<string> =>
+  new Set(
+    files
+      .filter((file) => /\.(?:txt|jsonl?|ya?ml|wmdl|html|css|[cm]?js|svg|wasm|ttf|otf|eot)$/iu.test(file.path))
+      .map((file) => file.path),
+  );
 
 /** Stream input files into ZIP output chunks, avoiding a second full byte array of every asset. */
 export async function createProjectZip(session: EditorSession, signal?: AbortSignal): Promise<Blob> {
-  session.validateDocuments();
   const state = session.getSnapshot();
-  const files = state.files.map((file) => ({
-    path: projectFilePath(file.path),
-    blob: session.document(file.path)
-      ? new Blob([session.document(file.path)!.text], { type: "text/plain" })
-      : file.blob,
-  }));
-  return createFilesZip(files, state.directories, signal, new Set(state.documents.map((doc) => doc.path)));
+  const files = await authoringProjectFiles(state.files, state.documents);
+  return createFilesZip(
+    files,
+    state.directories,
+    signal,
+    new Set([...compressibleArchivePaths(files), ...state.documents.map((doc) => doc.path)]),
+  );
 }
 
-/** Shared streamed ZIP writer for native projects and engine-backed games. */
 export async function createFilesZip(
   files: readonly ProjectFile[],
   folders: readonly string[] = [],
   signal?: AbortSignal,
-  compress: ReadonlySet<string> = new Set(),
+  compress: ReadonlySet<string> = compressibleArchivePaths(files),
 ): Promise<Blob> {
-  const paths = new Set<string>();
-  for (const file of files) {
-    projectFilePath(file.path);
-    if (paths.has(file.path)) throw new Error(tr("The archive contains duplicate paths"));
-    paths.add(file.path);
-  }
-  const directories = projectDirectories(files, folders);
-  if (files.length + directories.length > MAX_ARCHIVE_ENTRIES)
-    throw new Error(tr("The archive contains too many entries"));
-  if (files.reduce((size, file) => size + file.blob.size, 0) > MAX_ARCHIVE_BYTES)
-    throw new Error(tr("The project exceeds 2 GB"));
-  const chunks: BlobPart[] = [];
-  let failure: Error | undefined;
-  let finished = false;
-  const archive = new Zip((error, data, final) => {
-    if (error) failure = error;
-    else chunks.push(new Blob([data as Uint8Array<ArrayBuffer>]));
-    finished ||= final;
-  });
   try {
-    for (const path of directories) {
-      signal?.throwIfAborted();
-      const entry = new ZipPassThrough(`${path}/`);
-      archive.add(entry);
-      entry.push(new Uint8Array(), true);
-    }
-    for (const file of files) {
-      signal?.throwIfAborted();
-      const entry = compress.has(file.path) ? new ZipDeflate(file.path, { level: 6 }) : new ZipPassThrough(file.path);
-      archive.add(entry);
-      const reader = file.blob.stream().getReader();
-      try {
-        while (true) {
-          const { value, done } = await reader.read();
-          signal?.throwIfAborted();
-          if (done) {
-            entry.push(new Uint8Array(), true);
-            break;
-          }
-          entry.push(value);
-          if (failure) throw failure;
-        }
-      } finally {
-        await reader.cancel().catch(() => undefined);
-        reader.releaseLock();
-      }
-    }
-    archive.end();
-    if (failure) throw failure;
-    if (!finished) throw new Error(tr("The archive is incomplete"));
-    return new Blob(chunks, { type: "application/zip" });
+    return await createWorkspaceZip(files, folders, signal, compress);
   } catch (error) {
-    archive.terminate();
+    if (error instanceof Error) throw new Error(tr(error.message), { cause: error });
     throw error;
   }
 }
 
 export async function exportProjectZip(session: EditorSession): Promise<void> {
   const blob = await createProjectZip(session);
-  const url = URL.createObjectURL(blob),
-    anchor = document.createElement("a");
-  anchor.href = url;
-  anchor.download = session.getSnapshot().name.replace(/[\\/:*?"<>|]/gu, "_") + ".zip";
-  anchor.click();
-  setTimeout(() => URL.revokeObjectURL(url), 30000);
+  downloadStudioFile(blob, session.getSnapshot().name.replace(/[\\/:*?"<>|]/gu, "_") + ".zip");
 }
 
 /** Validate every ZIP entry and enforce limits using bytes actually produced by decompression. */
@@ -145,7 +98,7 @@ export async function readProjectZip(
   const entries = new Map<string, { crc: number; size: number }>();
   const declaredPaths = new Set<string>();
   let declaredBytes = 0;
-  for (let offset = 0; offset < metadata.byteLength; ) {
+  for (let offset = 0; offset < metadata.byteLength;) {
     if (offset + 46 > metadata.byteLength || metadata.getUint32(offset, true) !== 0x02014b50)
       throw new Error(tr("The archive is incomplete"));
     const flags = metadata.getUint16(offset + 8, true),

@@ -1,8 +1,10 @@
+import { normalizeWebGalAnimation } from "@haneoka/vega-plugin-webgal/animation";
 import { cloneStoryValue, type JsonObject, type JsonValue } from "@haneoka/altair/model";
 
 export type AnimationTransformField = "x" | "y" | "scaleX" | "scaleY" | "rotation" | "alpha";
 export interface AnimationFramesChange {
   readonly frames: JsonObject[];
+  readonly options?: JsonObject;
   readonly selectedIndex: number | undefined;
 }
 export interface AnimationFrameTime {
@@ -16,9 +18,9 @@ const isObject = (value: unknown): value is JsonObject =>
 
 /** Owned copies retain source properties, including absent channels and custom easing tokens. */
 export function readAnimationFrames(value: JsonValue): JsonObject[] {
-  if (!Array.isArray(value) || value.some(frame => !isObject(frame)))
-    throw new TypeError("Animation must contain an array of keyframes");
-  return cloneStoryValue(value as JsonObject[]);
+  const frames = Array.isArray(value) ? value : normalizeWebGalAnimation(value).frames;
+  if (frames.some(frame => !isObject(frame))) throw new TypeError("Animation requires keyframes");
+  return cloneStoryValue([...frames] as JsonObject[]);
 }
 
 function frameIndex(frames: readonly JsonObject[], index: number): void {

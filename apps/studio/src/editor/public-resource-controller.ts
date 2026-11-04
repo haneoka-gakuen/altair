@@ -24,9 +24,11 @@ export const PUBLIC_ASSET_INSERT_KINDS = Object.freeze([
   "spine",
   "effect",
   "post-effect",
+  "project",
 ]);
 export interface PublicPickerSnapshot {
-  readonly phase: "idle" | "connecting" | "browsing" | "selecting" | "prepared" | "importing" | "error";
+  readonly layout: "grid" | "directory";
+  readonly phase: "idle" | "connecting" | "listing" | "browsing" | "selecting" | "prepared" | "importing" | "error";
   readonly scope?: PublicSourceScope;
   readonly path: ResourceBrowserPath;
   readonly nodes: readonly ResourceBrowserNode[];
@@ -48,6 +50,7 @@ export interface PublicImportMetadata {
 /** One consumer owns source scope, selected bytes, cancellation and the final Session import. */
 export class PublicResourcePickerController {
   private state: PublicPickerSnapshot = {
+    layout: "grid",
     phase: "idle",
     path: [],
     nodes: [],
@@ -166,9 +169,15 @@ export class PublicResourcePickerController {
             ? "audio"
             : preferredKind
         : preferredKind;
-    return { acceptedKinds: PUBLIC_ASSET_INSERT_KINDS, preferredKind: kind, signal, context: { audioUsage: usage } };
+    return {
+      acceptedKinds: PUBLIC_ASSET_INSERT_KINDS,
+      preferredKind: kind,
+      signal,
+      context: { audioUsage: usage, catalogView: this.state.layout },
+    };
   }
-  async connect(source: PublicResourceSource): Promise<void> {
+  async connect(source: PublicResourceSource, preferredKind?: string): Promise<void> {
+    this.publish({ layout: "grid" });
     const task = await this.start("connecting");
     this.connection?.dispose();
     this.connection = undefined;
@@ -190,14 +199,16 @@ export class PublicResourcePickerController {
       this.active(task);
       this.connection = connection;
       const roots = connection.catalog.roots,
-        nodes = await connection.catalog.list([], this.request(task.controller.signal));
+        request = this.request(task.controller.signal, preferredKind),
+        path = connection.catalog.preferredPath(request),
+        nodes = await connection.catalog.list(path, request);
       this.active(task);
       this.publish({
         phase: "browsing",
         scope: connection.catalog.scope,
         roots,
-        nodes: nodes.length ? nodes : roots,
-        path: [],
+        nodes: path.length ? nodes : nodes.length ? nodes : roots,
+        path,
       });
     } catch (error) {
       if (connection) {
@@ -211,7 +222,7 @@ export class PublicResourcePickerController {
     const connection = this.connection;
     if (!connection) return;
     const captured = Object.freeze([...path]),
-      task = await this.start("browsing");
+      task = await this.start("listing");
     this.selectedReader = undefined;
     this.publish({
       asset: undefined,
@@ -233,6 +244,33 @@ export class PublicResourcePickerController {
       this.failed(task, error);
     }
   }
+  async openPath(value: string, preferredKind?: string): Promise<void> {
+    this.publish({ layout: "directory" });
+    const parts = value
+      .trim()
+      .replace(/^\/+|\/+$/gu, "")
+      .split("/")
+      .filter(Boolean);
+    if (!parts.length) return this.browse([]);
+    await this.browse(parts.slice(0, -1));
+    if (this.state.phase === "error") return;
+    const node = this.state.nodes.find((entry) => entry.path.join("/") === parts.join("/"));
+    if (!node) {
+      this.publish({ phase: "error", error: "Catalog path was not found" });
+      return;
+    }
+    if (node.type === "directory") await this.browse(node.path);
+    else await this.select(node, preferredKind);
+  }
+  async showLayout(layout: PublicPickerSnapshot["layout"], kind: string): Promise<void> {
+    this.publish({ layout });
+    await this.browsePreferred(kind);
+  }
+  async browsePreferred(kind: string): Promise<void> {
+    if (!this.connection) return;
+    const path = this.connection.catalog.preferredPath(this.request(this.session.lifetimeSignal, kind));
+    await this.browse(path);
+  }
   async select(file: ResourceBrowserFile, preferredKind?: string): Promise<void> {
     const connection = this.connection;
     if (!connection || !file.available || !file.acceptedKinds.some((kind) => PUBLIC_ASSET_INSERT_KINDS.includes(kind)))
@@ -243,7 +281,10 @@ export class PublicResourcePickerController {
     try {
       const asset = await connection.catalog.select(file, this.request(task.controller.signal, preferredKind));
       this.active(task);
-      if (asset.kind === "project") throw new Error("Story projects require their project importer");
+      if (asset.kind === "project") {
+        this.publish({ asset, selectedFileId: file.id, phase: "prepared" });
+        return;
+      }
       this.publish({
         asset,
         selectedFileId: file.id,
@@ -288,6 +329,15 @@ export class PublicResourcePickerController {
     if (this.importTask) return this.importTask;
     const asset = this.state.asset,
       reader = this.selectedReader;
+    if (asset?.kind === "project") {
+      this.publish({ phase: "importing" });
+      this.importTask = import("./studio-host")
+        .then(({ executeStudioAction }) => executeStudioAction("import-source", { source: asset.scope, project: asset.value }))
+        .then(() => undefined)
+        .catch(error => { this.publish({ phase: "error", error: "Import failed" }); throw error; })
+        .finally(() => { this.importTask = undefined; });
+      return this.importTask;
+    }
     if (!asset || !reader || !this.state.plan) return Promise.reject(new Error("Select and prepare an asset first"));
     const settings = { ...metadata };
     const run = (async () => {

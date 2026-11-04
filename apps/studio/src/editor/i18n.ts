@@ -2,6 +2,9 @@ import { createInstance, type ResourceLanguage } from "i18next";
 import { initReactI18next, useTranslation } from "react-i18next";
 import en from "./locales/en.json";
 import zhCN from "./locales/zh-CN.json";
+import zhTW from "./locales/zh-TW.json";
+import ja from "./locales/ja.json";
+import ko from "./locales/ko.json";
 const KEY = "altair.interface-language.v1";
 export function canonicalLanguage(value: string): string {
   const normalized = value.trim().replaceAll("_", "-");
@@ -22,7 +25,13 @@ export function interfaceLanguageChoice(): string {
     return "auto";
   }
 }
-const resources = { en: { studio: en }, "zh-CN": { studio: zhCN } };
+const resources = {
+  en: { studio: en },
+  "zh-CN": { studio: zhCN },
+  "zh-TW": { studio: zhTW },
+  ja: { studio: ja },
+  ko: { studio: ko },
+};
 const languages = new Set(Object.keys(resources));
 export const availableStudioLanguages = () => [...languages];
 function matchLanguage(requested: string): string | undefined {

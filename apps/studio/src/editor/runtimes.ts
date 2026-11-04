@@ -1,6 +1,8 @@
+import { studioEnvironment } from "./studio-host";
 export const RUNTIME_LIBRARIES = [
   { id: "cubism", label: "Cubism 3 / 4 / 5", globalName: "Live2DCubismCore" },
   { id: "cubism2", label: "Cubism 2", globalName: "Live2D" },
+  { id: "motionSync", label: "MotionSync", globalName: "Live2DCubismMotionSyncCore" },
 ] as const;
 export type RuntimeLibraryId = (typeof RUNTIME_LIBRARIES)[number]["id"];
 export interface RuntimeLibrary {
@@ -55,9 +57,13 @@ export const runtimeLibraries = {
     );
   },
   remove: (id: RuntimeLibraryId) => operation("readwrite", (store) => store.delete(id)),
-  async sources(): Promise<{ cubismCoreUrl?: string; cubism2CoreUrl?: string }> {
+  async sources(): Promise<{ cubismCoreUrl?: string; cubism2CoreUrl?: string; motionSyncCoreUrl?: string }> {
     const stored = await this.list(),
-      result = { cubismCoreUrl: "/Core/live2dcubismcore.js", cubism2CoreUrl: "/Core/live2d.min.js" };
+      result = {
+        cubismCoreUrl: "/Core/live2dcubismcore.js",
+        cubism2CoreUrl: "/Core/live2d.min.js",
+        ...studioEnvironment().runtimeSources,
+      };
     for (const [id, entry] of urls)
       if (!stored.some((library) => library.id === id)) {
         URL.revokeObjectURL(entry.url);
@@ -70,7 +76,8 @@ export const runtimeLibraries = {
         entry = { revision: item.revision, url: URL.createObjectURL(item.blob) };
         urls.set(item.id, entry);
       }
-      result[item.id === "cubism" ? "cubismCoreUrl" : "cubism2CoreUrl"] = entry.url;
+      result[item.id === "cubism" ? "cubismCoreUrl" : item.id === "cubism2" ? "cubism2CoreUrl" : "motionSyncCoreUrl"] =
+        entry.url;
     }
     return result;
   },

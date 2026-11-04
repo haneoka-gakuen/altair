@@ -1,5 +1,9 @@
+import { useEditorPreferences } from "./preferences";
+import { studioIntent } from "./studio-host";
 import Editor, { loader, type OnMount } from "@monaco-editor/react";
-import * as monaco from "monaco-editor";
+import type * as Monaco from "monaco-editor";
+import { monaco, monacoLanguage } from "./monaco-locale";
+import { useStudioI18n } from "./i18n";
 import EditorWorker from "monaco-editor/editor/editor.worker?worker";
 import JsonWorker from "monaco-editor/language/json/json.worker?worker";
 import { useEffect, useRef } from "react";
@@ -62,8 +66,8 @@ monaco.languages.registerDocumentFormattingEditProvider("yaml", {
     }
   },
 });
-function validateModel(model: monaco.editor.ITextModel, path: string, session: EditorSession): void {
-  const markers: monaco.editor.IMarkerData[] = [];
+function validateModel(model: Monaco.editor.ITextModel, path: string, session: EditorSession): void {
+  const markers: Monaco.editor.IMarkerData[] = [];
   if (/\.ya?ml$/iu.test(path)) {
     try {
       session.validateDocument(path, model.getValue());
@@ -83,6 +87,26 @@ function validateModel(model: monaco.editor.ITextModel, path: string, session: E
   }
   monaco.editor.setModelMarkers(model, "authored", markers);
 }
+function syncSourceTheme(editor: Monaco.editor.IStandaloneCodeEditor | null) {
+  const root = globalThis.document.documentElement;
+  const style = getComputedStyle(root);
+  const role = (name: string) => style.getPropertyValue(`--md-sys-color-${name}`).trim();
+  monaco.editor.defineTheme("altair-host", {
+    base: root.dataset.theme === "dark" ? "vs-dark" : "vs",
+    inherit: true,
+    rules: [],
+    colors: {
+      "editor.background": role("surface"),
+      "editor.foreground": role("on-surface"),
+      "editorLineNumber.foreground": role("on-surface-variant"),
+      "editorLineNumber.activeForeground": role("primary"),
+      "editor.selectionBackground": role("secondary-container"),
+    },
+  });
+  monaco.editor.setTheme("altair-host");
+  editor?.updateOptions({ fontFamily: `ui-monospace, ${style.getPropertyValue("--app-font").trim() || "monospace"}` });
+  monaco.editor.remeasureFonts();
+}
 export default function SourceEditor({
   session,
   document,
@@ -92,16 +116,36 @@ export default function SourceEditor({
   document: EditorDocument;
   line: number;
 }) {
-  const editor = useRef<monaco.editor.IStandaloneCodeEditor | null>(null);
+  const preferences = useEditorPreferences();
+  const { i18n } = useStudioI18n();
+  useEffect(() => {
+    if (i18n.resolvedLanguage !== monacoLanguage && window.parent === window)
+      void session.dispose().then(() => location.reload());
+  }, [i18n.resolvedLanguage, session]);
+  const editor = useRef<Monaco.editor.IStandaloneCodeEditor | null>(null);
+  useEffect(() => {
+    const refresh = () => syncSourceTheme(editor.current);
+    refresh();
+    const observer = new MutationObserver(refresh);
+    observer.observe(globalThis.document.documentElement, { attributes: true, attributeFilter: ["data-theme", "style", "lang"] });
+    globalThis.document.fonts.addEventListener("loadingdone", refresh);
+    return () => {
+      observer.disconnect();
+      globalThis.document.fonts.removeEventListener("loadingdone", refresh);
+    };
+  }, []);
   const onMount: OnMount = (instance) => {
     editor.current = instance;
+    syncSourceTheme(instance);
     if (instance.getModel()) validateModel(instance.getModel()!, document.path, session);
     instance.onDidChangeCursorPosition((event) => session.select(event.position.lineNumber));
     instance.onDidBlurEditorText(() => session.endGesture());
     const startLine = Math.min(instance.getModel()?.getLineCount() ?? 1, Math.max(1, line));
     instance.setPosition({ lineNumber: startLine, column: 1 });
     instance.revealLineInCenterIfOutsideViewport(startLine);
-    instance.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => void session.save().catch(() => {}));
+    instance.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => {
+      if (!studioIntent("save")) void session.save().catch(() => {});
+    });
   };
   useEffect(() => {
     if (editor.current?.getPosition()?.lineNumber !== line) {
@@ -115,6 +159,7 @@ export default function SourceEditor({
   }, [document.path, document.text]);
   return (
     <Editor
+      theme="altair-host"
       path={document.path}
       language={
         document.path.endsWith(".jsonl")
@@ -132,15 +177,15 @@ export default function SourceEditor({
       onMount={onMount}
       options={{
         readOnly: Boolean(session.getSnapshot().nativeImportRecovery),
-        fontSize: 14,
+        fontSize: preferences.fontSize,
         lineHeight: 24,
-        fontFamily: '"Noto Sans Mono", monospace',
-        minimap: { enabled: false },
-        wordWrap: "on",
+        fontFamily: `ui-monospace, ${getComputedStyle(globalThis.document.documentElement).getPropertyValue("--app-font").trim() || "monospace"}`,
+        minimap: { enabled: preferences.minimap },
+        wordWrap: preferences.wordWrap ? "on" : "off",
         automaticLayout: true,
         scrollBeyondLastLine: false,
         padding: { top: 18, bottom: 18 },
-        tabSize: 2,
+        tabSize: preferences.tabSize,
         insertSpaces: true,
       }}
     />

@@ -10,6 +10,9 @@ const options = {
   strict: true,
 };
 const style = { indent: 2, lineWidth: 0, blockQuote: "literal" as const };
+const parsedValues = new Map<string, JsonValue>();
+const parsedValueBudget = 8 * 1024 ** 2;
+let parsedValueSize = 0;
 
 function document(source: string, lineCounter?: LineCounter) {
   const doc: Document = parseDocument(source, { ...options, ...(lineCounter ? { lineCounter } : {}) });
@@ -35,8 +38,23 @@ function validate(value: unknown, seen = new Set<object>(), depth = 0): void {
   seen.delete(value);
 }
 export function parseAuthoredText(source: string): JsonValue {
+  const cached = parsedValues.get(source);
+  if (cached !== undefined) {
+    parsedValues.delete(source);
+    parsedValues.set(source, cached);
+    return structuredClone(cached);
+  }
   const value: unknown = document(source).toJS({ maxAliasCount: 100 });
   validate(value);
+  if (source.length <= parsedValueBudget) {
+    while (parsedValues.size >= 16 || parsedValueSize + source.length > parsedValueBudget) {
+      const oldest = parsedValues.keys().next().value!;
+      parsedValues.delete(oldest);
+      parsedValueSize -= oldest.length;
+    }
+    parsedValues.set(source, structuredClone(value) as JsonValue);
+    parsedValueSize += source.length;
+  }
   return value as JsonValue;
 }
 const recordId = (value: unknown): string | undefined =>

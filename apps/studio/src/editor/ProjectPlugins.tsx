@@ -30,7 +30,6 @@ export function ProjectPlugins({ session }: { session: EditorSession }) {
   return (
     <section className="project-plugins">
       <h3>{tr("Project plugins")}</h3>
-      <p>{tr("Editors and runtime features are provided by the enabled plugins.")}</p>
       <ul>
         {plugins.map((plugin) => {
           const entry = metadata(plugin.id, plugin.version);

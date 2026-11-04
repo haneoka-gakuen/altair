@@ -1,4 +1,5 @@
 import type { StoryResourceResolver } from "@haneoka/vega/renderer-kit";
+import { haneokaResourceRequestUrl } from "@haneoka/altair-plugin-haneoka/public-resource-url";
 import { storyResourceContentType } from "@haneoka/vega/plugin";
 import { readPublicResponse } from "./public-response";
 import { validatePublicScope, type PublicSourceScope } from "./resource-manifest";
@@ -12,9 +13,11 @@ import {
 import type { PublicResourceCatalog } from "./resource-catalog";
 
 export interface PublicResourceSource {
-  readonly provider: "haneoka" | "bestdori";
+  readonly provider: "haneoka" | "bestdori" | "sekai";
   readonly origin: string;
   readonly server: string;
+  readonly releaseId?: string;
+  readonly sourceId?: string;
 }
 export interface PublicResourceConnection {
   readonly catalog: PublicResourceCatalog;
@@ -29,19 +32,14 @@ export function publicResourceRequestUrl(source: string, scopeValue: PublicSourc
     url = new URL(source);
   if (!["https:", "http:"].includes(url.protocol) || url.username || url.password)
     throw new TypeError("Invalid public resource URL");
-  if (scope.provider === "haneoka" && url.origin === scope.origin) {
-    const parts = url.pathname.split("/");
-    if (["runtime", "assets", "objects"].includes(parts[1] ?? "")) {
-      if (parts[2] !== scope.releaseId && parts[2] !== scope.server)
-        throw new TypeError("Resource does not belong to the selected release");
-      const pins = url.searchParams.getAll("release");
-      if (pins.length > 1 || (pins.length === 1 && pins[0] !== scope.releaseId))
-        throw new TypeError("Resource release changed");
-      parts[2] = scope.server;
-      url.pathname = parts.join("/");
-      url.searchParams.set("release", scope.releaseId!);
-    }
-  }
+  if (scope.provider === "haneoka") return haneokaResourceRequestUrl(source, { ...scope, releaseId: scope.releaseId! });
+  if (
+    scope.provider === "bestdori" &&
+    url.origin === "https://bestdori.com" &&
+    /^\/api\/upload\/file\/[a-f\d]{40}$/u.test(url.pathname) &&
+    !url.search
+  )
+    return new URL(`/api/v1/garupa/bestdori/${scope.server}/raw${url.pathname}`, scope.origin).href;
   return url.href;
 }
 class PublicHttpResources implements StoryResourceResolver {
@@ -129,10 +127,11 @@ export function createStudioPublicResourceHost(options: {
   return {
     async connect(source, signal) {
       const scope =
-        source.provider === "haneoka"
+        source.provider === "haneoka" && !source.releaseId
           ? await resolveHaneokaPublicScope({ ...source, signal, transport: options.transport })
           : validatePublicScope(source);
       signal.throwIfAborted();
+      if (scope.provider === "sekai") throw new TypeError("This source provides story projects");
       const resources = options.createResources?.(scope) ?? new PublicHttpResources(scope);
       try {
         const catalog =

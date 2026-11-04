@@ -69,6 +69,11 @@
       "types": "./dist/documents-entry.d.ts",
       "import": "./dist/documents.js",
       "default": "./dist/documents.js"
+    },
+    "./studio-host": {
+      "types": "./dist/studio-host.d.ts",
+      "import": "./dist/studio-host.js",
+      "default": "./dist/studio-host.js"
     }
   },
   "scripts": {

@@ -1,3 +1,4 @@
+import { downloadStudioFile } from "./studio-host";
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
 import { Download, RefreshCw, X } from "lucide-react";
@@ -90,12 +91,7 @@ export function NativeImportRecoveryDialog({
     void run(async (signal) => {
       const blob = await createFilesZip(nativeImportBackupFiles(journal, version), [], signal);
       signal.throwIfAborted();
-      const url = URL.createObjectURL(blob),
-        anchor = document.createElement("a");
-      anchor.href = url;
-      anchor.download = `${journal.id}-${version}.zip`;
-      anchor.click();
-      setTimeout(() => URL.revokeObjectURL(url), 30000);
+      downloadStudioFile(blob, `${journal.id}-${version}.zip`);
     });
   return (
     <Dialog.Root

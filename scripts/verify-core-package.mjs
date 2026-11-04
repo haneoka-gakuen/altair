@@ -16,6 +16,7 @@ const allowedExports = new Set([
   "./plugins",
   "./protocol",
   "./resource-browser",
+  "./studio-host",
 ]);
 const unexpectedExports = Object.keys(packageJson.exports).filter((entry) => !allowedExports.has(entry));
 if (unexpectedExports.length) {

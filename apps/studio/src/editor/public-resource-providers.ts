@@ -6,8 +6,11 @@ import type {
 } from "@haneoka/altair/resource-browser";
 import type { StoryResourceResolver } from "@haneoka/vega/renderer-kit";
 import { PublicResourceCatalog } from "./resource-catalog";
-import { validatePublicScope, type PublicSourceScope } from "./resource-manifest";
+import { publicAssetSource, validatePublicScope, type PublicSourceScope } from "./resource-manifest";
 import { readPublicResponse } from "./public-response";
+import { studioI18n } from "./i18n";
+import { readLocalizedText } from "./localized-text";
+import type { JsonValue } from "@haneoka/altair";
 
 /** Factories are public source plugins supplied by the host; no platform registry is created here. */
 export type BestdoriAssetNode = number | { readonly [name: string]: BestdoriAssetNode };
@@ -22,6 +25,7 @@ export interface BestdoriAssetBundle {
 }
 export interface PublicResourceFactories {
   haneoka(adapter: {
+    localize?(value: unknown): string;
     fetchCatalog(request: {
       release: string;
       resource: string;
@@ -86,21 +90,32 @@ export function createHaneokaPublicResourceCatalog(options: {
   const scope = validatePublicScope(options.scope);
   if (scope.provider !== "haneoka") throw new TypeError("Expected Haneoka source");
   const transport = options.transport ?? fetchPublicCatalogJson;
+  const cache = new Map<string, unknown>();
   const provider = options.factory({
-    fetchCatalog: (request) => {
+    localize: (value) => {
+      const locale = studioI18n.resolvedLanguage ?? "en";
+      if (Array.isArray(value)) {
+        const index = ["ja", "en", "zh-TW", "zh-CN", "ko"].indexOf(locale);
+        return String(value[index] ?? value[0] ?? "");
+      }
+      return readLocalizedText(value as JsonValue, locale);
+    },
+    fetchCatalog: async (request) => {
       if (request.release !== scope.releaseId) throw new Error("Catalog release changed");
       const parts = safeSegments(request.resource);
       if (request.view) parts.push("views", ...safeSegments(request.view));
-      return transport(catalogUrl(scope, parts), request.signal);
+      const url = catalogUrl(scope, parts);
+      if (cache.has(url)) return cache.get(url);
+      const value = await transport(url, request.signal);
+      request.signal.throwIfAborted();
+      cache.set(url, value);
+      return value;
     },
-    fetchAsset: (request) => {
+    fetchAsset: async (request) => {
       if (request.release !== scope.releaseId) throw new Error("Catalog release changed");
-      const endpoint = new URL(
-        `/assets/${scope.server}/${safeSegments(request.path).map(encodeURIComponent).join("/")}`,
-        scope.origin,
-      );
-      endpoint.searchParams.set("release", scope.releaseId!);
-      return transport(endpoint.href, request.signal);
+      const bytes = await options.resources.load(publicAssetSource(request.path, scope), request.signal);
+      if (bytes.byteLength > 16 * 1024 ** 2) throw new RangeError("Story source is too large");
+      return new TextDecoder("utf-8", { fatal: true }).decode(bytes);
     },
   });
   return new PublicResourceCatalog(provider, scope, options.resources);

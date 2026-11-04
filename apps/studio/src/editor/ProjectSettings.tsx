@@ -1,6 +1,9 @@
+import { InterfaceSettings } from "./preferences";
 import { WebGalEngineDialog } from "./WebGalEngineDialog";
 import { RuntimeSettings } from "./RuntimeSettings";
 import { ProjectPlugins } from "./ProjectPlugins";
+import { PresentationSettings } from "./PresentationSettings";
+import { GameSettings } from "./GameSettings";
 import { useState, useSyncExternalStore } from "react";
 import { Plus, Star, Trash2 } from "lucide-react";
 import { parseAltairProjectDocument, serializeAltairDocument } from "@haneoka/altair";
@@ -68,10 +71,12 @@ export function ProjectSettings({ session }: { session: EditorSession }) {
           }}
         />
       </label>
+      <InterfaceSettings />
+      <PresentationSettings session={session} />
+      <GameSettings session={session} />
       <h3>{tr("Project languages")}</h3>
       <RuntimeSettings />
       <WebGalEngineDialog session={session} />
-      <p>{tr("Use any BCP 47 language tag, for example fr-CA or ar.")}</p>
       <ul>
         {project.locales.map((locale, index) => (
           <li key={locale}>

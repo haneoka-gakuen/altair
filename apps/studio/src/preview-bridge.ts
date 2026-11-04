@@ -20,6 +20,19 @@ export interface AltairStudioEmbeddedPreviewConfig {
   readonly token: string;
   readonly identity: VegaPreviewIdentity;
 }
+export interface StudioAudioStatus {
+  device: string;
+  channels: {
+    name: string;
+    category: string;
+    backend: string;
+    state: string;
+    playing: boolean;
+    position: number;
+    volume: number;
+    captured: boolean;
+  }[];
+}
 
 declare global {
   interface Window {
@@ -82,7 +95,11 @@ export class StudioPreviewBridge {
   }
 
   /** Adopt a preview provider session contributed through Altair API 2. */
-  connectSession(session: AltairPreviewSession, initialBreakpoints?: readonly VegaPreviewBreakpoint[], identity?: VegaPreviewIdentity): void {
+  connectSession(
+    session: AltairPreviewSession,
+    initialBreakpoints?: readonly VegaPreviewBreakpoint[],
+    identity?: VegaPreviewIdentity,
+  ): void {
     if (!session || typeof session.request !== "function") {
       throw new TypeError("Altair preview session is invalid");
     }
@@ -178,7 +195,11 @@ export class StudioPreviewBridge {
   async auditionCommandReceipt(
     command: Parameters<AltairPreviewClient["request"]>[0],
     signal?: AbortSignal,
-  ): Promise<{ readonly result: VegaJsonValue | undefined; readonly revision: number; readonly identity: VegaPreviewIdentity }> {
+  ): Promise<{
+    readonly result: VegaJsonValue | undefined;
+    readonly revision: number;
+    readonly identity: VegaPreviewIdentity;
+  }> {
     const identity = this.connectionIdentity;
     if (!identity) throw new Error("Animation audition was superseded");
     const response = await this.request(command, signal);
@@ -210,9 +231,49 @@ export class StudioPreviewBridge {
     return this.breakpointConfiguration ? structuredClone(this.breakpointConfiguration) : undefined;
   }
 
+  async setVariable(variable: string, value: VegaJsonValue, signal?: AbortSignal): Promise<void> {
+    const response = await this.request({ name: "debug.variables.set", variable, value }, signal);
+    if (response.status !== "executed") throw new Error("Variable update was superseded");
+  }
   async variables(signal?: AbortSignal): Promise<VegaJsonValue | undefined> {
     const response = await this.request({ name: "debug.variables" }, signal);
     return response.status === "executed" ? response.result : undefined;
+  }
+
+  async captureStage(signal?: AbortSignal): Promise<string> {
+    const response = await this.request({ name: "stage.capture" }, signal);
+    const value = response.result as { image?: unknown } | undefined;
+    if (response.status !== "executed" || typeof value?.image !== "string")
+      throw new Error("Stage capture is unavailable");
+    return value.image;
+  }
+  async audioStatus(signal?: AbortSignal): Promise<StudioAudioStatus> {
+    const response = await this.request({ name: "audio.snapshot" }, signal);
+    if (response.status !== "executed") throw new Error(response.error?.message ?? "Audio device unavailable");
+    return response.result as unknown as StudioAudioStatus;
+  }
+
+  async startRecording(height: number, fps: number): Promise<void> {
+    const response = await this.request({ name: "stage.recording.start", width: (height * 16) / 9, height, fps });
+    if (response.status !== "executed") throw new Error(response.error?.message ?? "Video recording failed");
+  }
+
+  async finishRecording(signal?: AbortSignal): Promise<{ blob: Blob; subtitles: string }> {
+    try {
+      const response = await this.request({ name: "stage.recording.stop" }, signal);
+      if (response.status !== "executed") throw new Error(response.error?.message ?? "Video recording failed");
+      const result = response.result as { size: number; mimeType: string; subtitles: string };
+      const parts: Uint8Array<ArrayBuffer>[] = [];
+      for (let offset = 0; offset < result.size; offset += 192 * 1024) {
+        const part = await this.request({ name: "stage.recording.read", offset }, signal);
+        if (part.status !== "executed") throw new Error("Video download failed");
+        const binary = atob((part.result as { data: string }).data);
+        parts.push(Uint8Array.from(binary, (letter) => letter.charCodeAt(0)));
+      }
+      return { blob: new Blob(parts, { type: result.mimeType }), subtitles: result.subtitles };
+    } finally {
+      await this.request({ name: "stage.recording.release" }).catch(() => {});
+    }
   }
 
   async stageSnapshot(signal?: AbortSignal): Promise<VegaJsonValue | undefined> {

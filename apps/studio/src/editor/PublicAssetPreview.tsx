@@ -37,9 +37,15 @@ export function PublicAssetPreview({ asset, plan }: { asset: EditorPublicAsset; 
         setMedia(url);
         return;
       }
-      const project = createNativeProject("Public asset preview"),
+      const project = createNativeProject(asset.name),
         manifest = project.files.find((file) => file.path === NATIVE_PROJECT_PATH)!;
-      const source = registerLocalPublicAsset(await manifest.blob.text(), asset, plan),
+      const registered = parseAltairProjectDocument(registerLocalPublicAsset(await manifest.blob.text(), asset, plan)),
+        source = serializeAltairDocument({
+          ...registered,
+          plugins: registered.plugins?.filter(
+            (plugin) => !["haneoka.theme", "haneoka.vega-shell-default"].includes(plugin.id),
+          ),
+        }),
         document = parseAltairProjectDocument(source),
         scenePath = document.scenes[0]!.path,
         sceneFile = project.files.find((file) => file.path === scenePath)!;
@@ -61,7 +67,17 @@ export function PublicAssetPreview({ asset, plan }: { asset: EditorPublicAsset; 
               });
       const scene = {
         ...parseAltairSceneDocument(await sceneFile.blob.text()),
-        nodes: [advCommandToAuthoredNode(command)],
+        nodes: [
+          advCommandToAuthoredNode(command),
+          ...(["model", "spine"].includes(asset.kind)
+            ? [
+                advCommandToAuthoredNode(
+                  createStoryCommand("In", { targetName: "public-preview", positionType: 5, duration: 0 }),
+                ),
+                advCommandToAuthoredNode(createStoryCommand("Wait")),
+              ]
+            : []),
+        ],
       };
       controller.signal.throwIfAborted();
       session = new EditorSession(
@@ -82,6 +98,7 @@ export function PublicAssetPreview({ asset, plan }: { asset: EditorPublicAsset; 
         { ephemeral: true },
       );
       await session.initialize();
+      session.select(session.statements().at(-1)?.line ?? 1);
       controller.signal.throwIfAborted();
       setPreview(session);
     })().catch((error) => {
@@ -102,5 +119,5 @@ export function PublicAssetPreview({ asset, plan }: { asset: EditorPublicAsset; 
     ) : (
       <img src={media} alt={asset.name} />
     );
-  return preview ? <Preview session={preview} /> : <p role="status">{tr("Loading preview")}</p>;
+  return preview ? <Preview session={preview} compact /> : <p role="status">{tr("Loading preview")}</p>;
 }

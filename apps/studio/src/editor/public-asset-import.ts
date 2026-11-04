@@ -111,6 +111,10 @@ export async function preparePublicAssetImport(options: {
     "atlasUrl",
     "skeleton",
     "skeletonUrl",
+    "json",
+    "skel",
+    "motionSync",
+    "userData",
     "image",
     "imageUrl",
     "texture",
@@ -133,6 +137,7 @@ export async function preparePublicAssetImport(options: {
       if (
         metadata ||
         !value ||
+        value === "none" ||
         (!loaderFields.has(field) && !(field === "source" && sourceIsPrimary) && !(collection && !labels.has(field)))
       )
         return value;
@@ -244,9 +249,18 @@ export async function preparePublicAssetImport(options: {
     importedBytes += blob.size;
     if (importedBytes > maxBytes) throw new RangeError("Public asset import exceeds its materialized byte limit");
     files.push(Object.freeze({ path: `${directory}/${entry.path}`, blob }));
+    const requestUrl = new URL(source),
+      prefix = `/api/v1/garupa/bestdori/${scope.server}/raw/`;
+    const canonicalSource =
+      scope.provider === "bestdori" &&
+      requestUrl.origin === scope.origin &&
+      requestUrl.pathname.startsWith(`${prefix}assets/${scope.server}/`)
+        ? new URL(requestUrl.pathname.slice(prefix.length), "https://bestdori.com/").href
+        : source;
     provenance.push({
       memberId: entry.memberId,
-      source,
+      source: canonicalSource,
+      ...(canonicalSource !== source ? { transportSource: source } : {}),
       path: `${directory}/${entry.path}`,
       originalSha256: hash,
       originalBytes: bytes.byteLength,

@@ -93,7 +93,4 @@
     gap: 4px;
     white-space: normal;
   }
-  .workspace-status > span:not(:first-child):not(:last-child) {
-    display: none;
-  }
 }

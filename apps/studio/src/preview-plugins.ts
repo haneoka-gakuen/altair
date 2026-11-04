@@ -111,10 +111,6 @@ const createStudioBuiltinPlugins = (): readonly StudioBuiltinPreviewPlugin[] =>
       },
       { id: "portable", priority: 100 },
     ),
-    studioBuiltin("haneoka.renderer-pixi", "0.1.0", async () => {
-      const { createPixiRendererPlugin } = await import("@haneoka/vega-renderer-pixi");
-      return createPixiRendererPlugin();
-    }),
     studioBuiltin("haneoka.renderer-three", "0.1.0", async () => {
       const [{ createThreeRendererPlugin }, { HANEOKA_POST_TEXTURE_ASSETS }] = await Promise.all([
         import("@haneoka/vega-renderer-three"),
@@ -126,6 +122,18 @@ const createStudioBuiltinPlugins = (): readonly StudioBuiltinPreviewPlugin[] =>
       const { createVegaRichTextPlugin } = await import("@haneoka/vega-plugin-richtext");
       return createVegaRichTextPlugin();
     }),
+    ...(["bbcode", "html", "latex", "markdown", "typst"] as const).map((format) =>
+      studioBuiltin(`haneoka.vega-richtext-${format}`, "0.1.0", async () => {
+        const { createVegaFullPreset } = await import("@haneoka/vega-preset-full");
+        return createVegaFullPreset({
+          renderer: false,
+          shell: false,
+          theme: false,
+          ending: false,
+          richText: { [format]: true },
+        }).find((plugin) => plugin.manifest.id === `haneoka.vega-richtext-${format}`)!;
+      }),
+    ),
     studioBuiltin("haneoka.composite", "0.1.0", async () => {
       const { createCompositePlugin } = await import("@haneoka/vega-plugin-composite");
       return createCompositePlugin();
@@ -133,6 +141,15 @@ const createStudioBuiltinPlugins = (): readonly StudioBuiltinPreviewPlugin[] =>
     studioBuiltin("haneoka.cubism", "0.1.0", async () => {
       const { createStudioCubismPlugin } = await import("./cubism-preview");
       return createStudioCubismPlugin();
+    }),
+    studioBuiltin("haneoka.spine", "0.1.0", async () => {
+      const [{ createSpinePlugin }, { createSpineThreeRuntimeAdapter }, three, spine] = await Promise.all([
+        import("@haneoka/vega-plugin-spine"),
+        import("@haneoka/vega-plugin-spine/three"),
+        import("three"),
+        import("@esotericsoftware/spine-threejs"),
+      ]);
+      return createSpinePlugin({ adapter: createSpineThreeRuntimeAdapter({ three, spine }) });
     }),
     studioBuiltin(
       "haneoka.webgal-runtime",
@@ -271,13 +288,13 @@ export const createStudioPreviewPluginPlan = (
 
   /*
    * Portable UI and its Rich Text dependency are Vega's asset-free Studio
-   * fallback, not marketplace installations. A locked ui-slot implementation
-   * suppresses them. If a catalog exposes the fallback explicitly,
+   * fallback. An external ui-slot implementation suppresses them; built-in
+   * overlay effects retain the shared dialogue. If a catalog exposes the fallback explicitly,
    * exactBuiltin above makes that selection lock-controlled as well.
    */
   if (
     destination === "bundled" &&
-    !resolved.lock?.plugins.some(({ capabilities }) => capabilities?.includes("ui-slot")) &&
+    !hostEntries.some(({ capabilities }) => capabilities?.includes("ui-slot")) &&
     !builtins.some(({ manifest }) => manifest.id === PORTABLE_UI_PLUGIN_ID)
   ) {
     if (!builtins.some(({ manifest }) => manifest.id === RICH_TEXT_PLUGIN_ID)) {
@@ -290,16 +307,12 @@ export const createStudioPreviewPluginPlan = (
   // host. Preserve explicitly selected renderer plugins and remote profiles.
   const defaultThree =
     destination === "bundled" &&
-    !builtins.some(
-      ({ manifest }) => manifest.id === "haneoka.renderer-pixi" || manifest.id === "haneoka.renderer-three",
-    ) &&
+    !builtins.some(({ manifest }) => manifest.id === "haneoka.renderer-three") &&
     !hostEntries.some(({ capabilities }) => capabilities?.includes("render"));
   if (defaultThree) builtins.push(builtinPlugins.get("haneoka.renderer-three")!);
   const renderBackend = builtins.some(({ manifest }) => manifest.id === "haneoka.renderer-three")
     ? "vega-three-webgl2"
-    : builtins.some(({ manifest }) => manifest.id === "haneoka.webgal-runtime")
-      ? "webgal-pixi"
-      : undefined;
+    : undefined;
   const theme = destination === "bundled" ? selectBuiltinPreviewTheme(builtins) : undefined;
   return {
     destination,

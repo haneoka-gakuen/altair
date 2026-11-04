@@ -1,3 +1,4 @@
+import { downloadStudioFile } from "./studio-host";
 import {
   cloneStoryValue,
   type JsonObject,
@@ -7,6 +8,7 @@ import {
   type StorySourceLocation,
 } from "@haneoka/altair";
 import { VEGA_SYSTEM_OPCODE } from "@haneoka/vega-protocol";
+import { findAdvProjectAsset } from "@haneoka/altair-plugin-adv/assets";
 import {
   exportWebGalWorkspace,
   importWebGal,
@@ -59,6 +61,9 @@ export function planWebGalGame(options: {
   signal.throwIfAborted();
   const project = cloneStoryValue(options.project),
     diagnostics: StoryDiagnostic[] = [];
+  const assetSource = (value: JsonValue | undefined, kind: string): string | undefined =>
+    sourceOf(value) ??
+    (typeof value === "string" ? (sourceOf(findAdvProjectAsset(project, value, kind)?.entry) ?? value) : undefined);
   // Authored lowering keeps scene baselines and source IDs. Recover each original
   // command's source metadata so unknown arguments and opaque commands survive export.
   for (const scene of project.scenes) {
@@ -164,20 +169,22 @@ export function planWebGalGame(options: {
         ["live2dKey", "characterModel", "figure"],
       ] as const;
       for (const [key, resolved, category] of bindings) {
-        const source = sourceOf(fields[resolved]) ?? (typeof fields[key] === "string" ? fields[key] : undefined);
+        const kind =
+          resolved === "bgm" || resolved === "se" ? "audio" : resolved === "characterModel" ? "live2d" : resolved;
+        const source = assetSource(fields[resolved], kind) ?? assetSource(fields[key], kind);
         if (source) fields[key] = reference(source, category);
       }
       for (const key of ["figureRef", ...(!fields.live2dKey && !fields.figureRef ? ["characterKey"] : [])])
-        if (typeof fields[key] === "string") fields[key] = reference(fields[key], "figure");
+        if (typeof fields[key] === "string") fields[key] = reference(assetSource(fields[key], "live2d")!, "figure");
       if (Array.isArray(fields.voices) || Array.isArray(fields.voiceRefs)) {
         const voices = Array.isArray(fields.voices) ? fields.voices : [],
           refs = Array.isArray(fields.voiceRefs) ? fields.voiceRefs : [];
         fields.voiceRefs = Array.from({ length: Math.max(voices.length, refs.length) }, (_, index) => {
-          const source = sourceOf(voices[index]) ?? refs[index];
+          const source = assetSource(voices[index], "audio") ?? assetSource(refs[index], "audio");
           return typeof source === "string" ? reference(source, "vocal") : "";
         });
       }
-      fields.text = localized(fields.text) ?? "";
+      if (fields.text !== undefined) fields.text = localized(fields.text) ?? "";
       if (Array.isArray(fields.targetTextNames))
         fields.targetTextNames = fields.targetTextNames.map((value) => localized(value) ?? "");
       if (Array.isArray(fields.choices))
@@ -225,7 +232,7 @@ export function planWebGalGame(options: {
     signal,
     options: {
       losslessMetadata: false,
-      preserveUnchangedSource: false,
+      preserveUnchangedSource: true,
       preserveCraftProject: false,
     },
   });
@@ -308,7 +315,7 @@ export async function prepareWebGalGame(
   const plan = planWebGalGame({
     project,
     files: state.files,
-    documents: state.documents,
+    documents: state.documents.filter((document) => document.text !== document.baseline),
     directories: state.directories,
     engine,
     locale,
@@ -358,11 +365,12 @@ export async function prepareWebGalGame(
             : runtime.format === "cubism2" || /\.model\.json(?:[?#]|$)/iu.test(model);
         }),
       );
+      if (!needed) continue;
       diagnostics.push({
-        severity: needed ? "warning" : "info",
+        severity: "warning",
         code: "webgal.runtime.missing",
         path,
-        ...(needed ? { fidelity: "unsupported" as const } : {}),
+        fidelity: "unsupported" as const,
         message: `${id === "cubism" ? "Cubism 3/4/5" : "Cubism 2"}: install the model runtime on this device to include it in the exported game`,
       });
     }
@@ -371,18 +379,8 @@ export async function prepareWebGalGame(
   return { ...plan, files, directories: projectDirectories(files, plan.directories), diagnostics };
 }
 export async function createWebGalGameZip(plan: WebGalGamePlan, signal?: AbortSignal): Promise<Blob> {
-  return createFilesZip(
-    plan.files,
-    plan.directories,
-    signal,
-    new Set(plan.files.filter((file) => /\.(txt|json|html|css|js)$/iu.test(file.path)).map((file) => file.path)),
-  );
+  return createFilesZip(plan.files, plan.directories, signal);
 }
 export function downloadWebGalGame(blob: Blob, name: string): void {
-  const url = URL.createObjectURL(blob),
-    anchor = document.createElement("a");
-  anchor.href = url;
-  anchor.download = `${name.replace(/[\\/:*?"<>|]/gu, "_")}-webgal.zip`;
-  anchor.click();
-  setTimeout(() => URL.revokeObjectURL(url), 30_000);
+  downloadStudioFile(blob, `${name.replace(/[\\/:*?"<>|]/gu, "_")}-webgal.zip`);
 }

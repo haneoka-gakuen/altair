@@ -27,7 +27,6 @@ export function WebGalEngineDialog({ session, exportMode = false }: { session: E
     [busy, setBusy] = useState(false),
     [issue, setIssue] = useState(""),
     [plan, setPlan] = useState<WebGalGamePlan>(),
-    [allowUnsupported, setAllowUnsupported] = useState(false),
     [locale, setLocale] = useState("");
   const task = useRef<AbortController | undefined>(undefined);
   const activeOperation = useRef(false);
@@ -42,7 +41,6 @@ export function WebGalEngineDialog({ session, exportMode = false }: { session: E
   const selected = webGalEngineRef(project?.extensions?.[WEBGAL_ENGINE_EXTENSION]);
   useEffect(() => {
     setPlan(undefined);
-    setAllowUnsupported(false);
   }, [state.documents, state.files, state.directories, locale]);
   useEffect(() => {
     task.current?.abort();
@@ -107,8 +105,6 @@ export function WebGalEngineDialog({ session, exportMode = false }: { session: E
     );
     setPlan(undefined);
   };
-  const unsupported =
-    plan?.diagnostics.filter((item) => item.fidelity === "unsupported" || item.fidelity === "preserved-only") ?? [];
   return (
     <Dialog.Root
       open={open}
@@ -138,9 +134,7 @@ export function WebGalEngineDialog({ session, exportMode = false }: { session: E
         <Dialog.Overlay className="modal-overlay" />
         <Dialog.Content className="modal-content webgal-engine-dialog">
           <Dialog.Title>{tr(exportMode ? "Export WebGAL game" : "WebGAL engines")}</Dialog.Title>
-          <Dialog.Description>
-            {tr("Install a compiled WebGAL web ZIP or folder, then select an exact engine version for this project.")}
-          </Dialog.Description>
+          <Dialog.Description>{tr("Installed WebGAL engines")}</Dialog.Description>
           <div className="webgal-engine-actions">
             <RuntimeSettings />
             <label className="secondary-button runtime-import">
@@ -316,7 +310,6 @@ export function WebGalEngineDialog({ session, exportMode = false }: { session: E
               <p>
                 {tr("{{count}} files · engine {{version}}", { count: plan.files.length, version: plan.engine.version })}
               </p>
-              <p>{tr("Extract the ZIP and serve its folder over HTTP to run the game.")}</p>
               <ul className="webgal-export-diagnostics">
                 {plan.diagnostics
                   .filter((item) => item.fidelity !== "exact")
@@ -328,19 +321,9 @@ export function WebGalEngineDialog({ session, exportMode = false }: { session: E
                     </li>
                   ))}
               </ul>
-              {!!unsupported.length && (
-                <label className="webgal-export-consent">
-                  <input
-                    type="checkbox"
-                    checked={allowUnsupported}
-                    onChange={(event) => setAllowUnsupported(event.target.checked)}
-                  />
-                  {tr("Export with {{count}} unsupported or preserved commands", { count: unsupported.length })}
-                </label>
-              )}
               <button
                 className="primary-button"
-                disabled={busy || (!!unsupported.length && !allowUnsupported)}
+                disabled={busy}
                 onClick={() =>
                   void run(async (signal) => {
                     const blob = await createWebGalGameZip(plan, signal);

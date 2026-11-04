@@ -2,6 +2,7 @@ node_modules/
 dist/
 coverage/
 apps/*/dist/
+apps/*/dist-player/
 *.tsbuildinfo
 .DS_Store
 .env

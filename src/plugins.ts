@@ -664,13 +664,21 @@ export class AltairPluginHost {
     document: Pick<AltairEditorDocument, "path" | "text">,
     project: StoryProject,
     signal: AbortSignal = neverAbortedSignal(),
+    readSource?: (path: string, signal: AbortSignal) => Promise<{ readonly path: string; readonly text: string } | undefined>,
   ): Promise<AltairDocumentPreview | undefined> {
     assertStoryProjectProtocol(project);
     const selection = this.requireSelection("document-editor", editorId);
     if (!selection.contribution.preview) return undefined;
-    const result = await this.withContribution(selection, signal, (editor, context) =>
-      editor.preview!({ path: document.path, text: document.text }, immutableProjectSnapshot(project), context),
-    );
+    const snapshot = immutableProjectSnapshot(project);
+    const result = await this.withContribution(selection, signal, async (editor, context) => {
+      const input = { path: document.path, text: document.text };
+      const requested = editor.relatedDocuments?.(input, snapshot) ?? [];
+      if (requested.length > 20_000 || requested.some(path => typeof path !== "string" || !path))
+        throw new TypeError("Invalid related document request");
+      const sources = readSource ? await Promise.all([...new Set(requested)].map(path => readSource(path, context.signal))) : [];
+      context.signal.throwIfAborted();
+      return editor.preview!({ ...input, relatedSources: sources.filter((source): source is { path: string; text: string } => !!source) }, snapshot, context);
+    });
     if (!result?.scene) throw new TypeError(`Document editor ${editorId} returned no preview scene`);
     assertStoryProjectProtocol({ ...project, scenes: [...project.scenes, result.scene] });
     if (result.commandId !== undefined && !result.scene.commands.some((command) => command.id === result.commandId))

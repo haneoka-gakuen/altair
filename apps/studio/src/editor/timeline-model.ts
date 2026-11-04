@@ -1,3 +1,4 @@
+import { resizePropertyClip } from "./property-clip";
 import type { AltairAuthoredNode, AltairCommandGroup, JsonObject } from "@haneoka/altair";
 import { nativeCommands } from "./native-project";
 import { tr } from "./i18n";
@@ -11,7 +12,8 @@ export interface TimelineCue {
 export const isTimeline = (node: AltairAuthoredNode) =>
   node.type.plugin === "haneoka.altair" && node.type.name === "timeline";
 export function durationField(node: AltairAuthoredNode): { key: string; scale: number } | undefined {
-  for (const key of ["durationMs", "duration", "fadeDuration", "transitionDuration"])
+  if (node.type.plugin === "haneoka.altair" && node.type.name === "propertyClip") return { key: "clip", scale: 1 };
+  for (const key of ["durationSeconds", "durationMs", "duration", "fadeDuration", "transitionDuration"])
     if (Object.hasOwn(node.arguments, key)) return { key, scale: key === "durationMs" ? 1000 : 1 };
   const definition = nativeCommands.find(
     (command) => node.type.plugin === "haneoka.altair-adv" && command.name === node.type.name,
@@ -29,6 +31,7 @@ export function cueDuration(node: AltairAuthoredNode): number {
       ...timelineCues(node).map((cue) => cue.atSeconds + cue.durationSeconds),
     );
   const field = durationField(node);
+  if (field?.key === "clip") return Number((node.arguments.clip as JsonObject)?.durationSeconds) || 0;
   return field ? Math.max(0, Number(node.arguments[field.key]) / field.scale || 0) : 0;
 }
 export function timelineCues(node: AltairAuthoredNode): TimelineCue[] {
@@ -93,7 +96,8 @@ export function updateCue(
           ...child,
           arguments: {
             ...child.arguments,
-            [field.key]: duration * field.scale,
+            [field.key]:
+              field.key === "clip" ? resizePropertyClip(child.arguments.clip, duration) : duration * field.scale,
           },
         }
       : child;

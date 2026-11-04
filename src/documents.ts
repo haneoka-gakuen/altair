@@ -1,5 +1,11 @@
 import { parseAuthoredText, serializeAuthoredText } from "./text.js";
-import { VEGA_SYSTEM_OPCODE, VEGA_COMMAND_GROUP_OPCODE } from "@haneoka/vega-protocol";
+import {
+  VEGA_SYSTEM_OPCODE,
+  VEGA_COMMAND_GROUP_OPCODE,
+  VEGA_CORE_AUDIO_CLIP,
+  VEGA_CORE_PROPERTY_CLIP,
+  parsePropertyAnimationClip,
+} from "@haneoka/vega-protocol";
 import {
   cloneStoryValue,
   type JsonObject,
@@ -195,6 +201,52 @@ export class AltairDocumentRegistry {
       if (node.disabled) return [];
       if (node.type.plugin === "haneoka.altair" && node.schemaVersion !== 1)
         throw new Error(`Unsupported core node schema: ${node.schemaVersion}`);
+      if (node.type.plugin === "haneoka.altair" && node.type.name === "propertyClip") {
+        const fields = cloneStoryValue(node.arguments);
+        nonempty(fields.target, "Property animation target");
+        parsePropertyAnimationClip(fields.clip);
+        return [
+          {
+            id: node.id,
+            command: VEGA_CORE_PROPERTY_CLIP,
+            fields: { ...fields, key: nodeKey(scene.id, node.id) },
+            extensions: (node.extensions?.commandExtensions as JsonObject) ?? {},
+          },
+        ];
+      }
+      if (node.type.plugin === "haneoka.altair" && node.type.name === "audioClip") {
+        const fields = cloneStoryValue(node.arguments);
+        nonempty(fields.source, "Audio source");
+        nonempty(fields.trackName, "Audio track");
+        if (!["Bgm", "Se", "Voice"].includes(String(fields.category))) throw new Error("Invalid audio category");
+        for (const key of [
+          "offsetSeconds",
+          "durationSeconds",
+          "playbackRate",
+          "volume",
+          "trackVolume",
+          "fadeInSeconds",
+          "fadeOutSeconds",
+        ]) {
+          const value = fields[key];
+          if (
+            typeof value !== "number" ||
+            !Number.isFinite(value) ||
+            value < 0 ||
+            (["durationSeconds", "playbackRate"].includes(key) && value === 0) ||
+            (["volume", "trackVolume"].includes(key) && value > 1)
+          )
+            throw new Error(`Invalid audio field: ${key}`);
+        }
+        return [
+          {
+            id: node.id,
+            command: VEGA_CORE_AUDIO_CLIP,
+            fields: { ...fields, clipId: node.id, key: nodeKey(scene.id, node.id) },
+            extensions: (node.extensions?.commandExtensions as JsonObject) ?? {},
+          },
+        ];
+      }
       if (node.type.plugin === "haneoka.altair" && node.type.name === "timeline") {
         const { tracks, ...settings } = node.arguments;
         if (!Array.isArray(tracks)) throw new TypeError("Timeline tracks must be an array");
@@ -205,7 +257,7 @@ export class AltairDocumentRegistry {
           const { nodeId: _, ...timing } = track;
           return lower(child, scene).map((command) => ({
             ...timing,
-            command: { ...command.fields, command: command.command },
+            command: { ...command.fields, command: command.command, commandId: command.id },
           }));
         });
         return [
@@ -334,6 +386,11 @@ export class AltairDocumentRegistry {
     const compiled: StoryProject = {
       version: 2,
       meta: {
+        ...(project.extensions?.storyMeta &&
+        typeof project.extensions.storyMeta === "object" &&
+        !Array.isArray(project.extensions.storyMeta)
+          ? cloneStoryValue(project.extensions.storyMeta)
+          : {}),
         title: project.title,
         ...(project.locales[0] ? { locale: project.locales[0] } : {}),
       },

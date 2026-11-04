@@ -1,3 +1,4 @@
+import { InterfaceSettings } from "./preferences";
 import { useEffect, useState } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
 import { Upload, Trash2, X, Boxes } from "lucide-react";
@@ -50,6 +51,7 @@ export function RuntimeSettings() {
       <Dialog.Portal>
         <Dialog.Overlay className="modal-overlay" />
         <Dialog.Content className="modal-content runtime-settings">
+          <InterfaceSettings />
           <Dialog.Title>{tr("Model runtimes")}</Dialog.Title>
           <Dialog.Description>
             {tr("Runtime libraries used by model previews on this device. Projects keep their own model files.")}
