@@ -1,6 +1,7 @@
 import { createContext, createElement, useContext, type ReactNode } from "react";
 import { createRoot } from "react-dom/client";
 import type { AltairEditorWorkspace, AltairPanelContext } from "@haneoka/altair";
+export * from "./icons.js";
 export { NumberInput } from "./NumberInput.js";
 export { StructuredTextInput } from "./StructuredTextInput.js";
 

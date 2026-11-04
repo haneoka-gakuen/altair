@@ -22,9 +22,15 @@ JavaScript dependency licenses remain those of their respective packages.
 Release automation must generate a report and SBOM from the exact lockfile and
 archive.
 
-## Lucide
+## Interface icons
 
-Altair uses the `lucide-react` package for interface icons. Lucide is
+Altair includes Google's Material Symbols rounded 400 glyphs under the
+Apache License 2.0, from `@iconify-json/material-symbols`. Hosted editors
+use their host's Material sprite; standalone editors include the same glyphs.
+Source: https://github.com/google/material-design-icons. The license is included
+in `packages/ui-react/LICENSE.material-symbols.txt`.
+
+The dependency graph also includes `lucide-react`. Lucide is
 distributed under the ISC License; selected icons derived from Feather are
 distributed under the MIT License. The complete license texts are included in
 the installed package and generated release license report.
