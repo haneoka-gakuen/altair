@@ -16,7 +16,6 @@ import {
   type JsonObject,
 } from "@haneoka/altair";
 import {
-  registerAdvDocumentCommands,
   COMMAND_DESCRIPTORS,
   createStoryCommand,
   advCommandToAuthoredNode,
@@ -28,12 +27,10 @@ import {
   importBestdoriScenario,
   importSekaiScenario,
   isBestdoriCommunitySource,
-  importBestdoriCommunityStory,
 } from "@haneoka/altair-plugin-bestdori";
 import { restoreStoryProjectFromVegaProject } from "@haneoka/altair-plugin-vega-preview/projection";
 import { parseVegaProject } from "@haneoka/vega-protocol";
 import {
-  registerWebGalDocumentCommands,
   importWebGalAuthoredWorkspace,
   webGalCommandToAuthoredNode,
   WEBGAL_WORKSPACE_LIMITS,
