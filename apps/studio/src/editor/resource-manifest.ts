@@ -16,7 +16,7 @@ export type PublicAssetKind =
   | "project";
 export type PublicAssetFormat = "cubism2" | "cubism3" | "spine" | "image" | "audio" | "video" | "data";
 export interface PublicSourceScope {
-  readonly provider: "haneoka" | "bestdori";
+  readonly provider: "haneoka" | "bestdori" | "sekai";
   readonly origin: string;
   readonly server: string;
   readonly releaseId?: string;
@@ -51,14 +51,7 @@ export interface EditorPublicAsset {
   readonly capturedAt: number;
   readonly members: readonly PublicAssetMember[];
   readonly capabilities: readonly (
-    | "transform"
-    | "motion"
-    | "expression"
-    | "parameters"
-    | "audio"
-    | "visual"
-    | "effect"
-    | "import-project"
+    "transform" | "motion" | "expression" | "parameters" | "audio" | "visual" | "effect" | "import-project"
   )[];
   readonly usage?: "bgm" | "se" | "voice";
   readonly value: JsonObject;
@@ -79,8 +72,8 @@ export function validatePublicScope(scope: PublicSourceScope): PublicSourceScope
     (!/^r-[a-f\d]{20}$/u.test(scope.releaseId ?? "") || !/^[a-zA-Z\d._-]{1,256}$/u.test(scope.sourceId ?? ""))
   )
     throw new TypeError("Haneoka browsing requires an explicit immutable release and source");
-  if (scope.provider !== "haneoka" && scope.provider !== "bestdori") throw new TypeError("Unsupported public provider");
-  if (scope.provider === "bestdori" && !["jp", "en", "tw", "cn", "kr"].includes(scope.server))
+  if (scope.provider !== "haneoka" && scope.provider !== "bestdori" && scope.provider !== "sekai") throw new TypeError("Unsupported public provider");
+  if ((scope.provider === "bestdori" || scope.provider === "sekai") && !["jp", "en", "tw", "cn", "kr"].includes(scope.server))
     throw new TypeError("Invalid Bestdori server");
   return Object.freeze({ ...scope, origin: origin.origin });
 }
@@ -167,6 +160,8 @@ export function publicAssetManifest(
     add("moc", moc);
     add("physics", runtime.physics ?? value.physicsUrl);
     add("pose", runtime.pose ?? value.poseUrl);
+    add("data", runtime.motionSync ?? value.motionSyncUrl, "motion-sync");
+    add("data", runtime.userData ?? value.userDataUrl, "user-data");
     if (format === "spine") {
       add("skeleton", runtime.skeleton ?? value.skeletonUrl ?? model);
       add("atlas", runtime.atlas ?? value.atlasUrl);

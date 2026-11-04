@@ -1,9 +1,14 @@
+import { GameExportDialog } from "./GameExportDialog";
+import { readPanelLayout, savePanelLayout } from "./preferences";
 import { WebGalEngineDialog } from "./WebGalEngineDialog";
 import { PluginPanel } from "./PluginPanel";
 import { tr, useStudioI18n } from "./i18n";
 import { InterfaceLanguage } from "./InterfaceLanguage";
 import { ProjectSettings } from "./ProjectSettings";
-import { lazy, Suspense, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { registerStudioActions, studioIntent } from "./studio-host";
+import type { StudioAssetRequest, StudioAssetCatalogue, StudioProjectFile } from "@haneoka/altair/studio-host";
+import type { PublicResourcePickerController } from "./public-resource-controller";
+import { lazy, Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import * as Tabs from "@radix-ui/react-tabs";
 import * as Dialog from "@radix-ui/react-dialog";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
@@ -22,6 +27,7 @@ import {
   GanttChart,
   LayoutList,
   Library,
+  MoreVertical,
   Star,
   Plus,
   Redo2,
@@ -42,15 +48,17 @@ import {
   parseAuthoredText,
   type AltairAuthoredNode,
 } from "@haneoka/altair";
-import { Preview } from "./Preview";
+import { AnimationAuditionControls } from "./AnimationAuditionControls";
 import { NativeInspector } from "./NativeInspector";
 import { type EditorSession } from "./session";
-import { exportProjectZip } from "./archive";
+import { createProjectZip, exportProjectZip } from "./archive";
 import type { ProjectFile } from "./library";
-import "./mobile-workspace.css";
-import "./workspace-expressive.css";
+import { AuthoringSession } from "./authoring/AuthoringSession";
+import { TaskSheet } from "./authoring/TaskSheet";
+import altairMark from "../../../../docs/brand/favicon.svg?url";
 import { FileTree } from "./FileTree";
 import { FileActionsDialog } from "./FileActionsDialog";
+import { FileBatchActionsDialog } from "./FileBatchActionsDialog";
 import { FileRecoveryDialog } from "./FileRecoveryDialog";
 import { ConflictResolutionDialog } from "./ConflictResolutionDialog";
 const NativeImportRecoveryDialog = lazy(() =>
@@ -68,12 +76,17 @@ const CommandLibraryPanel = lazy(() =>
   })),
 );
 const SourceEditor = lazy(() => import("./SourceEditor"));
+const StoryboardEditor = lazy(() =>
+  import("./StoryboardEditor").then((module) => ({ default: module.StoryboardEditor })),
+);
 const TimelineEditor = lazy(() =>
   import("./TimelineEditor").then((module) => ({
     default: module.TimelineEditor,
   })),
 );
 export function Workspace({ session, onHome }: { session: EditorSession; onHome: () => void }) {
+  const [authoringTools, setAuthoringTools] = useState(false);
+  const documentTabs = useRef<HTMLDivElement>(null);
   const { i18n } = useStudioI18n();
   const [mobile, setMobile] = useState(() => window.matchMedia("(max-width: 900px)").matches);
   const [mobilePage, setMobilePage] = useState("editor");
@@ -96,10 +109,120 @@ export function Workspace({ session, onHome }: { session: EditorSession; onHome:
     target?: string;
   }>();
   const [fileClipboard, setFileClipboard] = useState<{ path: string; cut: boolean }>();
+  const [selectedFiles, setSelectedFiles] = useState<ReadonlySet<string>>();
+  const [batchAction, setBatchAction] = useState<"copy" | "move" | "delete">();
   const [recovery, setRecovery] = useState<{ source?: string }>();
   const [historyPath, setHistoryPath] = useState("");
   const [nativeRecoveryView, setNativeRecoveryView] = useState<"recovery" | "backups">();
   const [publicPicker, setPublicPicker] = useState(false);
+  const [hostedPicker, setHostedPicker] = useState<PublicResourcePickerController>();
+  const catalogue = useRef<PublicResourcePickerController | undefined>(undefined);
+  const catalogueKey = useRef("");
+  const catalogueKind = useRef("model");
+  useEffect(() => () => catalogue.current?.dispose(), [session]);
+  const catalogueAction = async (request?: StudioAssetRequest): Promise<StudioAssetCatalogue | undefined> => {
+    if (!request) {
+      setHostedPicker(undefined);
+      setPublicPicker(true);
+      return;
+    }
+    if (!catalogue.current) {
+      const [{ PublicResourcePickerController }, { studioPublicResourceHost }] = await Promise.all([
+        import("./public-resource-controller"),
+        import("./public-resource-bootstrap"),
+      ]);
+      session.lifetimeSignal.throwIfAborted();
+      catalogue.current ??= new PublicResourcePickerController(session, studioPublicResourceHost);
+    }
+    const controller = catalogue.current;
+    if (request.mode === "cancel") {
+      controller.cancel();
+      return;
+    }
+    if (request.mode === "catalog") {
+      const key = JSON.stringify([request.source, request.category]);
+      catalogueKind.current = request.category;
+      if (key !== catalogueKey.current || !controller.getSnapshot().scope || controller.getSnapshot().error) {
+        await controller.connect(request.source, request.category);
+        catalogueKey.current = key;
+      }
+      if (controller.getSnapshot().layout !== (request.layout ?? "grid"))
+        await controller.showLayout(request.layout ?? "grid", request.category);
+      if (request.path) await controller.browse(request.path);
+    } else if (request.mode === "path") await controller.openPath(request.path, catalogueKind.current);
+    else {
+      const snapshot = controller.getSnapshot();
+      const file = snapshot.nodes.find((node) => node.type === "file" && node.id === request.id);
+      if (!file || file.type !== "file") throw new Error(tr("Catalog path was not found"));
+      if (!snapshot.plan || snapshot.selectedFileId !== file.id) await controller.select(file, catalogueKind.current);
+      if (controller.getSnapshot().error) throw new Error(controller.getSnapshot().error);
+      session.lifetimeSignal.throwIfAborted();
+      if (!controller.getSnapshot().plan && controller.getSnapshot().asset?.kind !== "project")
+        throw new DOMException("Selection canceled", "AbortError");
+      setHostedPicker(controller);
+      setPublicPicker(true);
+      return;
+    }
+    const snapshot = controller.getSnapshot();
+    if (snapshot.error) throw new Error(snapshot.error);
+    const { publicResourceRequestUrl } = await import("./public-resource-host");
+    return {
+      layout: snapshot.layout,
+      path: snapshot.path,
+      selectedId: snapshot.selectedFileId || "",
+      nodes: snapshot.nodes.map((node) => ({
+        id: node.id,
+        type: node.type,
+        path: node.path,
+        name: node.name,
+        title: node.description || node.name,
+        image:
+          node.type === "file" && node.previewUrl && snapshot.scope
+            ? publicResourceRequestUrl(new URL(node.previewUrl, snapshot.scope.origin).href, snapshot.scope)
+            : "",
+        displayKind: node.type === "file" ? node.displayKind : "directory",
+        available:
+          node.type === "directory" ||
+          (node.available &&
+            node.acceptedKinds.some((kind) =>
+              [
+                "model",
+                "live2d",
+                "spine",
+                "background",
+                "still",
+                "frame",
+                "audio",
+                "video",
+                "effect",
+                "post-effect",
+              ].includes(kind),
+            )),
+      })),
+    };
+  };
+  const [gameExport, setGameExport] = useState(false);
+  useEffect(
+    () =>
+      registerStudioActions({
+        save: () => session.save(),
+        undo: () => session.undo(),
+        redo: () => session.redo(),
+        settings: () => setShowSettings(true),
+        assets: (value) => catalogueAction(value as StudioAssetRequest | undefined),
+        "add-file": async (value) => {
+          const file = value as StudioProjectFile;
+          await session.addFile(file.path, file.blob, { open: false });
+        },
+        "export-project": async () => ({
+          kind: "download",
+          name: `${session.getSnapshot().name.replace(/[\\/:*?"<>|]/gu, "_")}.zip`,
+          blob: await createProjectZip(session),
+        }),
+        "export-game": () => setGameExport(true),
+      }),
+    [session],
+  );
   useEffect(() => {
     if (state.nativeImportRecovery) setNativeRecoveryView("recovery");
   }, [session, state.nativeImportRecovery?.id]);
@@ -110,6 +233,15 @@ export function Workspace({ session, onHome }: { session: EditorSession; onHome:
     contextEpoch: number;
   }>();
   const docEditor = doc && session.editorFor(doc.path);
+  useLayoutEffect(() => {
+    const tabs = documentTabs.current,
+      selected = tabs?.querySelector<HTMLElement>('[role="tab"][aria-selected="true"]');
+    if (!tabs || !selected) return;
+    const outer = tabs.getBoundingClientRect(),
+      inner = selected.getBoundingClientRect();
+    if (inner.left < outer.left) tabs.scrollLeft += inner.left - outer.left;
+    else if (inner.right > outer.right) tabs.scrollLeft += inner.right - outer.right;
+  }, [state.active, state.tabs]);
   const mode = state.view ?? "visual",
     setMode = (view: string) => session.setView(view);
   const workspacePanels = (session.editorHost?.contributionSelections("panel") ?? [])
@@ -122,6 +254,7 @@ export function Workspace({ session, onHome }: { session: EditorSession; onHome:
   const [leftTab, setLeftTab] = useState("scenes"),
     [category, setCategory] = useState("dialogue"),
     [search, setSearch] = useState(""),
+    [searchOpen, setSearchOpen] = useState(false),
     [newFile, setNewFile] = useState(false),
     [newFileKind, setNewFileKind] = useState("scene"),
     [filename, setFilename] = useState(""),
@@ -189,10 +322,11 @@ export function Workspace({ session, onHome }: { session: EditorSession; onHome:
   }, [session, compilationRevision]);
   useEffect(() => {
     const key = (event: KeyboardEvent) => {
+      if (event.defaultPrevented) return;
       if (!(event.metaKey || event.ctrlKey)) return;
       if (event.key.toLowerCase() === "s") {
         event.preventDefault();
-        void session.save().catch(() => {});
+        if (!studioIntent("save")) void session.save().catch(() => {});
       }
       const target = event.target as HTMLElement;
       if (target.closest(".monaco-editor") || target.matches("input,textarea")) return;
@@ -202,7 +336,7 @@ export function Workspace({ session, onHome }: { session: EditorSession; onHome:
       }
     };
     const beforeUnload = (event: BeforeUnloadEvent) => {
-      if (dirty || state.saving) {
+      if (!session.reloadReady && ((state.localFolder && dirty) || state.saving || session.draftPending)) {
         event.preventDefault();
         event.returnValue = "";
       }
@@ -213,7 +347,7 @@ export function Workspace({ session, onHome }: { session: EditorSession; onHome:
       window.removeEventListener("keydown", key);
       window.removeEventListener("beforeunload", beforeUnload);
     };
-  }, [session, dirty, state.saving]);
+  }, [session, dirty, state.saving, state.localFolder]);
   const sceneFiles = state.documents.filter((file) => nativeScenePath(file.path));
   const resourceFiles = state.files.filter((file) => !sceneFiles.some((scene) => scene.path === file.path));
   const propertyFile = state.files.find(
@@ -221,6 +355,14 @@ export function Workspace({ session, onHome }: { session: EditorSession; onHome:
   );
   const conflictDocument = asset ? session.document(asset) : doc;
   const fileTreeActions = {
+    selected: selectedFiles,
+    onSelect: (path: string) =>
+      setSelectedFiles((current) => {
+        const next = new Set(current);
+        if (next.has(path)) next.delete(path);
+        else next.add(path);
+        return next;
+      }),
     disabled: state.saving,
     canPaste: Boolean(fileClipboard),
     dirtyPaths: new Set(state.documents.filter((doc) => doc.text !== doc.baseline).map((doc) => doc.path)),
@@ -248,6 +390,206 @@ export function Workspace({ session, onHome }: { session: EditorSession; onHome:
       setFileAction({ action: "folder", source: directory, target: directory ? `${directory}/` : "" }),
     onDelete: (source: string) => setRecovery({ source }),
   };
+  const projectFilePane = (
+<Tabs.Root value={leftTab} onValueChange={setLeftTab} className="file-panel">
+                <div className="file-panel-controls" data-searching={searchOpen}>
+                  <Tabs.List
+                    className="panel-tabs"
+                    aria-label={tr("Project files")}
+                    hidden={searchOpen || Boolean(selectedFiles)}
+                  >
+                    <Tabs.Trigger value="scenes">{tr("Scenes")}</Tabs.Trigger>
+                    <Tabs.Trigger value="resources">{tr("Assets")}</Tabs.Trigger>
+                  </Tabs.List>
+                  {selectedFiles ? (
+                    <>
+                      <button
+                        className="icon-button"
+                        aria-label={tr("Cancel")}
+                        onClick={() => setSelectedFiles(undefined)}
+                      >
+                        <X size={18} />
+                      </button>
+                      <DropdownMenu.Root dir={i18n.dir()}>
+                        <DropdownMenu.Trigger
+                          className="secondary-button file-selection-actions"
+                          disabled={!selectedFiles.size || state.saving}
+                        >
+                          {tr("{{count}} selected files", { count: selectedFiles.size })}
+                        </DropdownMenu.Trigger>
+                        <DropdownMenu.Portal>
+                          <DropdownMenu.Content className="editor-file-menu">
+                            <DropdownMenu.Item onSelect={() => setBatchAction("copy")}>
+                              {tr("Copy files")}
+                            </DropdownMenu.Item>
+                            <DropdownMenu.Item onSelect={() => setBatchAction("move")}>
+                              {tr("Move files")}
+                            </DropdownMenu.Item>
+                            <DropdownMenu.Item onSelect={() => setBatchAction("delete")}>
+                              {tr("Delete files")}
+                            </DropdownMenu.Item>
+                          </DropdownMenu.Content>
+                        </DropdownMenu.Portal>
+                      </DropdownMenu.Root>
+                    </>
+                  ) : (
+                    <>
+                      <div className="file-search">
+                        {searchOpen ? (
+                          <>
+                            <input
+                              autoFocus
+                              type="search"
+                              aria-label={tr("Search files")}
+                              placeholder={tr("Search files…")}
+                              value={search}
+                              onChange={(event) => setSearch(event.target.value)}
+                              onKeyDown={(event) => {
+                                if (event.key === "Escape") {
+                                  setSearch("");
+                                  setSearchOpen(false);
+                                }
+                              }}
+                            />
+                            <button
+                              className="icon-button"
+                              aria-label={tr("Close")}
+                              onClick={() => {
+                                setSearch("");
+                                setSearchOpen(false);
+                              }}
+                            >
+                              <X size={18} />
+                            </button>
+                          </>
+                        ) : (
+                          <button
+                            className="icon-button"
+                            aria-label={tr("Search files")}
+                            aria-expanded={false}
+                            onClick={() => setSearchOpen(true)}
+                          >
+                            <Search size={18} />
+                          </button>
+                        )}
+                      </div>
+                      {!searchOpen && (
+                        <button
+                          className="icon-button"
+                          aria-label={tr("New file")}
+                          onClick={() => {
+                            setNewFileKind(
+                              leftTab === "resources"
+                                ? (session.documentEditors().find((editor) => editor.create)?.id ?? "scene")
+                                : "scene",
+                            );
+                            setNewFile(true);
+                          }}
+                        >
+                          <FilePlus2 size={18} />
+                        </button>
+                      )}
+                    </>
+                  )}
+                  <DropdownMenu.Root dir={i18n.dir()}>
+                    <DropdownMenu.Trigger className="icon-button" aria-label={tr("File actions")}>
+                      <MoreVertical size={18} />
+                    </DropdownMenu.Trigger>
+                    <DropdownMenu.Portal>
+                      <DropdownMenu.Content className="editor-file-menu" align="end">
+                        <DropdownMenu.Item disabled={state.saving} onSelect={() => setImportAssets(true)}>
+                          {tr("Import assets")}
+                        </DropdownMenu.Item>
+                        <DropdownMenu.Item
+                          disabled={state.saving}
+                          onSelect={() => {
+                            if (!studioIntent("assets")) {
+                              setHostedPicker(undefined);
+                              setPublicPicker(true);
+                            }
+                          }}
+                        >
+                          {tr("Import from server")}
+                        </DropdownMenu.Item>
+                        <DropdownMenu.Item
+                          disabled={state.saving}
+                          onSelect={() => fileTreeActions.onNewDirectory(leftTab === "scenes" ? "scenes" : "")}
+                        >
+                          {tr("New folder")}
+                        </DropdownMenu.Item>
+                        <DropdownMenu.Separator />
+                        <DropdownMenu.Item onSelect={() => setSelectedFiles(selectedFiles ? undefined : new Set())}>
+                          {tr("Select files")}
+                        </DropdownMenu.Item>
+                        <DropdownMenu.Item disabled={state.saving} onSelect={() => setRecovery({})}>
+                          {tr("Recovery copies")}
+                        </DropdownMenu.Item>
+                        {fileClipboard && (
+                          <>
+                            <DropdownMenu.Item
+                              disabled={state.saving}
+                              onSelect={() => fileTreeActions.onPaste(leftTab === "scenes" ? "scenes" : "")}
+                            >
+                              {tr("Paste into folder")}
+                            </DropdownMenu.Item>
+                            <DropdownMenu.Item onSelect={() => setFileClipboard(undefined)}>
+                              {tr("Clear file clipboard")}
+                            </DropdownMenu.Item>
+                          </>
+                        )}
+                      </DropdownMenu.Content>
+                    </DropdownMenu.Portal>
+                  </DropdownMenu.Root>
+                </div>
+                <Tabs.Content value="scenes" className="file-list">
+                  <FileTree
+                    {...fileTreeActions}
+                    directories={state.directories.filter((path) => path === "scenes" || path.startsWith("scenes/"))}
+                    files={state.files.filter((file) => sceneFiles.some((scene) => scene.path === file.path))}
+                    active={state.active}
+                    query={search}
+                    onOpen={(path) => {
+                      session.activate(path);
+                      setAsset("");
+                      setMobilePage("editor");
+                    }}
+                  />
+                </Tabs.Content>
+                <Tabs.Content value="resources" className="file-list">
+                  <FileTree
+                    {...fileTreeActions}
+                    directories={state.directories.filter((path) => path !== "scenes" && !path.startsWith("scenes/"))}
+                    files={resourceFiles}
+                    active={asset || state.active}
+                    query={search}
+                    onOpen={(path) => {
+                      if (session.document(path) || session.editorFor(path)) {
+                        session.activate(path);
+                        setMode(session.editorFor(path) ? "visual" : "source");
+                        setAsset("");
+                      } else setAsset(path);
+                      setMobilePage("editor");
+                    }}
+                  />
+                </Tabs.Content>
+              </Tabs.Root>
+  );
+  const fileEditor = asset ? <div className="asset-preview">
+    <h3>{asset.split("/").at(-1)}</h3>
+    {/\.(?:png|jpe?g|gif|webp|svg)$/iu.test(asset) ? <img src={session.url(asset)} alt={asset.split("/").at(-1)} loading="lazy" /> : /\.(?:mp3|wav|ogg)$/iu.test(asset) ? <audio src={session.url(asset)} controls /> : /\.(?:mp4|webm)$/iu.test(asset) ? <video src={session.url(asset)} controls /> : null}
+  </div> : doc && !nativeScenePath(doc.path) ? <>
+    <div className="author-file-actions">
+      {docEditor?.panelId && <><button className="author-button" aria-pressed={mode !== "source"} onClick={() => setMode("visual")}>{tr("Editor")}</button><button className="author-button" aria-pressed={mode === "source"} onClick={() => setMode("source")}>{tr("authoring.source")}</button></>}
+      <button className="author-button" onClick={() => setHistoryPath(doc.path)}>{tr("Version history")}</button>
+      {doc.external !== undefined && <button className="author-button" onClick={() => setConflictTarget({session, projectId: state.id, path: doc.path, contextEpoch: state.contextEpoch ?? 0})}>{tr("Review conflict")}</button>}
+    </div>
+    <Suspense fallback={null}>{docEditor?.panelId && mode !== "source" ? <PluginPanel session={session} panelId={docEditor.panelId} path={doc.path} /> : <SourceEditor session={session} document={doc} line={state.line} />}</Suspense>
+    <AnimationAuditionControls session={session} />
+  </> : <NativeInspector statement={selected} session={session} embedded />;
+  const destinations = [
+    ...workspacePanels.map((panel) => ({ id: panel.selector, label: panel.id === "flowchart" ? tr("Flow") : tr(panel.name ?? panel.id), icon: <GanttChart aria-hidden />, content: <div className="author-plugin-workspace"><PluginPanel session={session} panelId={panel.selector} path={state.active} /></div> })),
+    { id: "files", label: tr("Project files"), icon: <Folder aria-hidden />, content: <div className="author-file-workspace"><aside>{projectFilePane}</aside><section>{fileEditor}</section></div> },
+  ];
   const enterHome = () => {
     if (state.saving) return;
     if (dirty) {
@@ -263,6 +605,16 @@ export function Workspace({ session, onHome }: { session: EditorSession; onHome:
           <PublicResourcePicker
             key={`${state.id}:${state.contextEpoch ?? 0}`}
             session={session}
+            controller={hostedPicker}
+            initialKind={catalogueKind.current}
+            onBrowse={
+              hostedPicker
+                ? () => {
+                    setPublicPicker(false);
+                    studioIntent("assets");
+                  }
+                : undefined
+            }
             onClose={() => setPublicPicker(false)}
           />
         </Suspense>
@@ -334,6 +686,19 @@ export function Workspace({ session, onHome }: { session: EditorSession; onHome:
           }}
         />
       )}
+      {batchAction && selectedFiles && (
+        <FileBatchActionsDialog
+          session={session}
+          action={batchAction}
+          paths={[...selectedFiles]}
+          onClose={() => setBatchAction(undefined)}
+          onDone={(paths) => {
+            setAsset((current) => paths.get(current) ?? current);
+            setSelectedFiles(new Set());
+            setBatchAction(undefined);
+          }}
+        />
+      )}
       {showLibrary && (
         <Suspense fallback={null}>
           <CommandLibraryPanel session={session} onClose={() => setShowLibrary(false)} />
@@ -343,8 +708,28 @@ export function Workspace({ session, onHome }: { session: EditorSession; onHome:
         <button className="icon-button" aria-label={tr("Back to projects")} disabled={state.saving} onClick={enterHome}>
           <ArrowLeft size={19} />
         </button>
-        <span className="project-symbol">A</span>
+        <img className="project-symbol" src={altairMark} width={32} height={32} alt="" />
         <strong>{state.name}</strong>
+        <span
+          className="workspace-save-status"
+          role="status"
+          title={[
+            state.localFolder || tr("Browser storage"),
+            tr("{{count}} files", { count: state.files.length }),
+            tr("Line {{count}}", { count: state.line }),
+            state.active,
+            state.error,
+          ]
+            .filter(Boolean)
+            .join(" · ")}
+        >
+          {state.localFolder ? tr("Local folder") : tr("Browser storage")} ·{" "}
+          {state.saving || session.draftPending
+            ? tr("Saving")
+            : dirty && state.localFolder
+              ? tr("Unsaved changes")
+              : tr("Saved")}
+        </span>
         <button className="icon-button" aria-label={tr("Project settings")} onClick={() => setShowSettings(true)}>
           <Settings2 size={16} />
         </button>
@@ -395,7 +780,10 @@ export function Workspace({ session, onHome }: { session: EditorSession; onHome:
         </DropdownMenu.Root>
         <div className="header-spacer" />
         <InterfaceLanguage />
-        <WebGalEngineDialog session={session} exportMode />
+        <button className="secondary-button" onClick={() => setGameExport(true)}>
+          {tr("Export game")}
+        </button>
+        <GameExportDialog session={session} open={gameExport} onOpenChange={setGameExport} />
         <button className="secondary-button" aria-label={tr("Command library")} onClick={() => setShowLibrary(true)}>
           <Library size={15} />
           <span className="workspace-action-label">{tr("Command library")}</span>
@@ -425,11 +813,16 @@ export function Workspace({ session, onHome }: { session: EditorSession; onHome:
           <span className="workspace-action-label">{tr("Export project")}</span>
         </button>
       </header>
+      <AuthoringSession session={session} onImport={() => { studioIntent("import"); }} onAssets={() => { if (!studioIntent("assets")) void catalogueAction(); }} onTools={() => setAuthoringTools(true)} onLibrary={() => setShowLibrary(true)} onHistory={() => setHistoryPath(state.active)} destinations={destinations} notify={setIssue} />
+      {authoringTools && <TaskSheet title={tr("Project files")} wide onClose={() => setAuthoringTools(false)}><div className="author-project-tools"><AnimationAuditionControls session={session} />
       <Group
         className="workspace-panels"
         orientation="horizontal"
         id="workspace-columns"
-        defaultLayout={{ left: 30, editor: 46, inspector: 24 }}
+        defaultLayout={readPanelLayout("columns", { left: 30, editor: 46, inspector: 24 })}
+        onLayoutChanged={(layout) => {
+          if (!mobile) savePanelLayout("columns", layout);
+        }}
         disabled={mobile}
       >
         <Panel
@@ -440,138 +833,14 @@ export function Workspace({ session, onHome }: { session: EditorSession; onHome:
           role={mobile ? "tabpanel" : undefined}
           aria-labelledby={mobile ? "mobile-files-tab" : undefined}
         >
-          <Group orientation="vertical" id="workspace-left" defaultLayout={{ preview: 48, files: 52 }}>
-            <Panel id="preview" minSize="190px">
-              <Preview session={session} />
-            </Panel>
-            <Separator className="resize-handle horizontal" />
+          <Group
+            orientation="vertical"
+            id="workspace-left"
+            defaultLayout={readPanelLayout("left", { preview: 48, files: 52 })}
+            onLayoutChanged={(layout) => savePanelLayout("left", layout)}
+          >
             <Panel id="files" minSize="180px">
-              <Tabs.Root value={leftTab} onValueChange={setLeftTab} className="file-panel">
-                <Tabs.List className="panel-tabs">
-                  <Tabs.Trigger value="scenes">{tr("Scenes")}</Tabs.Trigger>
-                  <Tabs.Trigger value="resources">{tr("Assets")}</Tabs.Trigger>
-                  <button
-                    aria-label={tr("New file")}
-                    onClick={() => {
-                      setNewFileKind(
-                        leftTab === "resources"
-                          ? (session.documentEditors().find((editor) => editor.create)?.id ?? "scene")
-                          : "scene",
-                      );
-                      setNewFile(true);
-                    }}
-                  >
-                    <FilePlus2 size={15} />
-                  </button>
-                </Tabs.List>
-                <div className="file-search">
-                  <Search size={14} />
-                  <input
-                    aria-label={tr("Search files")}
-                    placeholder={tr("Search files\u2026")}
-                    value={search}
-                    onChange={(event) => setSearch(event.target.value)}
-                  />
-                </div>
-                <div className="file-tree-toolbar">
-                  <button
-                    className="icon-button"
-                    disabled={state.saving}
-                    aria-label={tr("New folder")}
-                    onClick={() => fileTreeActions.onNewDirectory(leftTab === "scenes" ? "scenes" : "")}
-                  >
-                    <FolderPlus size={16} />
-                  </button>
-                  <button
-                    className="icon-button"
-                    disabled={state.saving}
-                    aria-label={tr("Recovery copies")}
-                    onClick={() => setRecovery({})}
-                  >
-                    <Undo2 size={16} />
-                  </button>
-                  {fileClipboard && (
-                    <button
-                      className="secondary-button"
-                      disabled={state.saving}
-                      onClick={() => fileTreeActions.onPaste(leftTab === "scenes" ? "scenes" : "")}
-                      title={fileClipboard.path}
-                    >
-                      {tr("Paste into folder")}
-                    </button>
-                  )}
-                  {fileClipboard && (
-                    <button
-                      className="icon-button"
-                      aria-label={tr("Clear file clipboard")}
-                      onClick={() => setFileClipboard(undefined)}
-                    >
-                      <X size={16} />
-                    </button>
-                  )}
-                </div>
-                <Tabs.Content value="scenes" className="file-list">
-                  <FileTree
-                    {...fileTreeActions}
-                    directories={state.directories.filter((path) => path === "scenes" || path.startsWith("scenes/"))}
-                    files={state.files.filter((file) => sceneFiles.some((scene) => scene.path === file.path))}
-                    active={state.active}
-                    query={search}
-                    onOpen={(path) => {
-                      session.activate(path);
-                      setAsset("");
-                      setMobilePage("editor");
-                    }}
-                  />
-                </Tabs.Content>
-                <Tabs.Content value="resources" className="file-list">
-                  {session
-                    .documentEditors()
-                    .filter((editor) => editor.create)
-                    .map((editor) => (
-                      <button
-                        key={editor.id}
-                        className="resource-import"
-                        onClick={() => {
-                          setNewFileKind(editor.id);
-                          setFilename("");
-                          setNewFile(true);
-                        }}
-                      >
-                        <Plus size={14} />
-                        {tr("New {{kind}}", { kind: tr(editor.label) })}
-                      </button>
-                    ))}
-                  <FileTree
-                    {...fileTreeActions}
-                    directories={state.directories.filter((path) => path !== "scenes" && !path.startsWith("scenes/"))}
-                    files={resourceFiles}
-                    active={asset || state.active}
-                    query={search}
-                    onOpen={(path) => {
-                      if (session.document(path)) {
-                        session.activate(path);
-                        setMode(session.editorFor(path) ? "visual" : "source");
-                        setAsset("");
-                      } else setAsset(path);
-                      setMobilePage("editor");
-                    }}
-                  />
-                  <button className="resource-import" disabled={state.saving} onClick={() => setImportAssets(true)}>
-                    <Plus size={14} />
-                    {tr("Import assets")}
-                  </button>
-                  <button
-                    type="button"
-                    className="resource-import"
-                    disabled={state.saving}
-                    onClick={() => setPublicPicker(true)}
-                  >
-                    <Plus size={14} />
-                    {tr("Online assets")}
-                  </button>
-                </Tabs.Content>
-              </Tabs.Root>
+              {projectFilePane}
             </Panel>
           </Group>
         </Panel>
@@ -586,7 +855,7 @@ export function Workspace({ session, onHome }: { session: EditorSession; onHome:
         >
           <div className="editing-panel">
             <div className="document-strip">
-              <div className="document-tabs" role="tablist" aria-label={tr("Open files")}>
+              <div className="document-tabs" ref={documentTabs} role="tablist" aria-label={tr("Open files")}>
                 {state.tabs.map((path) => (
                   <div key={path} className={state.active === path ? "document-tab active" : "document-tab"}>
                     <button
@@ -632,6 +901,13 @@ export function Workspace({ session, onHome }: { session: EditorSession; onHome:
                       {tr(panel.name ?? panel.id)}
                     </Tabs.Trigger>
                   ))}
+                  <Tabs.Trigger
+                    value="storyboard"
+                    title={tr("Storyboard")}
+                    disabled={Boolean(doc && !nativeScenePath(doc.path))}
+                  >
+                    {tr("Storyboard")}
+                  </Tabs.Trigger>
                   <Tabs.Trigger
                     value="timeline"
                     title={tr("Timeline")}
@@ -692,6 +968,10 @@ export function Workspace({ session, onHome }: { session: EditorSession; onHome:
               <Suspense fallback={null}>
                 <SourceEditor session={session} document={doc} line={state.line} />
               </Suspense>
+            ) : mode === "storyboard" ? (
+              <Suspense fallback={<div className="empty-panel">{tr("Opening editor…")}</div>}>
+                <StoryboardEditor session={session} />
+              </Suspense>
             ) : mode === "timeline" ? (
               <Suspense fallback={<div className="empty-panel">{tr("Opening timeline…")}</div>}>
                 <TimelineEditor session={session} />
@@ -706,6 +986,7 @@ export function Workspace({ session, onHome }: { session: EditorSession; onHome:
                   <div className="sentence-list" role="list" aria-label={tr("Scene statements")}>
                     {statements.map((statement, ordinal) => {
                       const command = nativeCommands.find((command) => command.name === statement.node.type.name);
+                      const dialogue = statement.dialogue ?? statement.node;
                       return (
                         <article
                           key={statement.id}
@@ -724,15 +1005,15 @@ export function Workspace({ session, onHome }: { session: EditorSession; onHome:
                             </span>
                             {statement.kind === "dialogue" && (
                               <strong>
-                                {Array.isArray(statement.node.arguments.targetTextNames)
-                                  ? statement.node.arguments.targetTextNames
+                                {Array.isArray(dialogue.arguments.targetTextNames)
+                                  ? dialogue.arguments.targetTextNames
                                       .map((value) => readLocalizedText(value, authoringLocale))
                                       .filter(Boolean)
                                       .join("・") ||
-                                    readLocalizedText(statement.node.arguments.targetName, authoringLocale) ||
+                                    readLocalizedText(dialogue.arguments.targetName, authoringLocale) ||
                                     tr("Narration")
-                                  : readLocalizedText(statement.node.arguments.targetTextNames, authoringLocale) ||
-                                    readLocalizedText(statement.node.arguments.targetName, authoringLocale) ||
+                                  : readLocalizedText(dialogue.arguments.targetTextNames, authoringLocale) ||
+                                    readLocalizedText(dialogue.arguments.targetName, authoringLocale) ||
                                     tr("Narration")}
                               </strong>
                             )}
@@ -781,7 +1062,7 @@ export function Workspace({ session, onHome }: { session: EditorSession; onHome:
                           </header>
                           <p>
                             {(statement.kind === "dialogue"
-                              ? readLocalizedText(statement.node.arguments.text, authoringLocale)
+                              ? readLocalizedText(dialogue.arguments.text, authoringLocale)
                               : statement.content) ||
                               command?.label ||
                               statement.name}
@@ -815,7 +1096,7 @@ export function Workspace({ session, onHome }: { session: EditorSession; onHome:
                 )}
               </div>
             )}
-            {mode !== "timeline" && doc && nativeScenePath(doc.path) && (
+            {mode !== "timeline" && mode !== "storyboard" && doc && nativeScenePath(doc.path) && (
               <section className="command-panel">
                 <div className="command-categories" role="tablist" aria-label={tr("Command categories")}>
                   <button
@@ -969,44 +1250,24 @@ export function Workspace({ session, onHome }: { session: EditorSession; onHome:
           )}
         </Panel>
       </Group>
-      <Tabs.Root value={mobilePage} onValueChange={setMobilePage} className="workspace-mobile-pages">
-        <Tabs.List className="workspace-mobile-navigation panel-tabs" aria-label={tr("Workspace pages")}>
-          <Tabs.Trigger id="mobile-files-tab" value="files" aria-controls="left">
-            <Folder size={20} />
-            {tr("Preview and files")}
-          </Tabs.Trigger>
-          <Tabs.Trigger id="mobile-editor-tab" value="editor" aria-controls="editor">
-            <LayoutList size={20} />
-            {tr("Editor")}
-          </Tabs.Trigger>
-          <Tabs.Trigger id="mobile-properties-tab" value="properties" aria-controls="inspector">
-            <Settings2 size={20} />
-            {tr("Properties")}
-          </Tabs.Trigger>
-        </Tabs.List>
-      </Tabs.Root>
-      <footer className="workspace-status">
-        <span title={state.localFolder}>
-          {state.localFolder ? `${tr("Local folder")} · ${state.localFolder}` : tr("Browser storage")}
-        </span>
-        <span>
-          {state.error ||
-            issue ||
-            state.diagnostics.find((diagnostic) => diagnostic.severity === "error")?.message ||
-            tr("{{count}} files", { count: state.files.length })}
-        </span>
-        <span>
-          {state.compiling
-            ? tr("Compiling")
-            : docEditor
-              ? tr(docEditor.label)
-              : doc && !nativeScenePath(doc.path)
-                ? tr("Source document")
-                : tr("{{count}} statements", { count: statements.length })}
-        </span>
-        <span>{tr("Line {{count}}", { count: state.line })}</span>
-        <span>{dirty ? tr("Unsaved changes") : tr("Saved")}</span>
-      </footer>
+      </div></TaskSheet>}
+      <Dialog.Root
+        open={Boolean(issue)}
+        onOpenChange={(open) => {
+          if (!open) setIssue("");
+        }}
+      >
+        <Dialog.Portal>
+          <Dialog.Overlay className="modal-overlay" />
+          <Dialog.Content className="modal-content">
+            <Dialog.Title>{tr("Error")}</Dialog.Title>
+            <Dialog.Description>{issue}</Dialog.Description>
+            <button className="primary-button" onClick={() => setIssue("")}>
+              {tr("Close")}
+            </button>
+          </Dialog.Content>
+        </Dialog.Portal>
+      </Dialog.Root>
       <Dialog.Root
         open={importAssets}
         onOpenChange={(open) => {
@@ -1169,7 +1430,7 @@ export function Workspace({ session, onHome }: { session: EditorSession; onHome:
           <Dialog.Overlay className="modal-overlay" />
           <Dialog.Content className="modal-content">
             <Dialog.Title>{tr("Project settings")}</Dialog.Title>
-            <Dialog.Description>{tr("Edit your game configuration and project details.")}</Dialog.Description>
+            <Dialog.Description>{state.name}</Dialog.Description>
             <ProjectSettings session={session} />
             {state.documents
               .filter((file) => file.path === NATIVE_PROJECT_PATH || /config\.txt$|project\.wgcp$/u.test(file.path))

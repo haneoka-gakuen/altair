@@ -38,9 +38,17 @@ export interface AltairEditorWorkspace {
   resolveConflict(path: string, source: "disk" | "editor"): void;
   addFile(path: string, blob: Blob, options?: { open?: boolean }): Promise<void>;
   save(): Promise<void>;
+  downloadFile?(blob: Blob, name: string): void;
   translate(key: string, values?: Record<string, unknown>): string;
 }
 
+export interface AltairDocumentPreviewSource {
+  readonly path: string;
+  readonly text: string;
+}
+export interface AltairDocumentPreviewInput extends AltairDocumentPreviewSource {
+  readonly relatedSources?: readonly AltairDocumentPreviewSource[];
+}
 export interface AltairDocumentEditorContribution extends AltairContribution {
   readonly label: string;
   readonly panelId?: string;
@@ -48,14 +56,16 @@ export interface AltairDocumentEditorContribution extends AltairContribution {
   matches(path: string): boolean;
   create?(name: string): { readonly path: string; readonly text: string };
   validate?(document: Pick<AltairEditorDocument, "path" | "text">): void;
+  relatedDocuments?(document: AltairDocumentPreviewSource, project: StoryProject): readonly string[];
   preview?(
-    document: Pick<AltairEditorDocument, "path" | "text">,
+    document: AltairDocumentPreviewInput,
     project: StoryProject,
     context: AltairOperationContext,
   ): AltairDocumentPreview | Promise<AltairDocumentPreview>;
 }
 
 export interface AltairDocumentPreview {
+  readonly scope?: "project" | "scene";
   readonly scene: StoryScene;
   readonly commandId?: string;
 }

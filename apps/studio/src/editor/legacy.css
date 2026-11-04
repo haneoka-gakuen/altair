@@ -1,0 +1,4 @@
+@layer altair-legacy, pages;
+@import "./editor.css" layer(altair-legacy);
+@import "./mobile-workspace.css" layer(altair-legacy);
+@import "./workspace-expressive.css" layer(altair-legacy);

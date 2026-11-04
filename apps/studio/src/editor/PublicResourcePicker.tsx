@@ -1,7 +1,7 @@
 import { lazy, Suspense, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
 import * as Tabs from "@radix-ui/react-tabs";
-import { ChevronRight, FileImage, Folder, RefreshCw, X } from "lucide-react";
+import { ArrowLeft, ChevronRight, FileImage, Folder, Music, Video, RefreshCw, X } from "lucide-react";
 import type { ResourceBrowserFile } from "@haneoka/altair/resource-browser";
 import type { EditorSession } from "./session";
 import {
@@ -13,31 +13,41 @@ import type { StudioPublicResourceHost, PublicResourceSource } from "./public-re
 import { tr, useStudioI18n } from "./i18n";
 import "./public-resource-picker.css";
 import { studioPublicResourceHost } from "./public-resource-bootstrap";
+import { studioEnvironment } from "./studio-host";
+import { publicResourceRequestUrl } from "./public-resource-host";
 const PublicAssetPreview = lazy(() => import("./PublicAssetPreview").then((m) => ({ default: m.PublicAssetPreview })));
 export function PublicResourcePicker({
   session,
   host,
+  controller: providedController,
+  initialKind = "model",
+  onBrowse,
   onClose,
 }: {
   session: EditorSession;
   host?: StudioPublicResourceHost;
+  controller?: PublicResourcePickerController;
+  initialKind?: string;
+  onBrowse?: () => void;
   onClose(): void;
 }) {
   useStudioI18n();
   const controller = useMemo(
-    () => new PublicResourcePickerController(session, host ?? studioPublicResourceHost),
-    [session, host],
+    () => providedController ?? new PublicResourcePickerController(session, host ?? studioPublicResourceHost),
+    [session, host, providedController],
   );
   const state = useSyncExternalStore(controller.subscribe, controller.getSnapshot),
     project = useSyncExternalStore(session.subscribe, session.getSnapshot);
   const [source, setSource] = useState<PublicResourceSource>({
-      provider: "haneoka",
-      origin: "https://haneoka.org",
-      server: "intl",
+      provider: controller.getSnapshot().scope?.provider ?? "haneoka",
+      origin: controller.getSnapshot().scope?.origin ?? studioEnvironment().origin ?? "https://haneoka.org",
+      server: controller.getSnapshot().scope?.server ?? studioEnvironment().server ?? "intl",
     }),
     [query, setQuery] = useState(""),
-    [page, setPage] = useState("source"),
-    [kind, setKind] = useState("model");
+    [page, setPage] = useState(providedController ? "selected" : "browse"),
+    [manualPath, setManualPath] = useState(""),
+    [kind, setKind] = useState(initialKind);
+  const [originDraft, setOriginDraft] = useState(source.origin);
   const [metadata, setMetadata] = useState<PublicImportMetadata>({
       directory: "assets/public/" + crypto.randomUUID(),
       author: "",
@@ -53,10 +63,10 @@ export function PublicResourcePicker({
     mounted.current = true;
     return () => {
       mounted.current = false;
-      controller.dispose();
+      if (!providedController) controller.dispose();
     };
-  }, [controller]);
-  const working = ["connecting", "selecting", "importing"].includes(state.phase),
+  }, [controller, providedController]);
+  const working = ["connecting", "listing", "selecting", "importing"].includes(state.phase),
     busy = state.phase === "importing";
   const nodes = state.nodes.filter(
     (node) =>
@@ -69,8 +79,27 @@ export function PublicResourcePicker({
   };
   const connect = () => {
     setIssue("");
-    void controller.connect(source).then(() => {
+    if (originDraft.trim() !== source.origin) {
+      setSource((current) => ({ ...current, origin: originDraft.trim() }));
+      return;
+    }
+    void controller.connect(source, kind).then(() => {
       if (mounted.current && controller.getSnapshot().scope) setPage("browse");
+    });
+  };
+  useEffect(() => {
+    if (providedController) return;
+    setQuery("");
+    setIssue("");
+    void controller.connect(source, kind).then(() => {
+      if (mounted.current && controller.getSnapshot().scope) setPage("browse");
+    });
+  }, [controller, providedController, source.provider, source.server, source.origin, kind]);
+  const openPath = () => {
+    setIssue("");
+    void controller.openPath(manualPath, kind).then(() => {
+      if (!mounted.current) return;
+      setPage(controller.getSnapshot().asset ? "selected" : "browse");
     });
   };
   const select = (file: ResourceBrowserFile) => {
@@ -79,17 +108,10 @@ export function PublicResourcePicker({
       if (mounted.current && controller.getSnapshot().asset) setPage("selected");
     });
   };
+  const storyProject = state.asset?.kind === "project";
+  const importReady = storyProject || Boolean(state.plan && metadata.author.trim() && metadata.license.trim() && metadata.version.trim() && metadata.directory.trim());
   const importAsset = () => {
-    if (
-      !state.plan ||
-      busy ||
-      project.saving ||
-      !metadata.author.trim() ||
-      !metadata.license.trim() ||
-      !metadata.version.trim() ||
-      !metadata.directory.trim()
-    )
-      return;
+    if (!importReady || busy || project.saving) return;
     setIssue("");
     void controller.importSelected(metadata).catch((error) => {
       if (mounted.current) setIssue(String(error));
@@ -107,6 +129,8 @@ export function PublicResourcePicker({
         <Dialog.Content
           className="modal-content public-resource-picker"
           data-mobile-page={page}
+          data-layout={state.layout}
+          data-selection-only={Boolean(providedController)}
           onCloseAutoFocus={(event) => {
             event.preventDefault();
             if (focusReturn?.isConnected) focusReturn.focus({ preventScroll: true });
@@ -119,10 +143,19 @@ export function PublicResourcePicker({
           }}
         >
           <header className="public-resource-picker__header">
+            {page === "selected" && (
+              <button
+                className="icon-button"
+                aria-label={tr("Browse")}
+                onClick={() => (onBrowse ? onBrowse() : setPage("browse"))}
+              >
+                <ArrowLeft size={20} />
+              </button>
+            )}
             <div>
-              <Dialog.Title>{tr("Online assets")}</Dialog.Title>
-              <Dialog.Description>
-                {tr("Choose a public source, review its files, then import a local copy.")}
+              <Dialog.Title>{tr("Import from server")}</Dialog.Title>
+              <Dialog.Description className="public-resource-picker__count">
+                {working ? tr("Loading assets") : tr("{{count}} assets", { count: nodes.length })}
               </Dialog.Description>
             </div>
             <button type="button" className="icon-button" aria-label={tr("Close")} onClick={close}>
@@ -132,26 +165,21 @@ export function PublicResourcePicker({
           <Tabs.Root value={page} onValueChange={setPage}>
             <Tabs.List className="public-resource-picker__pages" aria-label={tr("Asset picker pages")}>
               <Tabs.Trigger id="public-source-tab" value="source" aria-controls="public-source-page">
-                {tr("Source")}
+                {tr("Categories")}
               </Tabs.Trigger>
               <Tabs.Trigger id="public-browse-tab" value="browse" aria-controls="public-browse-page">
                 {tr("Browse")}
               </Tabs.Trigger>
-              <Tabs.Trigger id="public-selected-tab" value="selected" aria-controls="public-selected-page">
+              <Tabs.Trigger
+                id="public-selected-tab"
+                value="selected"
+                aria-controls="public-selected-page"
+                disabled={!state.asset}
+              >
                 {tr("Selected asset")}
               </Tabs.Trigger>
             </Tabs.List>
           </Tabs.Root>
-          {(state.error || issue) && (
-            <div className="public-resource-picker__notice" role="alert">
-              {tr(state.error || issue)}
-            </div>
-          )}
-          {state.importedPaths && (
-            <div className="public-resource-picker__notice" role="status">
-              {tr("Imported {{count}} local files", { count: state.importedPaths.length })}
-            </div>
-          )}
           <div className="public-resource-picker__body">
             <section
               id="public-source-page"
@@ -189,39 +217,23 @@ export function PublicResourcePicker({
                 >
                   {(source.provider === "haneoka" ? ["jp", "intl"] : ["jp", "en", "tw", "cn", "kr"]).map((server) => (
                     <option key={server} value={server}>
-                      {server}
+                      {tr(`server.${server}`)}
                     </option>
                   ))}
                 </select>
               </label>
-              <label className="field">
-                <span>{tr("Public catalog origin")}</span>
-                <input
-                  type="url"
-                  value={source.origin}
-                  disabled={busy}
-                  onChange={(event) => {
-                    controller.disconnect();
-                    setSource((current) => ({ ...current, origin: event.target.value }));
-                  }}
-                />
-              </label>
-              <button type="button" className="secondary-button" disabled={busy} onClick={connect}>
-                <RefreshCw size={16} />
-                {tr("Connect source")}
-              </button>
               <label className="field">
                 <span>{tr("Asset use")}</span>
                 <select
                   value={kind}
                   disabled={busy}
                   onChange={(event) => {
-                    controller.clearSelection();
                     setKind(event.target.value);
                   }}
                 >
                   {[
                     "model",
+                    "spine",
                     "background",
                     "still",
                     "frame",
@@ -233,34 +245,88 @@ export function PublicResourcePicker({
                     "post-effect",
                   ].map((value) => (
                     <option key={value} value={value}>
-                      {tr(value)}
+                      {value === "model" ? "Live2D" : tr(value)}
                     </option>
                   ))}
                 </select>
               </label>
-              {state.scope && (
-                <dl>
-                  <dt>{tr("Selected source")}</dt>
-                  <dd>
-                    {state.scope.provider} / {state.scope.server}
-                  </dd>
-                  {state.scope.releaseId && (
-                    <>
-                      <dt>{tr("Immutable release")}</dt>
-                      <dd>{state.scope.releaseId}</dd>
-                      <dt>{tr("Source ID")}</dt>
-                      <dd>{state.scope.sourceId}</dd>
-                    </>
-                  )}
-                </dl>
-              )}
+              <details className="public-resource-picker__advanced">
+                <summary>{tr("Connection and path")}</summary>
+                <button
+                  type="button"
+                  className="secondary-button"
+                  disabled={working}
+                  onClick={() => {
+                    void controller.showLayout(state.layout === "grid" ? "directory" : "grid", kind).then(() => {
+                      if (mounted.current) setPage("browse");
+                    });
+                  }}
+                >
+                  {tr(state.layout === "grid" ? "Browse folders" : "Asset grid")}
+                </button>
+                <label className="field">
+                  <span>{tr("Public catalog origin")}</span>
+                  <input
+                    type="url"
+                    value={originDraft}
+                    disabled={busy}
+                    onChange={(event) => setOriginDraft(event.target.value)}
+                  />
+                </label>
+                <button type="button" className="secondary-button" disabled={busy} onClick={connect}>
+                  <RefreshCw size={16} />
+                  {tr("Connect source")}
+                </button>
+                <label className="field">
+                  <span>{tr("Catalog path")}</span>
+                  <input
+                    value={manualPath}
+                    disabled={busy}
+                    onChange={(event) => setManualPath(event.target.value)}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter") {
+                        event.preventDefault();
+                        openPath();
+                      }
+                    }}
+                  />
+                </label>
+                <button
+                  type="button"
+                  className="secondary-button"
+                  disabled={working || !state.scope}
+                  onClick={openPath}
+                >
+                  {tr("Open path")}
+                </button>
+                {state.scope && (
+                  <dl>
+                    <dt>{tr("Selected source")}</dt>
+                    <dd>
+                      {state.scope.provider} / {state.scope.server}
+                    </dd>
+                    {state.scope.releaseId && (
+                      <>
+                        <dt>{tr("Immutable release")}</dt>
+                        <dd>{state.scope.releaseId}</dd>
+                        <dt>{tr("Source ID")}</dt>
+                        <dd>{state.scope.sourceId}</dd>
+                      </>
+                    )}
+                  </dl>
+                )}
+              </details>
             </section>
             <section
               id="public-browse-page"
               className="public-resource-picker__browser"
               aria-labelledby="public-browse-tab"
             >
-              <nav className="public-resource-picker__breadcrumbs" aria-label={tr("Catalog path")}>
+              <nav
+                hidden={state.layout === "grid"}
+                className="public-resource-picker__breadcrumbs"
+                aria-label={tr("Catalog path")}
+              >
                 <button type="button" disabled={busy || !state.scope} onClick={() => void controller.browse([])}>
                   {tr("Root")}
                 </button>
@@ -281,6 +347,7 @@ export function PublicResourcePicker({
                 <span>{tr("Search assets")}</span>
                 <input type="search" value={query} onChange={(event) => setQuery(event.target.value)} />
               </label>
+              <span className="public-resource-picker__count">{tr("{{count}} assets", { count: nodes.length })}</span>
               <ul className="public-resource-picker__entries" aria-label={tr("Catalog entries")}>
                 {nodes.map((node) => (
                   <li key={node.id}>
@@ -296,10 +363,33 @@ export function PublicResourcePicker({
                       }
                       onClick={() => (node.type === "directory" ? void controller.browse(node.path) : select(node))}
                     >
-                      {node.type === "directory" ? <Folder size={18} /> : <FileImage size={18} />}
+                      <span className="public-resource-picker__thumbnail">
+                        {node.type === "directory" ? (
+                          <Folder size={32} />
+                        ) : node.displayKind === "audio" ? (
+                          <Music size={32} />
+                        ) : node.displayKind === "video" ? (
+                          <Video size={32} />
+                        ) : (
+                          <FileImage size={32} />
+                        )}
+                        {node.type === "file" && node.previewUrl && state.scope && (
+                          <img
+                            loading="lazy"
+                            alt=""
+                            src={publicResourceRequestUrl(
+                              new URL(node.previewUrl, state.scope.origin).href,
+                              state.scope,
+                            )}
+                            onError={(event) => {
+                              event.currentTarget.hidden = true;
+                            }}
+                          />
+                        )}
+                      </span>
                       <span>
-                        <strong>{node.name}</strong>
-                        {node.description && <small>{node.description}</small>}
+                        <strong>{node.description || node.name}</strong>
+                        {node.description && <small>{node.name}</small>}
                         {node.type === "file" && node.detail && <small>{node.detail}</small>}
                       </span>
                     </button>
@@ -316,7 +406,7 @@ export function PublicResourcePicker({
               aria-labelledby="public-selected-tab"
             >
               <div className="public-resource-picker__preview">
-                {state.asset && state.plan ? (
+                {storyProject ? <strong>{state.asset!.name}</strong> : state.asset && state.plan ? (
                   <Suspense fallback={<p role="status">{tr("Loading preview")}</p>}>
                     <PublicAssetPreview asset={state.asset} plan={state.plan} />
                   </Suspense>
@@ -325,9 +415,8 @@ export function PublicResourcePicker({
                 )}
               </div>
               {state.asset && (
-                <section className="public-resource-picker__dependencies">
-                  <h3>{state.asset.name}</h3>
-                  <p>{tr("{{count}} dependencies", { count: state.asset.members.length })}</p>
+                <details className="public-resource-picker__dependencies">
+                  <summary>{tr("{{count}} dependencies", { count: state.asset.members.length })}</summary>
                   <ul>
                     {state.asset.members.map((member) => (
                       <li key={member.id}>
@@ -347,23 +436,13 @@ export function PublicResourcePicker({
                       </li>
                     ))}
                   </ul>
-                </section>
+                </details>
               )}
-              <section className="public-resource-picker__metadata">
+              {!storyProject && <section className="public-resource-picker__metadata">
                 <h3>{tr("Local import")}</h3>
-                {(["directory", "author", "license", "version"] as const).map((field) => (
+                {(["author", "license"] as const).map((field) => (
                   <label className="field" key={field}>
-                    <span>
-                      {tr(
-                        field === "directory"
-                          ? "Import directory"
-                          : field === "author"
-                            ? "Author"
-                            : field === "license"
-                              ? "License"
-                              : "Version",
-                      )}
-                    </span>
+                    <span>{tr(field === "author" ? "Author" : "License")}</span>
                     <input
                       value={metadata[field]}
                       disabled={busy}
@@ -371,18 +450,40 @@ export function PublicResourcePicker({
                     />
                   </label>
                 ))}
-              </section>
+                <details className="public-resource-picker__advanced">
+                  <summary>{tr("Import options")}</summary>
+                  {(["directory", "version"] as const).map((field) => (
+                    <label className="field" key={field}>
+                      <span>{tr(field === "directory" ? "Import directory" : "Version")}</span>
+                      <input
+                        value={metadata[field]}
+                        disabled={busy}
+                        onChange={(event) => setMetadata((current) => ({ ...current, [field]: event.target.value }))}
+                      />
+                    </label>
+                  ))}
+                </details>
+              </section>}
             </aside>
           </div>
           <footer className="public-resource-picker__actions">
-            <p role="status">
-              {working
-                ? state.phase === "importing"
-                  ? tr("Importing assets")
-                  : tr("Loading {{done}} of {{total}} files", { done: state.loadedMembers, total: state.totalMembers })
-                : state.plan
-                  ? tr("Ready to import a local copy")
-                  : tr("Select an asset")}
+            <p role={state.error || issue ? "alert" : "status"}>
+              {state.error || issue
+                ? tr(state.error || issue)
+                : state.importedPaths
+                  ? tr("Imported {{count}} local files", { count: state.importedPaths.length })
+                  : working
+                    ? state.phase === "importing"
+                      ? tr("Importing assets")
+                      : state.phase === "listing" || state.phase === "connecting"
+                        ? tr("Loading assets")
+                        : tr("Loading {{done}} of {{total}} files", {
+                            done: state.loadedMembers,
+                            total: state.totalMembers,
+                          })
+                    : state.plan
+                      ? tr("Ready to import a local copy")
+                      : tr("Select an asset")}
             </p>
             <button
               type="button"
@@ -394,18 +495,10 @@ export function PublicResourcePicker({
             <button
               type="button"
               className="primary-button"
-              disabled={
-                !state.plan ||
-                working ||
-                project.saving ||
-                !metadata.author.trim() ||
-                !metadata.license.trim() ||
-                !metadata.version.trim() ||
-                !metadata.directory.trim()
-              }
+              disabled={!importReady || working || project.saving}
               onClick={importAsset}
             >
-              {tr("Import selected asset")}
+              {tr(storyProject ? "Open project" : "Import selected asset")}
             </button>
           </footer>
         </Dialog.Content>

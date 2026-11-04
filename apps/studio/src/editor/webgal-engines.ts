@@ -65,8 +65,22 @@ async function inspectContents(
 ): Promise<WebGalEngine> {
   const byPath = new Map(contents.files.map((file) => [file.path, file]));
   const descriptor = byPath.get("webgal-engine.json");
-  if (!descriptor || descriptor.blob.size > 64 * 1024) throw new Error("Engine manifest is missing or too large");
-  const data: unknown = JSON.parse(await descriptor.blob.text());
+  if (descriptor && descriptor.blob.size > 64 * 1024) throw new Error("Engine manifest is missing or too large");
+  const filesHash = await contentHash(contents, signal);
+  let data: unknown;
+  if (descriptor) data = JSON.parse(await descriptor.blob.text());
+  else {
+    let version = "";
+    const packageFile = byPath.get("package.json");
+    if (packageFile && packageFile.blob.size <= 64 * 1024) {
+      try {
+        const info = JSON.parse(await packageFile.blob.text());
+        if (typeof info.version === "string") version = info.version;
+      } catch {}
+    }
+    if (!/^\d+\.\d+\.\d+(?:[-+][a-z\d.-]+)?$/iu.test(version)) version = `0.0.0+${filesHash.slice(0, 12)}`;
+    data = { schemaVersion: "1", id: "webgal.stock", name: "WebGAL", version, webgalVersion: version, type: "web" };
+  }
   if (!data || typeof data !== "object" || Array.isArray(data)) throw new Error("Invalid WebGAL engine manifest");
   const manifest = data as WebGalEngineManifest;
   if (manifest.license !== undefined && webGalEngineLicense(manifest.license) === undefined)
@@ -94,7 +108,6 @@ async function inspectContents(
   )
     throw new Error("This archive is not a compiled WebGAL engine");
   signal?.throwIfAborted();
-  const filesHash = await contentHash(contents, signal);
   signal?.throwIfAborted();
   return {
     ...contents,

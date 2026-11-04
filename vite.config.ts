@@ -21,6 +21,7 @@ export default defineConfig({
       entry: {
         index: source("index.ts"),
         host: source("host.ts"),
+        "studio-host": source("studio-host.ts"),
         model: source("model.ts"),
         documents: source("documents-entry.ts"),
         plugins: source("plugins.ts"),

@@ -6,6 +6,10 @@ import { Timeline, type DataItem, type TimelineOptions } from "vis-timeline/peer
 import "vis-timeline/styles/vis-timeline-graph2d.css";
 import { parseAltairSceneDocument, serializeAuthoredText, type AltairAuthoredNode } from "@haneoka/altair";
 import { NativeInspector } from "./NativeInspector";
+import { AudioMixExport, isAudioClip } from "./AudioMixExport";
+import { audioWaveformPath } from "./audio-waveform";
+import { isAudioFile } from "./AudioClipWaveform";
+import type { ProjectFile } from "./library";
 import { nativeCommands, nativeNodeLabel, type EditorStatement } from "./native-project";
 import type { EditorSession } from "./session";
 import {
@@ -24,7 +28,9 @@ import { tr, useStudioI18n } from "./i18n";
 const nameOf = nativeNodeLabel;
 const laneOf = (node: AltairAuthoredNode) =>
   String(
-    node.arguments.targetName ||
+    node.arguments.trackName ||
+      node.arguments.target ||
+      node.arguments.targetName ||
       nativeCommands.find((command) => command.name === node.type.name)?.category ||
       tr("Stage"),
   );
@@ -32,6 +38,25 @@ const escapedContent = (text: string) => {
   const element = document.createElement("span");
   element.textContent = text;
   return element.innerHTML;
+};
+const cueContent = (label: string, path?: string): HTMLElement => {
+  const container = document.createElement("div");
+  container.textContent = label;
+  if (path) {
+    const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg"),
+      line = document.createElementNS("http://www.w3.org/2000/svg", "path");
+    svg.setAttribute("viewBox", "0 0 600 80");
+    svg.setAttribute("height", "28");
+    svg.setAttribute("width", "100%");
+    svg.setAttribute("preserveAspectRatio", "none");
+    svg.setAttribute("aria-hidden", "true");
+    line.setAttribute("d", path);
+    line.setAttribute("stroke", "currentColor");
+    line.setAttribute("stroke-width", "3");
+    svg.append(line);
+    container.append(svg);
+  }
+  return container;
 };
 
 function CueChart({
@@ -41,6 +66,7 @@ function CueChart({
   onMove,
   fit,
   locale,
+  files,
 }: {
   cues: readonly TimelineCue[];
   selected: string;
@@ -48,7 +74,41 @@ function CueChart({
   onMove: (id: string, start: number, duration?: number) => void;
   fit: number;
   locale: string;
+  files: readonly ProjectFile[];
 }) {
+  const [waveforms, setWaveforms] = useState<ReadonlyMap<string, string>>(new Map());
+  const waveformContent = useRef<ReadonlyMap<string, string>>(new Map());
+  const decoded = useRef(new Map<Blob, Promise<AudioBuffer>>());
+  useEffect(() => {
+    let active = true;
+    const clips = cues.filter((cue) => isAudioClip(cue.node));
+    if (!clips.length) {
+      setWaveforms(new Map());
+      return;
+    }
+    void (async () => {
+      const paths = await Promise.all(
+        clips.map(async (cue) => {
+          const file = files.find((file) => file.path === cue.node.arguments.source);
+          if (!file) return [cue.node.id, ""] as const;
+          let buffer = decoded.current.get(file.blob);
+          if (!buffer) {
+            buffer = (async () =>
+              new OfflineAudioContext(2, 1, 48000).decodeAudioData(await file.blob.arrayBuffer()))();
+            decoded.current.set(file.blob, buffer);
+            if (decoded.current.size > 8) decoded.current.delete(decoded.current.keys().next().value!);
+          }
+          return [cue.node.id, audioWaveformPath(await buffer, cue.node.arguments)] as const;
+        }),
+      );
+      if (active) setWaveforms(new Map(paths));
+    })().catch(() => {
+      if (active) setWaveforms(new Map());
+    });
+    return () => {
+      active = false;
+    };
+  }, [cues, files]);
   const mount = useRef<HTMLDivElement>(null),
     timeline = useRef<Timeline>(undefined),
     items = useRef(new DataSet<DataItem>());
@@ -78,6 +138,7 @@ function CueChart({
         updateGroup: false,
       },
       snap: (date) => new Date(Math.max(0, Math.round(Number(date) / 10) * 10)),
+      template: (item) => cueContent(String(item.content ?? ""), waveformContent.current.get(String(item.id))),
       format: {
         minorLabels: (date) => `${(Number(date) / 1000).toLocaleString(locale, { maximumFractionDigits: 2 })} s`,
       },
@@ -100,12 +161,13 @@ function CueChart({
   }, [locale]);
   useEffect(() => {
     const ids = new Set(cues.map((cue) => cue.node.id));
+    waveformContent.current = waveforms;
     items.current.remove(items.current.getIds().filter((id) => !ids.has(String(id))));
     items.current.update(
       cues.map((cue) => ({
         id: cue.node.id,
         group: laneOf(cue.node),
-        content: escapedContent(nameOf(cue.node)),
+        content: nameOf(cue.node),
         start: new Date(cue.atSeconds * 1000),
         end: cue.durationSeconds > 0 ? new Date((cue.atSeconds + cue.durationSeconds) * 1000) : undefined,
         type: cue.durationSeconds > 0 ? "range" : "box",
@@ -118,7 +180,7 @@ function CueChart({
         content: escapedContent(tr(id)),
       })),
     );
-  }, [cues, locale]);
+  }, [cues, locale, waveforms]);
   useEffect(() => {
     timeline.current?.setSelection(selected ? [selected] : []);
   }, [selected]);
@@ -129,7 +191,7 @@ function CueChart({
   return <div ref={mount} className="timeline-canvas" aria-label={tr("Cue timeline")} />;
 }
 
-export function TimelineEditor({ session }: { session: EditorSession }) {
+export function TimelineEditor({ session, scope }: { session: EditorSession; scope?: readonly string[] }) {
   const state = useSyncExternalStore(session.subscribe, session.getSnapshot),
     { i18n } = useStudioI18n();
   const doc = session.document();
@@ -147,7 +209,7 @@ export function TimelineEditor({ session }: { session: EditorSession }) {
       return undefined;
     }
   }, [doc?.text]);
-  const timelines = scene?.nodes.filter(isTimeline) ?? [];
+  const timelines = scene?.nodes.filter(isTimeline).filter((node) => !scope?.length || scope.includes(node.id)) ?? [];
   const current = timelines.find((node) => node.id === state.selectedNodeId) ?? timelines[0];
   const cues = useMemo(() => {
     try {
@@ -174,8 +236,29 @@ export function TimelineEditor({ session }: { session: EditorSession }) {
   const move = (id: string, start: number, duration?: number) => change((node) => updateCue(node, id, start, duration));
   const add = () => {
     const definition = nativeCommands.find((item) => item.name === command);
-    if (!definition) return;
-    const child = definition.initial();
+    if (!definition && command !== "audioClip") return;
+    const child: AltairAuthoredNode =
+      command === "audioClip"
+        ? {
+            id: crypto.randomUUID(),
+            type: { plugin: "haneoka.altair", name: "audioClip" },
+            schemaVersion: 1,
+            arguments: {
+              source: state.files.find((file) => isAudioFile(file.path))?.path ?? "",
+              trackName: tr("Audio track"),
+              category: "Se",
+              offsetSeconds: 0,
+              durationSeconds: 5,
+              playbackRate: 1,
+              volume: 1,
+              trackVolume: 1,
+              fadeInSeconds: 0,
+              fadeOutSeconds: 0,
+              loop: false,
+              muted: false,
+            },
+          }
+        : definition!.initial();
     if (!current) {
       session.insert(createTimeline([child]));
       const inserted = session.statements().find((statement) => statement.id === session.getSnapshot().selectedNodeId);
@@ -268,8 +351,10 @@ export function TimelineEditor({ session }: { session: EditorSession }) {
         <div className="empty-panel">{tr("Open a target scene first")}</div>
       ) : (
         <>
+          {current && <AudioMixExport node={current} session={session} cues={cues} />}
           <div className="timeline-settings">
             <select aria-label={tr("Command")} value={command} onChange={(event) => setCommand(event.target.value)}>
+              <option value="audioClip">{tr("Audio clip")}</option>
               {available.map((command) => (
                 <option key={command.name} value={command.name}>
                   {command.label}
@@ -347,6 +432,7 @@ export function TimelineEditor({ session }: { session: EditorSession }) {
                 onMove={move}
                 fit={fit}
                 locale={i18n.resolvedLanguage ?? "en"}
+                files={state.files}
               />
               <div className="timeline-cue-list" aria-label={tr("Timeline commands")}>
                 {cues.map((cue) => (

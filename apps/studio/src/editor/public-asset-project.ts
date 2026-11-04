@@ -51,6 +51,9 @@ export function registerLocalPublicAsset(source: string, asset: EditorPublicAsse
       ...project,
       assets,
       runtime,
+      ...(asset.kind === "spine" && !project.plugins.some((plugin) => plugin.id === "haneoka.spine")
+        ? { plugins: [...project.plugins, { id: "haneoka.spine", version: "0.1.0", permissions: ["render:webgl"] }] }
+        : {}),
       extensions: { ...project.extensions, publicAssetImports: [...(ledger ?? []), structuredClone(plan.metadata)] },
     },
     source,

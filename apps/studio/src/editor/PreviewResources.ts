@@ -1,5 +1,6 @@
 import type { VegaPlugin } from "@haneoka/vega/engine";
 import { normalizeBrowserWorkspacePath } from "@haneoka/altair-plugin-workspace-browser";
+import { mapStoryResourceLocations } from "@haneoka/altair-plugin-vega-preview/packaging";
 import type { ProjectFile } from "./library";
 
 interface ResourceFile {
@@ -39,17 +40,7 @@ export class PreviewResources {
           const path = normalizeBrowserWorkspacePath(decodeURIComponent(url.pathname.replace(/^\//u, "")));
           let file = files.get(path);
           if (!file) {
-            let index = this.folded.get(files);
-            if (!index) {
-              const values = new Map<string, ResourceFile | null>();
-              for (const file of files.values()) {
-                const key = file.path.toLocaleLowerCase("en-US");
-                values.set(key, values.has(key) ? null : file);
-              }
-              this.folded.set(files, values);
-              index = values;
-            }
-            file = index.get(path.toLocaleLowerCase("en-US")) ?? undefined;
+            file = this.foldedIndex(files).get(path.toLocaleLowerCase("en-US")) ?? undefined;
           }
           if (!file) throw new Error(`Project file is missing or ambiguous: ${path}`);
           const bytes =
@@ -62,6 +53,37 @@ export class PreviewResources {
       });
     },
   };
+  private foldedIndex(files: ReadonlyMap<string, ResourceFile>): ReadonlyMap<string, ResourceFile | null> {
+    let index = this.folded.get(files);
+    if (!index) {
+      const values = new Map<string, ResourceFile | null>();
+      for (const file of files.values()) {
+        const key = file.path.toLocaleLowerCase("en-US");
+        values.set(key, values.has(key) ? null : file);
+      }
+      this.folded.set(files, values);
+      index = values;
+    }
+    return index;
+  }
+  hydrate<Value>(value: Value): Value {
+    const first = this.urls.values().next().value;
+    if (!first) return value;
+    return mapStoryResourceLocations(
+      value,
+      (source) => {
+        try {
+          const path = normalizeBrowserWorkspacePath(source);
+          const file =
+            this.currentFiles.get(path) ?? this.foldedIndex(this.currentFiles).get(path.toLocaleLowerCase("en-US"));
+          return file ? this.urls.get(file.path)! : source;
+        } catch {
+          return source;
+        }
+      },
+      new URL("/", first).href,
+    );
+  }
   publish(
     files: readonly ProjectFile[],
     documents: readonly { readonly path: string; readonly text: string }[],

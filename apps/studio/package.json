@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc -b && vite build",
+    "build": "tsc -b && vite build && vite build --config vite.player.config.ts && node ../../scripts/build-player.mjs",
     "typecheck": "tsc -b",
     "check": "pnpm run typecheck && pnpm run build"
   },
@@ -27,7 +27,6 @@
     "@haneoka/vega-plugin-cubism": "workspace:*",
     "@haneoka/vega-plugin-richtext": "workspace:*",
     "@haneoka/vega-plugin-webgal": "workspace:*",
-    "@haneoka/vega-renderer-pixi": "workspace:*",
     "@haneoka/vega-renderer-three": "workspace:*",
     "@haneoka/vega-shell-default": "workspace:*",
     "@haneoka/vega-theme-haneoka": "workspace:*",
@@ -41,7 +40,6 @@
     "i18next": "^26.4.2",
     "lucide-react": "^1.27.0",
     "monaco-editor": "^0.56.0",
-    "pixi.js": "6.5.10",
     "react": "^19.2.4",
     "react-dom": "^19.2.4",
     "react-i18next": "^17.0.15",
@@ -54,8 +52,12 @@
     "@haneoka/altair-plugin-models": "workspace:*",
     "vue": "^3.5.39",
     "@haneoka/vega-protocol": "workspace:*",
-    "@haneoka/altair-plugin-haneoka": "link:../../.dependencies/altair-plugin-haneoka",
-    "@haneoka/altair-plugin-bestdori": "link:../../.dependencies/altair-plugin-bestdori"
+    "@haneoka/altair-plugin-haneoka": "workspace:*",
+    "@haneoka/altair-plugin-bestdori": "workspace:*",
+    "@haneoka/design-tokens": "workspace:*",
+    "@haneoka/vega-plugin-spine": "workspace:*",
+    "@esotericsoftware/spine-threejs": "4.2.119",
+    "@haneoka/vega-preset-full": "workspace:*"
   },
   "devDependencies": {
     "@types/react": "^19.2.14",

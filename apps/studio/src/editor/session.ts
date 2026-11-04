@@ -1,11 +1,11 @@
 import { tr } from "./i18n";
+import { downloadStudioFile } from "./studio-host";
 import type { AnimationAudition, AnimationAuditionState } from "./animation-audition";
 import { PreviewResources } from "./PreviewResources";
 import { COMMAND_LIBRARY_PATH } from "./command-library";
 import { validateAuthoredDocument } from "./validation";
 import type { StoryProject, StoryDiagnostic, AltairPluginHost, AltairEditorWorkspace } from "@haneoka/altair";
 import { createAltairHistoryService, type AltairHistory } from "@haneoka/altair-plugin-history";
-import { createWebGalAuthoringWorkspaceFile, hydrateWebGalWorkspaceAssetUrls } from "@haneoka/altair-plugin-webgal";
 import {
   parseAuthoredText,
   parseAltairSceneDocument,
@@ -22,6 +22,8 @@ import {
   readNativeWorkspace,
   copyNativeNode,
   nativeStatements,
+  nativeDialogueNodes,
+  nativeStatementIsVisible,
   nativeScenePath,
   updateNativeNode,
   newNativeScene,
@@ -29,6 +31,7 @@ import {
   type EditorStatement,
 } from "./native-project";
 import type { CompileVegaPreviewStoryResult } from "@haneoka/altair-plugin-vega-preview";
+import { reanchorStoryShots } from "@haneoka/altair-plugin-vega-preview/projection";
 import {
   BrowserWorkspaceService,
   normalizeBrowserWorkspacePath,
@@ -36,7 +39,7 @@ import {
   type AltairBrowserWorkspaceSnapshot,
   type BrowserWorkspaceDirectoryHandle,
 } from "@haneoka/altair-plugin-workspace-browser";
-import { STUDIO_PLUGIN_CATALOG, STUDIO_PLUGIN_ENVIRONMENT } from "../studio-plugin-catalog";
+import { STUDIO_PLUGIN_CATALOG, STUDIO_PLUGIN_ENVIRONMENT, studioAuthoringPlugins } from "../studio-plugin-catalog";
 import {
   createStudioAuthoringPluginPlan,
   loadStudioAuthoringPlugins,
@@ -44,6 +47,15 @@ import {
   type LoadedStudioAuthoringPlugins,
 } from "../authoring-plugins";
 import { projectLibrary, type LibraryProject, type ProjectFile, type ProjectRecoveryCopy } from "./library";
+import {
+  nativeScriptState,
+  cleanNativeScriptScene,
+  rebaseNativeScriptDraft,
+  NATIVE_SCRIPT_STATE,
+  assertNativeScriptLocks,
+  nativeScriptRegistry,
+  withNativeScriptProviders,
+} from "@haneoka/altair-plugin-webgal/native-script";
 import { prepareSharedAssetImport, type SharedAssetPack } from "./shared-assets";
 import { ProjectHistory } from "./project-history";
 import { preparePublicAssetImport, type PublicAssetByteReader } from "./public-asset-import";
@@ -83,6 +95,7 @@ export interface EditorDocument {
   readonly revision: number;
 }
 export interface EditorSnapshot {
+  readonly contentVersion: string;
   readonly id: string;
   readonly name: string;
   readonly documents: readonly EditorDocument[];
@@ -106,13 +119,66 @@ export interface EditorSnapshot {
   readonly nativeImportRecovery?: { readonly id: string; readonly fileCount: number };
   readonly animationAudition?: AnimationAuditionState;
   readonly previewReveal?: number;
+  readonly preview?: { ready: boolean; playing: boolean; commandIndex: number; status: string };
+  readonly authoringSelection?: { sceneId: string; lines: readonly string[]; cursor: string | null };
 }
 const isScene = nativeScenePath;
 const isText = (path: string) =>
   /\.(?:txt|wg|webgal|json|jsonl|ndjson|wgcp|css|html|js|yaml|yml|atlas|mtn|exp)$/iu.test(path);
 export class EditorSession {
+  setAuthoringSelection(sceneId: string, lines: readonly string[], cursor: string | null = null): void {
+    const selection = { sceneId, lines: [...lines], cursor };
+    if (JSON.stringify(selection) !== JSON.stringify(this.state.authoringSelection))
+      this.publish({ authoringSelection: selection });
+  }
+  private previewNavigation:
+    | {
+        seek(id: string, play: boolean): Promise<void>;
+        seekIndex(index: number): Promise<void>;
+        play(): Promise<void>;
+        start(): Promise<void>;
+        stop(): Promise<void>;
+      }
+    | undefined;
+  registerPreviewNavigation(navigation: NonNullable<EditorSession["previewNavigation"]>): () => void {
+    this.previewNavigation = navigation;
+    return () => {
+      if (this.previewNavigation === navigation) this.previewNavigation = undefined;
+    };
+  }
+  setPreviewState(preview: NonNullable<EditorSnapshot["preview"]>) {
+    if (JSON.stringify(preview) !== JSON.stringify(this.state.preview)) this.publish({ preview });
+  }
+  previewAt(id: string, play = false): Promise<void> {
+    return this.previewNavigation?.seek(id, play) ?? Promise.resolve();
+  }
+  pausePreview(): Promise<void> {
+    return this.previewNavigation?.stop() ?? Promise.resolve();
+  }
+  resumePreview(): Promise<void> {
+    return this.previewNavigation?.play() ?? Promise.resolve();
+  }
+  restartPreview(): Promise<void> {
+    return this.previewNavigation?.start() ?? Promise.resolve();
+  }
+  seekPreview(index: number): Promise<void> {
+    return this.previewNavigation?.seekIndex(index) ?? Promise.resolve();
+  }
+  private frameCapture: ((commandId: string, signal: AbortSignal) => Promise<string>) | undefined;
+  registerFrameCapture(capture: (commandId: string, signal: AbortSignal) => Promise<string>): () => void {
+    this.frameCapture = capture;
+    return () => {
+      if (this.frameCapture === capture) this.frameCapture = undefined;
+    };
+  }
+  captureFrame(commandId: string, signal: AbortSignal): Promise<string> {
+    if (!this.frameCapture) return Promise.reject(new Error(tr("Stage capture is unavailable")));
+    return this.frameCapture(commandId, signal);
+  }
   private auditionService: AnimationAudition | undefined;
-  get animationAudition(): AnimationAudition | undefined { return this.auditionService; }
+  get animationAudition(): AnimationAudition | undefined {
+    return this.auditionService;
+  }
   registerAnimationAudition(service: AnimationAudition): () => void {
     this.auditionService = service;
     const unsubscribe = service.subscribe(() => {
@@ -127,11 +193,11 @@ export class EditorSession {
       }
     };
   }
-  auditionAnimationDraft(nodeId: string, frames: readonly JsonObject[]): Promise<void> {
+  auditionAnimationDraft(nodeId: string, frames: readonly JsonObject[], options?: JsonObject): Promise<void> {
     const service = this.auditionService;
     if (!service) return Promise.reject(new Error("Animation preview is not available"));
     this.publish({ previewReveal: (this.state.previewReveal ?? 0) + 1 });
-    return service.start(nodeId, frames);
+    return service.start(nodeId, frames, options);
   }
   stopAnimationAudition(nodeId?: string): Promise<void> {
     const service = this.auditionService;
@@ -151,7 +217,16 @@ export class EditorSession {
   private generation = 0;
   private disposed = false;
   private draftTimer: ReturnType<typeof setTimeout> | undefined;
+  private activation = 0;
   private persistence: Promise<unknown> = Promise.resolve();
+  private persistedDraftVersion = "";
+  get draftPending() {
+    return Boolean(this.draftTimer) || this.persistedDraftVersion !== this.state.contentVersion;
+  }
+  private preparedReload = false;
+  get reloadReady() {
+    return this.preparedReload;
+  }
   private compilation: AbortController | undefined;
   private readonly conflictLifetime = new AbortController();
   get lifetimeSignal(): AbortSignal {
@@ -187,6 +262,7 @@ export class EditorSession {
     resolveConflict: (path: string, source: "disk" | "editor") => this.resolveConflict(path, source),
     addFile: (path: string, blob: Blob, options?: { open?: boolean }) => this.addFile(path, blob, options),
     save: () => this.save(),
+    downloadFile: downloadStudioFile,
     translate: tr,
   });
   documentEditors() {
@@ -216,6 +292,7 @@ export class EditorSession {
     this.libraryRevision = project.revision;
     this.state = {
       id: project.id,
+      contentVersion: project.contentVersion ?? crypto.randomUUID(),
       name: project.name,
       files: project.files,
       directories: projectDirectories(
@@ -234,6 +311,7 @@ export class EditorSession {
       canRedo: false,
       localFolder: workspace?.directory?.name,
     };
+    this.persistedDraftVersion = this.state.contentVersion;
   }
   getSnapshot = () => this.state;
   subscribe = (listener: () => void) => {
@@ -242,7 +320,41 @@ export class EditorSession {
   };
   private publish(patch: Partial<EditorSnapshot>) {
     if (this.disposed) return;
-    this.state = { ...this.state, ...patch };
+    const files = new Map(this.state.files.map((file) => [file.path, file.blob]));
+    const documents = new Map(this.state.documents.map((document) => [document.path, document]));
+    const filesChanged =
+      patch.files &&
+      (patch.files.length !== files.size ||
+        patch.files.some((file) => {
+          const old = files.get(file.path);
+          return (
+            old !== file.blob &&
+            !(
+              old instanceof File &&
+              file.blob instanceof File &&
+              old.lastModified === file.blob.lastModified &&
+              old.size === file.blob.size
+            )
+          );
+        }));
+    const textChanged =
+      patch.documents &&
+      (patch.documents.some((document) => {
+        const old = documents.get(document.path);
+        return old ? old.text !== document.text : document.text !== document.baseline;
+      }) ||
+        this.state.documents.some(
+          (document) =>
+            document.text !== document.baseline && !patch.documents!.some((current) => current.path === document.path),
+        ));
+    if (filesChanged || textChanged) this.preparedReload = false;
+    this.state = {
+      ...this.state,
+      ...patch,
+      ...(!Object.hasOwn(patch, "contentVersion") && (filesChanged || textChanged)
+        ? { contentVersion: crypto.randomUUID() }
+        : {}),
+    };
     for (const listener of this.listeners) listener();
   }
   async initialize(): Promise<void> {
@@ -258,16 +370,42 @@ export class EditorSession {
       });
     }
     if (!this.options.ephemeral) this.libraryRevision ??= (await projectLibrary.get(this.state.id))?.revision;
-    const documents = await Promise.all(
+    const draft = this.options.ephemeral ? undefined : await projectLibrary.draft(this.state.id);
+    const initialPaths = new Set([
+      NATIVE_PROJECT_PATH,
+      COMMAND_LIBRARY_PATH,
+      ...(draft?.documents.map((document) => document.path) ?? []),
+    ]);
+    const projectFile = this.state.files.find((file) => file.path === NATIVE_PROJECT_PATH);
+    if (projectFile && projectFile.blob.size <= 16 * 1024 ** 2) {
+      try {
+        const project = parseAltairProjectDocument(await projectFile.blob.text());
+        for (const scene of project.scenes) initialPaths.add(scene.path);
+      } catch {}
+    }
+    const sourceBytes = this.state.files
+      .filter((file) => initialPaths.has(file.path))
+      .reduce((size, file) => size + file.blob.size, 0);
+    if (sourceBytes > 16 * 1024 ** 2) {
+      initialPaths.clear();
+      initialPaths.add(NATIVE_PROJECT_PATH);
+      for (const entry of draft?.documents ?? []) initialPaths.add(entry.path);
+    }
+    const documents: EditorDocument[] = await Promise.all(
       this.state.files
-        .filter((file) => isText(file.path))
+        .filter(
+          (file) =>
+            initialPaths.has(file.path) &&
+            isText(file.path) &&
+            (file.blob.size <= 16 * 1024 ** 2 || draft?.documents.some((entry) => entry.path === file.path)),
+        )
         .map(async (file) => {
-          const text = await file.blob.text();
+          const saved = draft?.documents.find((entry) => entry.path === file.path);
+          const text = file.blob.size > 16 * 1024 ** 2 && saved ? saved.baseline : await file.blob.text();
           return { path: file.path, text, baseline: text, revision: 0 };
         }),
     );
     if (this.disposed || this.conflictLifetime.signal.aborted) return;
-    const draft = this.options.ephemeral ? undefined : await projectLibrary.draft(this.state.id);
     for (let i = 0; i < documents.length; i++) {
       const doc = documents[i]!,
         saved = draft?.documents.find((entry) => entry.path === doc.path);
@@ -280,20 +418,54 @@ export class EditorSession {
         };
       }
     }
+    const recovered = [] as ProjectFile[];
+    for (const entry of draft?.documents ?? []) {
+      if (documents.some((document) => document.path === entry.path)) continue;
+      documents.push({
+        path: entry.path,
+        text: entry.text,
+        baseline: entry.baseline,
+        revision: 1,
+        external: this.state.files.some((file) => file.path === entry.path) ? undefined : "",
+      });
+      recovered.push({ path: entry.path, blob: new Blob([entry.text], { type: "text/plain" }) });
+    }
+    if (recovered.length)
+      this.publish({
+        files: [
+          ...this.state.files,
+          ...recovered.filter((file) => !this.state.files.some((current) => current.path === file.path)),
+        ],
+        directories: projectDirectories([...this.state.files, ...recovered], this.state.directories),
+      });
+    const manifest = documents.find((doc) => doc.path === NATIVE_PROJECT_PATH);
+    let project: ReturnType<typeof parseAltairProjectDocument> | undefined;
+    try {
+      project = manifest ? parseAltairProjectDocument(manifest.text) : undefined;
+    } catch {}
+    const entry = project?.scenes.find((scene) => scene.id === project.entry.sceneId);
     const active =
+      (entry && documents.some((document) => document.path === entry.path) ? entry.path : manifest?.path) ??
       documents.find((doc) => /(?:^|\/)start\.(?:txt|wg|webgal)$/iu.test(doc.path))?.path ??
       documents.find((doc) => isScene(doc.path))?.path ??
       documents[0]?.path ??
       "";
     for (const doc of documents) this.history.set(doc.path, this.histories.create(doc.path, doc.text));
-    const first = nativeStatements(documents.find((doc) => doc.path === active)?.text ?? "")[0];
+    const statements = nativeStatements(documents.find((doc) => doc.path === active)?.text ?? "");
+    const first = statements.find((node) => node.id === project?.entry.nodeId) ?? statements[0];
     this.publish({
+      contentVersion:
+        draft?.contentVersion ??
+        (documents.some((document) => document.text !== document.baseline)
+          ? crypto.randomUUID()
+          : this.state.contentVersion),
       documents,
       active,
       tabs: active ? [active] : [],
       line: first?.line ?? 1,
       selectedNodeId: first?.id,
     });
+    this.persistedDraftVersion = this.state.contentVersion;
     this.startLocalWatch();
     await this.compile();
   }
@@ -303,11 +475,40 @@ export class EditorSession {
   statements() {
     return nativeStatements(this.document()?.text ?? "");
   }
-  activate(path: string, line = 1) {
-    if (!this.document(path)) return;
+  async activate(path: string, line = 1): Promise<void> {
+    const activation = ++this.activation;
+    if (!this.document(path)) {
+      const file = this.state.files.find((file) => file.path === path);
+      if (!file || (!isText(path) && !this.editorFor(path))) return;
+      if (file.blob.size > 16 * 1024 ** 2) {
+        this.publish({ error: tr("The source file exceeds 16 MB") });
+        return;
+      }
+      let text: string;
+      try {
+        text = await file.blob.text();
+      } catch {
+        this.publish({ error: tr("Cannot read file: {{path}}", { path }) });
+        return;
+      }
+      if (this.disposed || this.lifetimeSignal.aborted || activation !== this.activation) return;
+      this.history.set(path, this.histories.create(path, text));
+      this.publish({ documents: [...this.state.documents, { path, text, baseline: text, revision: 0 }] });
+    }
+    const sceneId = isScene(path) ? parseAltairSceneDocument(this.document(path)!.text).id : undefined;
     this.publish({
       active: path,
       line,
+      ...(sceneId
+        ? {
+            selectedNodeId: [...nativeStatements(this.document(path)!.text)]
+              .reverse()
+              .find((statement) => statement.line <= line)?.id,
+            ...(this.state.authoringSelection?.sceneId !== sceneId
+              ? { authoringSelection: { sceneId, lines: [], cursor: null } }
+              : {}),
+          }
+        : {}),
       tabs: this.state.tabs.includes(path) ? this.state.tabs : [...this.state.tabs, path],
     });
     this.syncHistory();
@@ -317,9 +518,37 @@ export class EditorSession {
     this.publish({ view });
   }
   select(line: number) {
+    const statements = [...this.statements()];
+    const statement = statements
+      .slice()
+      .reverse()
+      .find((statement) => statement.line <= line);
+    const current = this.state.authoringSelection;
+    const includes = (node: AltairAuthoredNode, id: string | null): boolean =>
+      node.id === id || Boolean(node.children?.some((child) => includes(child, id)));
+    const authoringSelection =
+      statement?.sceneId &&
+      current &&
+      (current.sceneId !== statement.sceneId || !includes(statement.node, current.cursor))
+        ? (() => {
+            const index = statements.indexOf(statement);
+            const following = statements.slice(index + 1).find((value) => nativeStatementIsVisible(value.node));
+            const previous = statements
+              .slice(0, index)
+              .reverse()
+              .find((value) => nativeStatementIsVisible(value.node));
+            const row = nativeStatementIsVisible(statement.node)
+              ? statement
+              : (following ?? previous ?? statements[0]!);
+            const speech = nativeDialogueNodes(row.node);
+            const cursor = (row === previous ? speech.at(-1) : speech[0])?.id ?? row.id;
+            return { sceneId: statement.sceneId, lines: [cursor], cursor };
+          })()
+        : undefined;
     this.publish({
       line,
-      selectedNodeId: [...this.statements()].reverse().find((statement) => statement.line <= line)?.id,
+      selectedNodeId: statement?.id,
+      ...(authoringSelection ? { authoringSelection } : {}),
     });
   }
   close(path: string) {
@@ -344,6 +573,47 @@ export class EditorSession {
     }
     const doc = this.document(path);
     if (!doc || doc.text === text) return;
+    if (isScene(path)) {
+      let before: ReturnType<typeof parseAltairSceneDocument> | undefined,
+        next: ReturnType<typeof parseAltairSceneDocument> | undefined;
+      try {
+        before = parseAltairSceneDocument(doc.text);
+        next = parseAltairSceneDocument(text);
+      } catch {
+        /* Invalid source stays editable. */
+      }
+      if (before && next) {
+        assertNativeScriptLocks(before, next);
+        const extensions = reanchorStoryShots(
+          before.nodes.map((node) => node.id),
+          next.nodes.map((node) => node.id),
+          next.extensions ?? {},
+        );
+        if (extensions !== next.extensions) {
+          next = { ...next, extensions };
+          text = serializeAltairDocument(next, text);
+        }
+        const previous = nativeScriptState(before);
+        if (previous && JSON.stringify(previous) === JSON.stringify(nativeScriptState(next))) {
+          const manifest = parseAltairProjectDocument(this.document(NATIVE_PROJECT_PATH)!.text);
+          const workspace = {
+            project: manifest,
+            scenes: manifest.scenes.map((ref) =>
+              cleanNativeScriptScene(
+                ref.path === path ? next! : parseAltairSceneDocument(this.document(ref.path)!.text),
+              ),
+            ),
+          };
+          const supported = withNativeScriptProviders(workspace);
+          const compiled = this.editorHost?.compileDocuments(supported) ?? nativeScriptRegistry().compile(supported);
+          const draft = rebaseNativeScriptDraft(compiled, cleanNativeScriptScene(next), previous);
+          text = serializeAltairDocument(
+            { ...next, extensions: { ...next.extensions, [NATIVE_SCRIPT_STATE]: draft as unknown as JsonObject } },
+            text,
+          );
+        }
+      }
+    }
     const history = this.history.get(path)!;
     history.replace(text, merge ? { mergeKey: "typing" } : {});
     this.applyText(path, text);
@@ -407,7 +677,10 @@ export class EditorSession {
     const node = typeof value === "string" ? (parseAuthoredText(value) as unknown as AltairAuthoredNode) : value;
     let inserted: AltairAuthoredNode;
     try {
-      inserted = copyNativeNode(node, scene.id);
+      inserted = copyNativeNode(
+        { ...node, extensions: { ...node.extensions, "haneoka.authoring.explicit": true } },
+        scene.id,
+      );
     } catch (error) {
       this.publish({
         error: error instanceof Error ? error.message : String(error),
@@ -439,7 +712,10 @@ export class EditorSession {
         );
       if (!existing) plugins.push(required);
     }
-    const inserted = cloneAltairNodeGroup(group.nodes, group.sourceSceneId, scene.id);
+    const inserted = cloneAltairNodeGroup(group.nodes, group.sourceSceneId, scene.id).map((node) => ({
+      ...node,
+      extensions: { ...node.extensions, "haneoka.authoring.explicit": true },
+    }));
     const statement = [...this.statements()].reverse().find((node) => node.line <= afterLine);
     const index = scene.nodes.findIndex((node) => node.id === statement?.id);
     const nodes = [...scene.nodes];
@@ -518,7 +794,12 @@ export class EditorSession {
     path = normalizeBrowserWorkspacePath(path);
     if (this.state.files.some((file) => file.path === path))
       throw new Error(tr("A file with this name already exists"));
-    const text = isText(path) ? await blob.text() : undefined;
+    const text =
+      isText(path) &&
+      (options.open !== false || isScene(path) || [NATIVE_PROJECT_PATH, COMMAND_LIBRARY_PATH].includes(path)) &&
+      blob.size <= 16 * 1024 ** 2
+        ? await blob.text()
+        : undefined;
     if (this.state.files.some((file) => file.path === path))
       throw new Error(tr("A file with this name already exists"));
     const files = [...this.state.files, { path, blob }];
@@ -544,7 +825,7 @@ export class EditorSession {
     const imported = prepareSharedAssetImport(pack, directory, this.state.files);
     const documents = await Promise.all(
       imported.files
-        .filter((file) => isText(file.path))
+        .filter((file) => isScene(file.path) || file.path === COMMAND_LIBRARY_PATH)
         .map(async (file) => {
           const text = await file.blob.text();
           this.validateDocument(file.path, text);
@@ -640,10 +921,12 @@ export class EditorSession {
         const old = [...next.paths].find(([, path]) => path === doc.path)?.[0] ?? doc.path;
         const history = this.history.get(old);
         if (history) {
-          this.history.delete(old);
-          if (old !== doc.path || before.documents.find((previous) => previous.path === old)?.text !== doc.text)
+          if (old !== doc.path) {
+            this.history.delete(old);
+            this.histories.close(old);
+            this.history.set(doc.path, this.histories.create(doc.path, doc.text));
+          } else if (before.documents.find((previous) => previous.path === old)?.text !== doc.text)
             history.reset(doc.text);
-          this.history.set(doc.path, history);
         } else this.history.set(doc.path, this.histories.create(doc.path, doc.text));
       }
       for (const [path, url] of this.urls)
@@ -756,6 +1039,55 @@ export class EditorSession {
   deleteProjectPath(path: string): Promise<void> {
     return this.runPathTask(() => this.deleteProjectPathNow(path));
   }
+  operateProjectPaths(
+    paths: readonly string[],
+    action: "copy" | "move" | "delete",
+    directory: string,
+    completed: (source: string) => void,
+  ): Promise<ReadonlyMap<string, string>> {
+    return this.runPathTask(async () => {
+      const unique = [...new Set(paths.map(projectFilePath))];
+      const roots = unique.filter((path) => !unique.some((other) => other !== path && path.startsWith(`${other}/`)));
+      if (!roots.length || roots.includes(NATIVE_PROJECT_PATH))
+        throw new Error(tr("The project manifest path is fixed"));
+      await this.saveNow();
+      const before = this.state;
+      const project = parseAltairProjectDocument(this.document(NATIVE_PROJECT_PATH)!.text);
+      if (
+        action === "delete" &&
+        project.scenes.some(
+          (scene) =>
+            scene.id === project.entry.sceneId &&
+            roots.some((path) => scene.path === path || scene.path.startsWith(`${path}/`)),
+        )
+      )
+        throw new Error(tr("Change the entry scene before deleting it"));
+      const folder = directory ? projectFilePath(directory) : "";
+      if (action !== "delete" && folder && !before.directories.includes(folder)) throw new Error(tr("File is missing"));
+      const entries = roots.map((source) => ({
+        source,
+        target: [folder, source.split("/").at(-1)!].filter(Boolean).join("/"),
+      }));
+      if (action !== "delete") {
+        if (new Set(entries.map((entry) => entry.target)).size !== entries.length)
+          throw new Error(tr("A file with this name already exists"));
+        for (const { source, target } of entries)
+          planProjectPathMove(before.files, before.documents, source, target, before.directories);
+      }
+      const moved = new Map<string, string>();
+      for (const { source, target } of entries) {
+        this.lifetimeSignal.throwIfAborted();
+        if (action === "delete") await this.deleteProjectPathNow(source);
+        else if (action === "copy") await this.copyProjectPathNow(source, target);
+        else {
+          const result = await this.moveProjectPathNow(source, target);
+          for (const [from, to] of result.paths) moved.set(from, to);
+        }
+        completed(source);
+      }
+      return moved;
+    });
+  }
   private async deleteProjectPathNow(path: string): Promise<void> {
     path = projectFilePath(path);
     if (path === NATIVE_PROJECT_PATH) throw new Error(tr("The project manifest path is fixed"));
@@ -856,6 +1188,7 @@ export class EditorSession {
       for (const file of files) {
         this.pendingFiles.delete(file.path);
         this.history.delete(file.path);
+        this.histories.close(file.path);
         const url = this.urls.get(file.path);
         if (url) {
           this.retiredUrls.add(url);
@@ -930,10 +1263,9 @@ export class EditorSession {
       : manifest.text;
     const restoredDocs = await Promise.all(
       copy.files
-        .filter((file) => isText(file.path))
+        .filter((file) => nativeScenePath(file.path))
         .map(async (file) => {
           const text = await file.blob.text();
-          this.validateDocument(file.path, text);
           return { path: file.path, text, baseline: text, revision: 0 };
         }),
     );
@@ -1025,9 +1357,12 @@ export class EditorSession {
           blob: await workspace.file(file.path),
         })),
       );
+      const loadedPaths = new Set(this.state.documents.map((document) => document.path));
       const texts = new Map(
         await Promise.all(
-          remote.filter((file) => isText(file.path)).map(async (file) => [file.path, await file.blob.text()] as const),
+          remote
+            .filter((file) => loadedPaths.has(file.path) && isText(file.path) && file.blob.size <= 16 * 1024 ** 2)
+            .map(async (file) => [file.path, await file.blob.text()] as const),
         ),
       );
       if (this.disposed || this.workspace !== workspace || (!whileSaving && this.state.saving)) return;
@@ -1194,10 +1529,25 @@ export class EditorSession {
       void this.persistDraft().catch((error) => this.publish({ error: String(error) }));
     }, 250);
   }
+  async flushDraft(): Promise<void> {
+    if (this.draftTimer) clearTimeout(this.draftTimer);
+    this.draftTimer = undefined;
+    await this.persistDraft();
+  }
+  async prepareReload(): Promise<void> {
+    await this.settleSourceWrites();
+    for (;;) {
+      const version = this.state.contentVersion;
+      await this.flushDraft();
+      if (version === this.state.contentVersion) break;
+    }
+    this.preparedReload = true;
+  }
   private persistDraft() {
     if (this.options.ephemeral) return Promise.resolve();
     const draft = {
       projectId: this.state.id,
+      contentVersion: this.state.contentVersion,
       documents: this.state.documents
         .filter((doc) => doc.text !== doc.baseline)
         .map(({ path, text, baseline }) => ({ path, text, baseline })),
@@ -1206,6 +1556,8 @@ export class EditorSession {
       .catch(() => undefined)
       .then(async () => {
         await projectLibrary.saveDraft(draft);
+        this.persistedDraftVersion = draft.contentVersion;
+        this.publish({});
         for (const doc of draft.documents) {
           try {
             await this.projectHistory.capture(doc.path, doc.text, "auto-save");
@@ -1216,6 +1568,46 @@ export class EditorSession {
       });
     return this.persistence;
   }
+  async settleSourceWrites(): Promise<void> {
+    for (;;) {
+      const tasks = [this.pathTask, this.folderTask, this.saveTask, this.localRefresh];
+      await Promise.allSettled(tasks.filter((task): task is Promise<void> => Boolean(task)));
+      this.lifetimeSignal.throwIfAborted();
+      if (
+        tasks[0] === this.pathTask &&
+        tasks[1] === this.folderTask &&
+        tasks[2] === this.saveTask &&
+        tasks[3] === this.localRefresh
+      )
+        return;
+    }
+  }
+  private async ensureSourceDocuments(signal: AbortSignal): Promise<void> {
+    const manifest = this.document(NATIVE_PROJECT_PATH);
+    if (!manifest) return;
+    const project = parseAltairProjectDocument(manifest.text),
+      paths = new Set(project.scenes.map((scene) => scene.path));
+    if (
+      this.state.files
+        .filter((file) => paths.has(file.path))
+        .reduce((size, file) => size + file.blob.size, manifest.text.length) >
+      16 * 1024 ** 2
+    )
+      throw new Error(tr("The project source exceeds 16 MB"));
+    const missing = this.state.files.filter((file) => paths.has(file.path) && !this.document(file.path));
+    if (!missing.length) return;
+    const loaded = await Promise.all(
+      missing.map(async (file) => {
+        const text = await file.blob.text();
+        return { path: file.path, text, baseline: text, revision: 0 };
+      }),
+    );
+    signal.throwIfAborted();
+    for (const document of loaded) this.history.set(document.path, this.histories.create(document.path, document.text));
+    this.publish({
+      documents: [...this.state.documents, ...loaded.filter((document) => !this.document(document.path))],
+    });
+  }
   async compile(): Promise<void> {
     if (this.disposed || this.conflictLifetime.signal.aborted) return;
     const active = this.document();
@@ -1225,10 +1617,11 @@ export class EditorSession {
       generation = ++this.generation;
     this.publish({ compiling: true });
     try {
+      await this.ensureSourceDocuments(controller.signal);
       const authored = readNativeWorkspace(this.state.documents);
       const broker = studioAuthoringPluginBroker(),
         plan = createStudioAuthoringPluginPlan(
-          authored.project.plugins,
+          studioAuthoringPlugins(authored.project.plugins),
           STUDIO_PLUGIN_CATALOG,
           STUDIO_PLUGIN_ENVIRONMENT,
           Boolean(broker),
@@ -1256,7 +1649,22 @@ export class EditorSession {
         const editor = this.editorFor(active.path);
         editor?.validate?.(active);
         const preview = editor
-          ? await authoring.host.previewDocument(editor.id, active, result.project, controller.signal)
+          ? await authoring.host.previewDocument(
+              editor.id,
+              active,
+              result.project,
+              controller.signal,
+              async (path, signal) => {
+                signal.throwIfAborted();
+                const source = this.document(path),
+                  file = this.state.files.find((file) => file.path === path);
+                if (source) return { path, text: source.text };
+                if (!file || file.blob.size > 16 * 1024 ** 2) return undefined;
+                const text = await file.blob.text();
+                signal.throwIfAborted();
+                return { path, text };
+              },
+            )
           : undefined;
         if (!preview) {
           this.publish({ project: result.project, compiling: false, compilation: undefined, error: "" });
@@ -1268,7 +1676,10 @@ export class EditorSession {
           0,
           preview.scene.commands.findIndex((command) => command.id === preview.commandId),
         );
-        previewProject = { ...result.project, scenes: [...result.project.scenes, preview.scene] };
+        previewProject =
+          preview.scope === "scene"
+            ? { ...result.project, entrySceneId: preview.scene.id, scenes: [preview.scene] }
+            : { ...result.project, scenes: [...result.project.scenes, preview.scene] };
       }
       const compilation = await compileAltairVegaPreviewStory({
         project: previewProject,
@@ -1283,20 +1694,13 @@ export class EditorSession {
           ![NATIVE_PROJECT_PATH, COMMAND_LIBRARY_PATH].includes(file.path) &&
           this.editorFor(file.path)?.affectsPreview !== false,
       );
-      const resourceUrls = this.previewResources.publish(resourceFiles, this.state.documents);
-      const resources = resourceFiles.map((file) =>
-        createWebGalAuthoringWorkspaceFile(
-          file.path,
-          new File([file.blob], file.path.split("/").at(-1)!),
-          resourceUrls.get(file.path)!,
-        ),
-      );
+      this.previewResources.publish(resourceFiles, this.state.documents);
       this.publish({
         project: result.project,
         name: result.project.meta.title || this.state.name,
         compilation: {
           ...compilation,
-          story: hydrateWebGalWorkspaceAssetUrls(compilation.story, resources),
+          story: this.previewResources.hydrate(compilation.story),
         },
         diagnostics: compilation.diagnostics,
         compiling: false,
@@ -1306,7 +1710,7 @@ export class EditorSession {
       if (controller.signal.aborted || this.disposed) return;
       this.publish({
         compiling: false,
-        error: error instanceof Error ? error.message : String(error),
+        error: tr(error instanceof Error ? error.message : String(error)),
       });
     }
   }
@@ -1366,13 +1770,14 @@ export class EditorSession {
     this.publish({ saving: true, error: "" });
     let documents = this.state.documents;
     const saved = new Map<string, string>();
+    let savedContentVersion = this.state.contentVersion;
     try {
       if (await projectLibrary.nativeImport(this.state.id))
         throw new Error(tr("Review the unfinished native import before saving this project."));
       if (this.localRefresh) await this.localRefresh;
       if (this.workspace?.directory) await this.syncLocalFiles(this.workspace, await this.workspace.refresh(), true);
       documents = this.state.documents;
-      this.validateDocuments(documents);
+      savedContentVersion = this.state.contentVersion;
       if (this.workspace?.capabilities.writable) {
         for (const path of this.pendingFiles) {
           if (documents.some((document) => document.path === path)) continue;
@@ -1445,7 +1850,7 @@ export class EditorSession {
       );
       const refreshed = await Promise.all(
         files
-          .filter((file) => isText(file.path))
+          .filter((file) => isText(file.path) && this.document(file.path))
           .map(async (file) => {
             const text = await file.blob.text(),
               local = this.document(file.path);
@@ -1469,6 +1874,8 @@ export class EditorSession {
       const savedProject = await projectLibrary.commit(
         {
           id: this.state.id,
+          contentVersion: savedContentVersion,
+          template: current?.template,
           name: this.state.name,
           updatedAt: Date.now(),
           files,
@@ -1501,6 +1908,7 @@ export class EditorSession {
           this.history.get(doc.path)!.reset(doc.text);
       }
       this.publish({
+        contentVersion: this.state.contentVersion,
         files: [...files, ...this.state.files.filter((file) => !merged.has(file.path))],
         directories: savedProject.directories ?? this.state.directories,
         documents: [...reconciled.values()],
@@ -1613,13 +2021,12 @@ export class EditorSession {
           ...(doc.path === manifest.path ? { text, baseline: text, revision: doc.revision + 1 } : {}),
         }));
         for (const file of plan.files) {
-          if (!isText(file.path)) continue;
+          if (!(isScene(file.path) || file.path === COMMAND_LIBRARY_PATH)) continue;
           const content = await file.blob.text();
           this.validateDocument(file.path, content);
           documents.push({ path: file.path, text: content, baseline: content, revision: 0 });
         }
         unchanged();
-        this.validateDocuments(documents);
         const texts = new Map(documents.map((doc) => [doc.path, doc.text]));
         const files = [...captured.files, ...plan.files].map((file) =>
           texts.has(file.path)
@@ -1924,8 +2331,7 @@ export class EditorSession {
     await this.pathTask?.catch(() => undefined);
     await this.folderTask?.catch(() => undefined);
     await this.saveTask?.catch(() => undefined);
-    if (this.draftTimer) clearTimeout(this.draftTimer);
-    await this.persistDraft();
+    await this.flushDraft();
     await this.projectHistory.dispose();
     this.disposed = true;
     this.localUnsubscribe?.();

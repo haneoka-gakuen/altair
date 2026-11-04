@@ -59,6 +59,11 @@ export const STUDIO_PLUGIN_CATALOG = Object.freeze({
 
 export const DEFAULT_STUDIO_PROJECT_PLUGINS: readonly StoryProjectPlugin[] = createAltairFullPresetProjectPlugins();
 
+export const studioAuthoringPlugins = (plugins: readonly StoryProjectPlugin[]): readonly StoryProjectPlugin[] => [
+  ...DEFAULT_STUDIO_PROJECT_PLUGINS.filter(plugin => !plugins.some(current => current.id === plugin.id)),
+  ...plugins,
+];
+
 export const STUDIO_PLUGIN_ENVIRONMENT = {
   altairVersion: "0.1.0",
   runtime: "vega",

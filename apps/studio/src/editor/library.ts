@@ -4,6 +4,8 @@ export interface ProjectFile {
   readonly blob: Blob;
 }
 export interface LibraryProject {
+  readonly template?: boolean;
+  readonly contentVersion?: string;
   readonly id: string;
   readonly revision?: number;
   readonly name: string;
@@ -91,7 +93,11 @@ async function commitProject(
             transaction.abort();
             return;
           }
-          saved = { ...project, revision: (current?.revision ?? 0) + 1 };
+          saved = {
+            ...project,
+            contentVersion: project.contentVersion ?? crypto.randomUUID(),
+            revision: (current?.revision ?? 0) + 1,
+          };
           store.put(saved);
           if (recovery) transaction.objectStore("recovery").put(recovery);
           if (removeRecovery) transaction.objectStore("recovery").delete(removeRecovery);
@@ -124,6 +130,7 @@ async function commitProject(
   });
 }
 export interface ProjectDraft {
+  readonly contentVersion?: string;
   readonly projectId: string;
   readonly documents: readonly {
     path: string;

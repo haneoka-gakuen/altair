@@ -1,6 +1,7 @@
 import {
   VEGA_PREVIEW_PROTOCOL,
   isVegaPreviewMessage,
+  vegaPreviewSupersedesScene,
   type VegaPreviewCapabilities,
   type VegaPreviewBreakpoint,
   type VegaPreviewCommand,
@@ -28,6 +29,7 @@ export interface AltairPreviewClientOptions {
   readonly identity: VegaPreviewIdentity;
   readonly port: MessagePort;
   readonly timeoutMs?: number;
+  readonly sceneTimeoutMs?: number;
   readonly requestId?: () => string;
   /** Set false when the MessagePort lifecycle is owned by an outer broker. */
   readonly ownPort?: boolean;
@@ -92,6 +94,7 @@ export class AltairPreviewClient {
   readonly identity: VegaPreviewIdentity;
   readonly port: MessagePort;
   private readonly timeoutMs: number;
+  private readonly sceneTimeoutMs: number;
   private readonly createRequestId: () => string;
   private readonly ownPort: boolean;
   private readonly onListenerError?: (error: unknown) => void;
@@ -106,6 +109,7 @@ export class AltairPreviewClient {
     this.identity = options.identity;
     this.port = options.port;
     this.timeoutMs = options.timeoutMs ?? 5_000;
+    this.sceneTimeoutMs = options.sceneTimeoutMs ?? 120_000;
     this.createRequestId = options.requestId ?? requestId;
     this.ownPort = options.ownPort !== false;
     this.onListenerError = options.onListenerError;
@@ -166,9 +170,36 @@ export class AltairPreviewClient {
     if (this.capabilitiesValue && !this.capabilitiesValue.commands.includes(command.name)) {
       throw new AltairPreviewRequestError("unsupported", `Vega preview runtime does not support ${command.name}`);
     }
+    if (
+      (command.name === "runtime.load" || command.name === "editor.sync-scene") &&
+      command.story &&
+      typeof command.story === "object" &&
+      !Array.isArray(command.story)
+    ) {
+      const models = command.story.characterModels;
+      if (
+        models &&
+        typeof models === "object" &&
+        Object.keys(models).length &&
+        this.capabilitiesValue?.modelDefinitions !== true
+      )
+        throw new AltairPreviewRequestError("unsupported", "Vega preview runtime requires shared model definitions");
+    }
     const id = this.createRequestId();
     if (!id || this.pending.has(id)) throw new Error(`Preview request ID is empty or duplicated: ${id}`);
-    const revision = ++this.revision;
+    const revision = vegaPreviewSupersedesScene(command.name) ? ++this.revision : this.revision;
+    const timeout =
+      options.timeoutMs ??
+      ([
+        "runtime.load",
+        "editor.sync-scene",
+        "runtime.seek",
+        "editor.run-scene",
+        "editor.run-from",
+        "editor.run-snippet",
+      ].includes(command.name)
+        ? this.sceneTimeoutMs
+        : this.timeoutMs);
     const request: VegaPreviewRequest = {
       protocol: VEGA_PREVIEW_PROTOCOL,
       kind: "request",
@@ -187,7 +218,7 @@ export class AltairPreviewClient {
           this.pending.delete(id);
           pending.removeAbort?.();
           reject(new Error(`Vega preview request timed out: ${command.name}`));
-        }, options.timeoutMs ?? this.timeoutMs),
+        }, timeout),
         ...(options.signal
           ? {
               removeAbort: (() => {
@@ -280,6 +311,10 @@ export class AltairPreviewClient {
   async inspectReferenceFrame(target: string, options: AltairPreviewRequestOptions = {}) {
     if (!target.trim()) throw new TypeError("Preview stage target must not be empty");
     return this.request({ name: "stage.reference-frame", target }, options);
+  }
+
+  captureStage(options: AltairPreviewRequestOptions = {}) {
+    return this.request({ name: "stage.capture" }, options);
   }
 
   async getStageTransform(target: string, options: AltairPreviewRequestOptions = {}) {

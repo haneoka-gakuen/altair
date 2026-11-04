@@ -131,25 +131,25 @@ export class AnimationAudition {
     });
   }
 
-  start(nodeId: string, values: readonly JsonObject[]): Promise<void> {
+  start(nodeId: string, values: readonly JsonObject[], options?: JsonObject): Promise<void> {
     if (this.disposed || !this.state.ready || this.trial || this.stopTask) return Promise.reject(new Error("Animation preview is not available"));
     const snapshot = this.session.getSnapshot(), compilation = snapshot.compilation;
     if (!compilation || snapshot.compiling || snapshot.saving || snapshot.error || snapshot.nativeImportRecovery ||
         snapshot.selectedNodeId !== nodeId || snapshot.documents.some(doc => doc.text !== doc.baseline))
       return Promise.reject(new Error("Save the scene before auditioning animation drafts"));
     const node = this.session.statements().find(statement => statement.id === nodeId)?.node;
-    if (node?.type.plugin !== "haneoka.altair-webgal" || node.type.name !== "effect.setTempAnimation")
+    if (node?.type.plugin !== "haneoka.altair-webgal" || !["effect.setTempAnimation", "effect.setTempAnimationV2"].includes(node.type.name))
       return Promise.reject(new Error("Select an animation statement"));
     const frames = readAnimationFrames([...values]);
     animationFramesTimeline(frames);
     const sourceIndex = snapshot.project?.scenes.find(scene => scene.id === compilation.sceneId)?.commands.findIndex(command => command.id === nodeId);
     const mapping = compilation.commandMappings.find(mapping => mapping.sceneId === compilation.sceneId && mapping.sourceCommandIndex === sourceIndex);
     const source = cloneStoryValue(object(compilation.story)), commands = source.commands;
-    if (!mapping || !Array.isArray(commands) || object(commands[mapping.commandIndex]).command !== WEBGAL_COMMAND_TYPES.setTempAnimation)
+    if (!mapping || !Array.isArray(commands) || ![WEBGAL_COMMAND_TYPES.setTempAnimation, WEBGAL_COMMAND_TYPES.setTempAnimationV2].includes(String(object(commands[mapping.commandIndex]).command)))
       return Promise.reject(new Error("Animation preview is not synchronized"));
     const candidate = cloneStoryValue(source), candidateCommands = candidate.commands as JsonValue[];
     // Isolate command completion; effect options and authoring noWait remain unchanged.
-    candidateCommands[mapping.commandIndex] = { ...object(candidateCommands[mapping.commandIndex]), frames, noWait: false };
+    candidateCommands[mapping.commandIndex] = { ...object(candidateCommands[mapping.commandIndex]), ...options, command: options?.animationVersion === 2 ? WEBGAL_COMMAND_TYPES.setTempAnimationV2 : String(object(candidateCommands[mapping.commandIndex]).command), frames, noWait: false };
     const id = crypto.randomUUID();
     const trial: Trial = { id, snapshot, nodeId, source, candidate, sceneId: compilation.sceneId, index: mapping.commandIndex,
       candidateRevision: `altair:animation-draft:${id}`, startAbort: new AbortController(), stopRequested: false,

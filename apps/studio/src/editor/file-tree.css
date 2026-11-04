@@ -3,6 +3,12 @@
   align-items: center;
   min-width: 0;
 }
+.file-tree-selection {
+  display: grid;
+  place-items: center;
+  flex: 0 0 48px;
+  min-height: 48px;
+}
 .file-tree-row > .file-item {
   min-width: 0;
   flex: 1;
@@ -104,3 +110,7 @@
     transition: none;
   }
 }
+.file-tree .file-tree-row,.file-tree .file-tree-folder-heading{min-height:48px}
+.file-tree .file-tree-toggle,.file-tree .file-item,.file-tree .icon-button{min-height:48px}
+.file-tree .icon-button{min-width:48px}
+.file-tree .file-tree-selection{min-width:48px;min-height:48px;align-items:center;justify-content:center}

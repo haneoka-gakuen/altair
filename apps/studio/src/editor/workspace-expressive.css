@@ -10,8 +10,76 @@
   --editor-selected: var(--md-sys-color-secondary, var(--accent, Highlight));
   --editor-on-selected: var(--md-sys-color-on-secondary, HighlightText);
   --editor-control: var(--control-height, 40px);
-  --editor-spatial: var(--motion-spatial-fast, linear(0, 0.028, 0.099, 0.2, 0.317, 0.44, 0.561, 0.674, 0.775, 0.862, 0.934, 0.991, 1.034, 1.064, 1.083, 1.092, 1.095, 1.091, 1.084, 1.074, 1.063, 1.051, 1.04, 1.03, 1.02, 1.012, 1.005, 1, 0.996, 0.994, 0.992, 0.991, 0.991, 0.991, 0.992, 0.993, 0.994, 0.995, 0.996, 0.997, 1) 350ms);
-  --editor-effects: var(--motion-effects-fast, linear(0, 0.102, 0.293, 0.481, 0.635, 0.751, 0.833, 0.891, 0.929, 0.954, 0.971, 0.982, 0.988, 0.993, 0.996, 0.997, 1) 140ms);
+  --editor-spatial: var(
+    --motion-spatial-fast,
+    linear(
+        0,
+        0.028,
+        0.099,
+        0.2,
+        0.317,
+        0.44,
+        0.561,
+        0.674,
+        0.775,
+        0.862,
+        0.934,
+        0.991,
+        1.034,
+        1.064,
+        1.083,
+        1.092,
+        1.095,
+        1.091,
+        1.084,
+        1.074,
+        1.063,
+        1.051,
+        1.04,
+        1.03,
+        1.02,
+        1.012,
+        1.005,
+        1,
+        0.996,
+        0.994,
+        0.992,
+        0.991,
+        0.991,
+        0.991,
+        0.992,
+        0.993,
+        0.994,
+        0.995,
+        0.996,
+        0.997,
+        1
+      )
+      350ms
+  );
+  --editor-effects: var(
+    --motion-effects-fast,
+    linear(
+        0,
+        0.102,
+        0.293,
+        0.481,
+        0.635,
+        0.751,
+        0.833,
+        0.891,
+        0.929,
+        0.954,
+        0.971,
+        0.982,
+        0.988,
+        0.993,
+        0.996,
+        0.997,
+        1
+      )
+      140ms
+  );
   min-inline-size: 0;
   color: var(--editor-text);
   background: var(--editor-surface);
@@ -41,16 +109,19 @@
   min-inline-size: var(--editor-control);
   min-block-size: var(--editor-control);
   border-radius: var(--md-sys-shape-corner-full, 9999px);
-  transition: border-radius var(--editor-spatial), background-color var(--editor-effects), color var(--editor-effects);
+  transition:
+    border-radius var(--editor-spatial),
+    background-color var(--editor-effects),
+    color var(--editor-effects);
 }
 .workspace :where(.workspace-header, .preview-toolbar, .panel-heading) > button:active {
   border-radius: var(--md-sys-shape-corner-small, 8px);
 }
-.workspace :where(.file-panel, .editor-preview, .inspector, .workspace-properties-page, .workspace-status) {
+.workspace :where(.file-panel, .editor-preview, .inspector, .workspace-properties-page) {
   color: var(--editor-text);
   background: var(--editor-panel);
 }
-.workspace :where(.document-strip, .panel-heading, .preview-toolbar, .workspace-status) {
+.workspace :where(.document-strip, .panel-heading, .preview-toolbar) {
   border-color: var(--editor-line);
 }
 .workspace .document-strip {
@@ -98,7 +169,10 @@
   background: var(--editor-container);
   font-size: var(--md-sys-typescale-label-large-size, 14px);
   line-height: var(--md-sys-typescale-label-large-line-height, 20px);
-  transition: border-radius var(--editor-spatial), background-color var(--editor-effects), color var(--editor-effects);
+  transition:
+    border-radius var(--editor-spatial),
+    background-color var(--editor-effects),
+    color var(--editor-effects);
 }
 .workspace :where(.mode-switch, .panel-tabs) > [role="tab"]:first-child {
   border-start-start-radius: var(--md-sys-shape-corner-full, 9999px);
@@ -168,10 +242,6 @@
     overflow-wrap: normal;
     text-wrap: balance;
   }
-  .workspace .workspace-status {
-    min-inline-size: 0;
-    padding-inline: 12px;
-  }
 }
 @media (prefers-reduced-motion: reduce) {
   .workspace {
@@ -189,4 +259,55 @@
   color: var(--editor-text);
   background: var(--editor-container);
   border-color: transparent;
+}
+
+.workspace .workspace-save-status {
+  color: var(--editor-muted);
+  font-size: var(--md-sys-typescale-label-medium-size, 12px);
+  white-space: nowrap;
+}
+.workspace .file-panel-controls {
+  display: flex;
+  flex: none;
+  align-items: center;
+  min-block-size: 48px;
+  min-inline-size: 0;
+  gap: 0;
+  padding-inline: 4px;
+  border-block-end: 1px solid var(--editor-line);
+}
+.workspace .file-panel-controls > .panel-tabs {
+  flex: 1;
+  padding: 0;
+  border: 0;
+  overflow: hidden;
+}
+.workspace .file-panel-controls > .panel-tabs[hidden] {
+  display: none;
+}
+.workspace .file-panel-controls :is(.icon-button, [role="tab"]) {
+  min-block-size: 48px;
+  min-inline-size: 48px;
+  padding-inline: 6px;
+}
+.workspace .file-panel-controls > :is(button, .file-search) {
+  flex: none;
+}
+.workspace .file-panel-controls .file-search {
+  min-inline-size: 0;
+  padding: 0;
+  gap: 0;
+}
+.workspace .file-panel-controls[data-searching="true"] .file-search {
+  flex: 1;
+}
+.workspace .file-panel-controls .file-search input {
+  min-inline-size: 0;
+  inline-size: 0;
+  flex: 1;
+  padding-inline: 12px;
+}
+.workspace .file-selection-actions {
+  flex: 1;
+  min-inline-size: 0;
 }

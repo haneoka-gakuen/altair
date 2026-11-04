@@ -7,12 +7,12 @@ packages:
   - ".dependencies/vega"
   - ".dependencies/vega/packages/protocol"
   - ".dependencies/vega-marketplace"
-  - ".dependencies/vega-renderer-pixi"
   - ".dependencies/vega-renderer-three"
   - ".dependencies/vega-plugin-richtext"
   - ".dependencies/vega-theme-haneoka"
   - ".dependencies/vega-plugin-webgal"
   - ".dependencies/vega-plugin-cubism"
+  - ".dependencies/vega-plugin-spine"
   - ".dependencies/vega-plugin-composite"
   - ".dependencies/vega-shell-default"
   - ".dependencies/vega-ui-portable"
@@ -29,6 +29,24 @@ packages:
   - ".dependencies/altair-preset-full"
   - ".dependencies/altair-plugin-haneoka"
   - ".dependencies/altair-plugin-bestdori"
+
+  - ".dependencies/design-tokens"
+
+  - ".dependencies/vega-preset-full"
+
+  - ".dependencies/vega-plugin-ending"
+
+  - ".dependencies/vega-plugin-richtext-bbcode"
+
+  - ".dependencies/vega-plugin-richtext-html"
+
+  - ".dependencies/vega-plugin-richtext-latex"
+
+  - ".dependencies/vega-plugin-richtext-markdown"
+
+  - ".dependencies/vega-plugin-richtext-typst"
+
+  - ".dependencies/vega-plugin-haneoka"
 
 linkWorkspacePackages: true
 

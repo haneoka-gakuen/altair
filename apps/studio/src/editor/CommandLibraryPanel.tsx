@@ -1,3 +1,4 @@
+import { downloadStudioFile } from "./studio-host";
 import { tr } from "./i18n";
 import { useMemo, useRef, useState, useSyncExternalStore } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
@@ -115,16 +116,7 @@ export function CommandLibraryPanel({ session, onClose }: { session: EditorSessi
       setTab("groups");
     });
   const exportFile = () => {
-    const url = URL.createObjectURL(
-      new Blob([serializeAltairCommandLibrary(library)], {
-        type: "application/yaml",
-      }),
-    );
-    const anchor = window.document.createElement("a");
-    anchor.href = url;
-    anchor.download = "commands.yaml";
-    anchor.click();
-    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    downloadStudioFile(new Blob([serializeAltairCommandLibrary(library)], { type: "application/yaml" }), "commands.yaml");
   };
   return (
     <Dialog.Root

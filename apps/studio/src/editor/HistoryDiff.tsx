@@ -1,5 +1,6 @@
 import { useEffect, useRef } from "react";
-import * as monaco from "monaco-editor";
+import { monaco } from "./monaco-locale";
+import type * as Monaco from "monaco-editor";
 import EditorWorker from "monaco-editor/editor/editor.worker?worker";
 import JsonWorker from "monaco-editor/language/json/json.worker?worker";
 
@@ -8,7 +9,7 @@ self.MonacoEnvironment ??= {
 };
 export function HistoryDiff({ path, historical, current }: { path: string; historical: string; current: string }) {
   const mount = useRef<HTMLDivElement>(null);
-  const models = useRef<{ original: monaco.editor.ITextModel; modified: monaco.editor.ITextModel } | undefined>(
+  const models = useRef<{ original: Monaco.editor.ITextModel; modified: Monaco.editor.ITextModel } | undefined>(
     undefined,
   );
   useEffect(() => {
