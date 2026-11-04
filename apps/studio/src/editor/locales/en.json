@@ -1574,5 +1574,8 @@
   "Keep manual camera": "Keep manual camera",
   "Shot overlaps a locked range": "Shot overlaps a locked range",
   "field.Focus.focusTargets": "Shot subjects",
-  "Camera commands": "Camera commands"
+  "Camera commands": "Camera commands",
+  "Missing scene: {{scene}}": "Missing scene: {{scene}}",
+  "Missing command: {{node}}": "Missing command: {{node}}",
+  "Select a target scene": "Select a target scene"
 }

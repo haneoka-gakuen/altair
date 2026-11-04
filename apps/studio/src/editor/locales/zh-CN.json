@@ -1574,5 +1574,8 @@
   "Keep manual camera": "保留手动运镜",
   "Shot overlaps a locked range": "镜头与锁定范围重叠",
   "field.Focus.focusTargets": "镜头人物",
-  "Camera commands": "镜头指令"
+  "Camera commands": "镜头指令",
+  "Missing scene: {{scene}}": "场景不存在：{{scene}}",
+  "Missing command: {{node}}": "指令不存在：{{node}}",
+  "Select a target scene": "选择目标场景"
 }

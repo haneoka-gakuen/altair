@@ -73,7 +73,7 @@ function context(session: EditorSession) {
 }
 function compileScene(session: EditorSession, scene: AltairSceneDocument) {
   const ctx = context(session);
-  return nativeScriptRegistry().compile(
+  return nativeScriptRegistry().compileDraft(
     withNativeScriptProviders({
       project: ctx.project,
       scenes: ctx.scenes.map((entry) => cleanNativeScriptScene(entry.scene.id === scene.id ? scene : entry.scene)),
