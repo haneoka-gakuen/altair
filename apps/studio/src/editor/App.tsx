@@ -1,17 +1,22 @@
 import { parseAltairProjectDocument, serializeAltairDocument } from "@haneoka/altair/documents";
 import { RuntimeSettings } from "./RuntimeSettings";
-import { tr, useStudioI18n, deviceLanguage, canonicalLanguage, studioI18n } from "./i18n";
+import { tr, useStudioI18n, deviceLanguage, studioI18n } from "./i18n";
 import { InterfaceLanguage } from "./InterfaceLanguage";
 import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
-import { Boxes, FolderOpen, Gamepad2, Import, Plus, Search, Star, X } from "lucide-react";
+import { FolderOpen, Gamepad2, Import, Plus, Search, Star, X } from "@haneoka/altair-ui-react";
 import { BrowserWorkspaceService } from "@haneoka/altair-plugin-workspace-browser";
 import { projectLibrary, type LibraryProject } from "./library";
 import { EditorSession } from "./session";
 import { readProjectZip } from "./archive";
 import { NATIVE_PROJECT_PATH, createNativeProject, normalizeImportedProject } from "./native-project";
 import { nativeImportForFolder } from "./native-import";
-import { installAltairStudioHost, type StudioProjectSnapshot } from "@haneoka/altair/studio-host";
+import {
+  installAltairStudioHost,
+  type StudioProjectSnapshot,
+  type StudioStorySelection,
+  type StudioStoryPickerResult,
+} from "@haneoka/altair/studio-host";
 import {
   configureStudio,
   executeStudioAction,
@@ -25,9 +30,11 @@ import {
 } from "./studio-host";
 import altairMark from "../../../../docs/brand/favicon.svg?url";
 import "./legacy.css";
+import { ProjectLanguagePicker, resolveProjectLanguage, withProjectLanguageName } from "./project-language";
+import { instantiateProjectTemplate, createWebGalExample } from "./project-template";
 const Workspace = lazy(() => import("./Workspace").then((module) => ({ default: module.Workspace })));
 export function EditorApp() {
-  useStudioI18n();
+  const { i18n } = useStudioI18n();
   const [favorites, setFavorites] = useState<string[]>(() => {
     try {
       return JSON.parse(localStorage.getItem("altair.library.favorites") || "[]");
@@ -40,12 +47,18 @@ export function EditorApp() {
     [favoritesOnly, setFavoritesOnly] = useState(false);
   const [templatesOnly, setTemplatesOnly] = useState(false),
     [templateId, setTemplateId] = useState("");
+  const [storyTemplate, setStoryTemplate] = useState<StudioStorySelection>();
+  const storyPickerRequest = useRef<string | undefined>(undefined);
+  const storySuggestedName = useRef<string | undefined>(undefined);
+  const serverTemplate = ["haneoka", "bestdori", "sekai"].includes(templateId);
   const [management, setManagement] = useState<{
     action: "rename" | "delete";
     project: LibraryProject;
     text: string;
   }>();
-  const [projectLocale, setProjectLocale] = useState(deviceLanguage);
+  const [projectLocaleChoice, setProjectLocale] = useState<string>();
+  const [customLanguageName, setCustomLanguageName] = useState("");
+  const projectLocale = projectLocaleChoice ?? i18n.resolvedLanguage ?? deviceLanguage();
   const [projects, setProjects] = useState<readonly LibraryProject[]>([]),
     [session, setSession] = useState<EditorSession>(),
     [query, setQuery] = useState(""),
@@ -56,6 +69,16 @@ export function EditorApp() {
   const fileInput = useRef<HTMLInputElement>(null),
     workspace = useRef<BrowserWorkspaceService | undefined>(undefined),
     active = useRef<EditorSession | undefined>(undefined);
+  const beginCreation = () => {
+    setTemplateId("");
+    setStoryTemplate(undefined);
+    storySuggestedName.current = undefined;
+    setName("");
+    setProjectLocale(undefined);
+    setCustomLanguageName("");
+    setError("");
+    setCreate(true);
+  };
   const sourceImport = useRef<AbortController | undefined>(undefined);
   const hostStatus = useRef({ busy, error });
   hostStatus.current = { busy, error };
@@ -152,43 +175,34 @@ export function EditorApp() {
     const title = name.trim();
     if (!title) return;
     setBusy(true);
+    setError("");
     try {
-      let project = createNativeProject(title, canonicalLanguage(projectLocale));
-      const template = projects.find((project) => project.id === templateId && project.template);
-      if (template) {
-        const draft = await projectLibrary.draft(template.id),
-          documents = new Map(draft?.documents.map((doc) => [doc.path, doc.text]) ?? []);
-        const files = template.files.map((file) =>
-          documents.has(file.path)
-            ? { ...file, blob: new Blob([documents.get(file.path)!], { type: file.blob.type }) }
-            : file,
-        );
-        const manifest = files.find((file) => file.path === NATIVE_PROJECT_PATH);
-        if (!manifest) throw new Error(tr("Project manifest is missing"));
-        const source = await manifest.blob.text(),
-          original = parseAltairProjectDocument(source);
+      const language = await resolveProjectLanguage(projectLocale, customLanguageName);
+      let project = createNativeProject(title, language.tag);
+      if (serverTemplate) {
+        if (!storyTemplate || storyTemplate.source.provider !== templateId) return;
+        const operation = new AbortController();
+        sourceImport.current?.abort();
+        sourceImport.current = operation;
+        const { importPublicStory } = await import("./source-project-import");
+        const imported = await importPublicStory(storyTemplate.source, storyTemplate.storyId, operation.signal);
+        operation.signal.throwIfAborted();
+        project = await instantiateProjectTemplate(imported, title, language);
+      } else if (templateId === "webgal") {
+        project = await instantiateProjectTemplate(await createWebGalExample(language.tag), title, language);
+      } else {
+        const template = projects.find((project) => `library:${project.id}` === templateId && project.template);
+        if (template) project = await instantiateProjectTemplate(template, title, language);
+      }
+      if (language.name) {
+        const manifest = project.files.find((file) => file.path === NATIVE_PROJECT_PATH)!;
+        const source = await manifest.blob.text();
+        const named = withProjectLanguageName(parseAltairProjectDocument(source), language);
         project = {
           ...project,
-          ...(template.directories ? { directories: template.directories } : {}),
-          files: files.map((file) =>
+          files: project.files.map((file) =>
             file === manifest
-              ? {
-                  ...file,
-                  blob: new Blob(
-                    [
-                      serializeAltairDocument(
-                        {
-                          ...original,
-                          id: project.id,
-                          title,
-                          locales: [...new Set([canonicalLanguage(projectLocale), ...original.locales])],
-                        },
-                        source,
-                      ),
-                    ],
-                    { type: file.blob.type },
-                  ),
-                }
+              ? { ...file, blob: new Blob([serializeAltairDocument(named, source)], { type: file.blob.type }) }
               : file,
           ),
         };
@@ -306,11 +320,23 @@ export function EditorApp() {
       await reload();
     };
     const unregister = registerStudioActions({
+      "select-story": (value) => {
+        const result = value as StudioStoryPickerResult;
+        if (result.requestId !== storyPickerRequest.current) return;
+        storyPickerRequest.current = undefined;
+        if (result.selection) {
+          const previous = storySuggestedName.current;
+          storySuggestedName.current = result.selection.title;
+          setStoryTemplate(result.selection);
+          setName((name) => (!name.trim() || name === previous ? result.selection!.title : name));
+        }
+        setCreate(true);
+      },
       new: async (value) => {
         const input = value as { title?: string; locale?: string } | undefined;
         if (!input?.title) {
           await home();
-          setCreate(true);
+          beginCreation();
           return studioState(active.current);
         }
         const project = createNativeProject(
@@ -414,7 +440,7 @@ export function EditorApp() {
       },
     });
     studioBridge.current = bridge;
-    const stopIntent = registerStudioIntent((action) => bridge.intent(action));
+    const stopIntent = registerStudioIntent((action, value) => bridge.intent(action, value));
     const stopDownload = registerStudioDownload((value) => bridge.download(value));
     return () => {
       unregister();
@@ -523,7 +549,7 @@ export function EditorApp() {
           <div>
             <h1>{tr(templatesOnly ? "Project templates" : "My projects")}</h1>
           </div>
-          <button className="primary-button" onClick={() => setCreate(true)} disabled={busy}>
+          <button className="primary-button" onClick={beginCreation} disabled={busy}>
             <Plus size={16} />
             {tr("New project")}
           </button>
@@ -571,7 +597,7 @@ export function EditorApp() {
           <div className="home-empty">
             <FolderOpen size={44} strokeWidth={1} />
             <h2>{tr("Start creating your story")}</h2>
-            <button className="primary-button" onClick={() => setCreate(true)}>
+            <button className="primary-button" onClick={beginCreation}>
               <Plus size={15} />
               {tr("New project")}
             </button>
@@ -661,9 +687,16 @@ export function EditorApp() {
               ) : (
                 <p>{management?.project.name}</p>
               )}
+              {error && (
+                <div className="home-error" role="alert">
+                  {error}
+                </div>
+              )}
               <div className="modal-actions">
                 <Dialog.Close asChild>
-                  <button type="button">{tr("Cancel")}</button>
+                  <button type="button" disabled={busy}>
+                    {tr("Cancel")}
+                  </button>
                 </Dialog.Close>
                 <button className="primary-button" disabled={busy}>
                   {tr(management?.action === "delete" ? "Delete" : "Rename")}
@@ -673,28 +706,16 @@ export function EditorApp() {
           </Dialog.Content>
         </Dialog.Portal>
       </Dialog.Root>
-      <Dialog.Root open={create} onOpenChange={setCreate}>
+      <Dialog.Root
+        open={create}
+        onOpenChange={(open) => {
+          if (!busy) setCreate(open);
+        }}
+      >
         <Dialog.Portal>
           <Dialog.Overlay className="modal-overlay" />
           <Dialog.Content className="modal-content">
             <Dialog.Title>{tr("New project")}</Dialog.Title>
-            {window.parent !== window && (
-              <>
-                <button
-                  type="button"
-                  className="secondary-button"
-                  style={{ minHeight: 48 }}
-                  disabled={busy}
-                  onClick={() => {
-                    setCreate(false);
-                    studioIntent("stories");
-                  }}
-                >
-                  <Import size={18} />
-                  {tr("Import Our Notes story")}
-                </button>
-              </>
-            )}
             <form
               onSubmit={(event) => {
                 event.preventDefault();
@@ -702,46 +723,90 @@ export function EditorApp() {
               }}
             >
               <label className="field">
+                <span>{tr("Project templates")}</span>
+                <select disabled={busy} value={templateId} onChange={(event) => setTemplateId(event.target.value)}>
+                  <option value="">{tr("Blank visual novel")}</option>
+                  {window.parent !== window && (
+                    <>
+                      <option value="haneoka">{tr("Our Notes story")}</option>
+                      <option value="bestdori">{tr("GBP story")}</option>
+                      <option value="sekai">{tr("SEKAI story")}</option>
+                    </>
+                  )}
+                  <option value="webgal">{tr("WebGAL example")}</option>
+                  {projects.filter((project) => project.template).length > 0 && (
+                    <optgroup label={tr("Saved templates")}>
+                      {projects
+                        .filter((project) => project.template)
+                        .map((project) => (
+                          <option key={project.id} value={`library:${project.id}`}>
+                            {project.name}
+                          </option>
+                        ))}
+                    </optgroup>
+                  )}
+                </select>
+              </label>
+              {serverTemplate && (
+                <button
+                  type="button"
+                  className="secondary-button"
+                  disabled={busy}
+                  onClick={() => {
+                    const requestId = crypto.randomUUID();
+                    storyPickerRequest.current = requestId;
+                    setCreate(false);
+                    studioIntent("stories", { requestId, provider: templateId });
+                  }}
+                >
+                  <Search size={20} />
+                  {storyTemplate?.source.provider === templateId ? storyTemplate.title : tr("Choose story")}
+                </button>
+              )}
+              {templateId === "webgal" && (
+                <div className="field">
+                  <span>{tr("WebGAL example")}</span>
+                  <span>{tr("Dialogue and choices")}</span>
+                </div>
+              )}
+              <label className="field">
                 {tr("Project name")}
                 <input
                   required
                   autoFocus
+                  disabled={busy}
                   value={name}
                   onChange={(event) => setName(event.target.value)}
                   placeholder={tr("Untitled story")}
                 />
               </label>
-              <label className="field">
-                {tr("Project language")}
-                <input value={projectLocale} required onChange={(event) => setProjectLocale(event.target.value)} />
-              </label>
-              <label className="field">
-                <span>{tr("Project templates")}</span>
-                <select value={templateId} onChange={(event) => setTemplateId(event.target.value)}>
-                  <option value="">{tr("Blank visual novel")}</option>
-                  {projects
-                    .filter((project) => project.template)
-                    .map((project) => (
-                      <option key={project.id} value={project.id}>
-                        {project.name}
-                      </option>
-                    ))}
-                </select>
-              </label>
-              <div className="project-template">
-                <Boxes size={24} />
-                <div>
-                  <strong>
-                    {projects.find((project) => project.id === templateId)?.name ?? tr("Blank visual novel")}
-                  </strong>
+              <ProjectLanguagePicker
+                value={projectLocale}
+                name={customLanguageName}
+                onChange={setProjectLocale}
+                onNameChange={setCustomLanguageName}
+              />
+              {error && (
+                <div className="home-error" role="alert">
+                  {error}
                 </div>
-              </div>
+              )}
               <div className="modal-actions">
                 <Dialog.Close asChild>
-                  <button type="button">{tr("Cancel")}</button>
+                  <button type="button" disabled={busy}>
+                    {tr("Cancel")}
+                  </button>
                 </Dialog.Close>
-                <button className="primary-button" disabled={busy || !name.trim()}>
-                  {tr("Create project")}
+                <button
+                  className="primary-button"
+                  disabled={
+                    busy ||
+                    !name.trim() ||
+                    (projectLocale === "custom" && !customLanguageName.trim()) ||
+                    (serverTemplate && storyTemplate?.source.provider !== templateId)
+                  }
+                >
+                  {tr(busy ? "Opening project…" : "Create project")}
                 </button>
               </div>
             </form>

@@ -39,7 +39,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: haneoka-gakuen/altair-plugin-webgal
-          ref: 519b0a14b1c48677c6240e560a20f7359d97aca2
+          ref: dd91e6f96c4f547f8ce9831289bd2b0b225f7980
           path: altair/.dependencies/altair-plugin-webgal
           persist-credentials: false
 
@@ -55,7 +55,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           repository: haneoka-gakuen/altair-plugin-flow
-          ref: c61fa42f9ee4ff5e587c3dd90f3ed2414414bcc3
+          ref: cec77d0c641edb39ec29976a57ee92d3160db7ae
           path: altair/.dependencies/altair-plugin-flow
           persist-credentials: false
 
@@ -171,7 +171,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           repository: haneoka-gakuen/altair-plugin-models
-          ref: b09c3b838d5b89d01b5a74c188e328c2a4c0d110
+          ref: 06935ccd5ee120c888b75e2e980f2be9970aee9c
           path: altair/.dependencies/altair-plugin-models
           persist-credentials: false
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1

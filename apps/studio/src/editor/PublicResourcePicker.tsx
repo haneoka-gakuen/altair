@@ -1,7 +1,7 @@
 import { lazy, Suspense, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
 import * as Tabs from "@radix-ui/react-tabs";
-import { ArrowLeft, ChevronRight, FileImage, Folder, Music, Video, RefreshCw, X } from "lucide-react";
+import { ArrowLeft, ChevronRight, FileImage, Folder, Music, Video, RefreshCw, X } from "@haneoka/altair-ui-react";
 import type { JsonObject } from "@haneoka/altair/model";
 import type { ResourceBrowserFile } from "@haneoka/altair/resource-browser";
 import type { EditorSession } from "./session";

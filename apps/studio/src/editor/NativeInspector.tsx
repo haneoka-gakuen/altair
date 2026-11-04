@@ -1,13 +1,8 @@
 import { normalizeAdvLocalizedText } from "@haneoka/altair-plugin-adv";
-import { tr } from "./i18n";
+import { tr, studioI18n } from "./i18n";
+import { orderedProjectLocales, projectLanguageLabel } from "./project-language";
 import { useId, useState, type ReactNode } from "react";
-import {
-  parseAltairProjectDocument,
-  parseAuthoredText,
-  serializeAuthoredText,
-  type JsonValue,
-  type JsonObject,
-} from "@haneoka/altair";
+import { parseAltairProjectDocument, type JsonValue, type JsonObject } from "@haneoka/altair";
 import { nativeCommands, nativeNodeLabel, NATIVE_PROJECT_PATH, type EditorStatement } from "./native-project";
 import type { EditorSession } from "./session";
 import { readLocalizedText, editLocalizedText } from "./localized-text";
@@ -15,7 +10,7 @@ import { PluginPanel } from "./PluginPanel";
 import { PropertyClipEditor } from "./PropertyClipEditor";
 import { AudioClipWaveform } from "./AudioClipWaveform";
 import { WebGalAnimationFramesEditor } from "./WebGalAnimationFramesEditor";
-import { NumberInput, StructuredTextInput as YamlField } from "@haneoka/altair-ui-react";
+import { NumberInput, StructuredTextInput as YamlField, X } from "@haneoka/altair-ui-react";
 interface Field {
   key: string;
   label: string;
@@ -300,7 +295,7 @@ export function NativeInspector({
                 })}
                 onClick={() => update(items.filter((_, at) => at !== index))}
               >
-                ×
+                <X size={18} />
               </button>
             </div>
           ))}
@@ -343,7 +338,7 @@ export function NativeInspector({
                 aria-label={tr("Remove {{p0}} {{p1}}", { p0: field.label, p1: index + 1 })}
                 onClick={() => update(items.filter((_, at) => at !== index))}
               >
-                ×
+                <X size={18} />
               </button>
             </div>
           ))}
@@ -394,9 +389,9 @@ export function NativeInspector({
           <label className="field">
             <span>{tr("Editing language")}</span>
             <select value={locale} onChange={(event) => setEditingLocale(event.target.value)}>
-              {locales.map((locale) => (
+              {orderedProjectLocales(locales, studioI18n.resolvedLanguage).map((locale) => (
                 <option key={locale} value={locale}>
-                  {locale}
+                  {projectLanguageLabel(manifest, locale, studioI18n.resolvedLanguage)}
                 </option>
               ))}
             </select>

@@ -1,5 +1,5 @@
 import { useState, useSyncExternalStore } from "react";
-import { FileWarning, Upload } from "lucide-react";
+import { FileWarning, Upload } from "@haneoka/altair-ui-react";
 import type { EditorSession } from "../session";
 import { useStudioI18n } from "../i18n";
 import { TaskSheet } from "./TaskSheet";

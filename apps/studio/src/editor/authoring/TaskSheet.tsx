@@ -1,5 +1,5 @@
 import { useEffect, useId, useRef, type ReactNode } from "react";
-import { X } from "lucide-react";
+import { X } from "@haneoka/altair-ui-react";
 import { useStudioI18n } from "../i18n";
 
 export interface TaskSheetProps {

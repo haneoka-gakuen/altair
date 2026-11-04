@@ -1,6 +1,6 @@
 import { lazy, Suspense, useEffect, useState, useSyncExternalStore } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
-import { Clock, RotateCcw, Save, X } from "lucide-react";
+import { Clock, RotateCcw, Save, X } from "@haneoka/altair-ui-react";
 import { NumberInput } from "@haneoka/altair-ui-react";
 import type { EditorSession } from "./session";
 import { DEFAULT_HISTORY_POLICY, type HistoryEntry, type HistoryKind, type HistoryPolicy } from "./project-history";

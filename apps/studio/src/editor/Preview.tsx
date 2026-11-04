@@ -2,7 +2,7 @@ import { RuntimeDebugger } from "./RuntimeDebugger";
 import { VideoExport } from "./VideoExport";
 import { tr } from "./i18n";
 import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
-import { Pause, Play, RotateCcw, StepForward, Maximize2, ExternalLink } from "lucide-react";
+import { Pause, Play, RotateCcw, StepForward, Maximize2, ExternalLink } from "@haneoka/altair-ui-react";
 import { createAltairVegaPreviewService, type AltairVegaPreviewService } from "@haneoka/altair-plugin-vega-preview";
 import { StudioPreviewBridge } from "../preview-bridge";
 import { createStudioPreviewPluginPlan, loadStudioPreviewPlugins, studioPreviewPluginHost } from "../preview-plugins";
@@ -19,7 +19,7 @@ import type { VegaPreviewBreakpoint } from "@haneoka/altair-preview-client";
 import { storyCommandAtoms } from "@haneoka/altair-plugin-vega-preview/projection";
 import { VEGA_ADV_OPCODE, VEGA_SYSTEM_OPCODE } from "@haneoka/vega-protocol";
 import { createPortal } from "react-dom";
-import { Bug } from "lucide-react";
+import { Bug } from "@haneoka/altair-ui-react";
 import { TaskSheet } from "./authoring/TaskSheet";
 export function Preview({
   session,
@@ -48,12 +48,15 @@ export function Preview({
     [editingTransform, setEditingTransform] = useState(false),
     [revision, setRevision] = useState(0);
   const [debuggerOpen, setDebuggerOpen] = useState(false);
+  const [previewError, setPreviewError] = useState(false);
   const fail = (error: unknown) => {
+    if (error instanceof DOMException && error.name === "AbortError") return;
     if (error instanceof Error && error.name === "AbortError") return;
     const detail = error instanceof Error ? error.message : String(error);
     const message = /^Scene boundary \d+ is not prepared on the selected decision path$/.test(detail)
       ? "Choose a branch before previewing this statement"
       : tr(detail);
+    setPreviewError(true);
     setStatus(
       message.includes("404") && message.includes(new URL("assets/", document.baseURI).href)
         ? "Reload editor"
@@ -78,6 +81,7 @@ export function Preview({
     let unregisterAudition: (() => void) | undefined;
     setReady(false);
     setSynchronized(false);
+    setPreviewError(false);
     setStatus("Connecting preview");
     void (async () => {
       const identity = {
@@ -184,6 +188,7 @@ export function Preview({
           if (commandIndex !== 0) await bridge.current.seek(commandIndex, controller.signal);
           if (!controller.signal.aborted) {
             setSynchronized(true);
+            setPreviewError(false);
             setStatus("Preview synchronized");
           }
         }
@@ -257,17 +262,29 @@ export function Preview({
         await bridge.current.seek(mapping.commandIndex + (beforeControl ? 0 : 1), controller.signal);
       }
     };
+    const navigate = async (operation: () => Promise<void>) => {
+      try {
+        await operation();
+        if (!controller.signal.aborted) {
+          setPreviewError(false);
+          setStatus("Preview synchronized");
+        }
+      } catch (error) {
+        if (!controller.signal.aborted) fail(error);
+      }
+    };
     const unregister = session.registerPreviewNavigation({
-      seek,
-      seekIndex: async (index) => {
-        await bridge.current.pause(controller.signal);
-        await bridge.current.seek(index, controller.signal);
-      },
-      play: () => bridge.current.play(controller.signal),
-      start: () => bridge.current.runScene(0, controller.signal),
-      stop: () => bridge.current.pause(controller.signal),
+      seek: (id, play) => navigate(() => seek(id, play)),
+      seekIndex: (index) =>
+        navigate(async () => {
+          await bridge.current.pause(controller.signal);
+          await bridge.current.seek(index, controller.signal);
+        }),
+      play: () => navigate(() => bridge.current.play(controller.signal)),
+      start: () => navigate(() => bridge.current.runScene(0, controller.signal)),
+      stop: () => navigate(() => bridge.current.pause(controller.signal)),
     });
-    if (state.selectedNodeId) void seek(state.selectedNodeId, false).catch(fail);
+    if (state.selectedNodeId) void navigate(() => seek(state.selectedNodeId!, false));
     return () => {
       controller.abort();
       unregister();
@@ -336,7 +353,11 @@ export function Preview({
       <>
         <div className="author-native-preview">
           <div className="preview-stage" ref={mount} inert={auditionOwned} />
-          <span className="author-preview-state" role="status" hidden={ready && synchronized && !state.error}>
+          <span
+            className="author-preview-state"
+            role="status"
+            hidden={ready && synchronized && !state.error && !previewError}
+          >
             {state.error ? tr("Preview shows the last valid version") : tr(status)}
           </span>
         </div>

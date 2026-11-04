@@ -3,6 +3,8 @@ import {
   AlertCircle,
   Clapperboard,
   ClipboardPaste,
+  ChevronLeft,
+  ChevronRight,
   Clock,
   Film,
   FolderOpen,
@@ -21,11 +23,13 @@ import {
   Trash2,
   Video,
   X,
-} from "lucide-react";
+} from "@haneoka/altair-ui-react";
 import { useStudioI18n } from "../i18n";
 import { CastPicker, type CastPickerTab } from "./CastPicker";
 import { StageDock } from "./StageDock";
 import { TaskSheet } from "./TaskSheet";
+import { DockPanel } from "./DockPanel";
+import "./workbench.css";
 import "./studio.css";
 
 export type LineId = string;
@@ -159,6 +163,10 @@ export interface AuthoringWorkspaceProps {
   /** Controlled source of the same document, used when `sourceEditor` is absent. */
   source?: { text: string; onChange(text: string): void };
   sourceEditor?: ReactNode;
+  scriptView?: "script" | "source";
+  onScriptViewChange?(view: "script" | "source"): void;
+  destination?: string;
+  inspectRequest?: string;
   timeline?: ReactNode;
   storyboard?: ReactNode;
   diagnostics?: ReactNode;
@@ -183,7 +191,7 @@ export interface AuthoringWorkspaceProps {
 
 type Sheet =
   | { kind: "cast"; castId: string | null; lines: LineId[]; tab: CastPickerTab }
-  | { kind: "inspect"; lines: LineId[] }
+  | { kind: "inspect"; lines: LineId[]; nodeIds?: string[] }
   | { kind: "locks" | "timeline" | "storyboard" | "issues" | "paste" };
 
 const SCRIPT = "script";
@@ -251,12 +259,23 @@ export function AuthoringWorkspace(props: AuthoringWorkspaceProps) {
   } = props;
   const { t } = useStudioI18n();
   const scene = model.scenes.find((candidate) => candidate.id === model.activeSceneId)!;
-  const [view, setView] = useState<"script" | "source">("script");
-  const [destination, setDestination] = useState(SCRIPT);
+  const [localView, setLocalView] = useState<"script" | "source">("script");
+  const view = props.scriptView ?? localView;
+  const setView = (next: "script" | "source") => {
+    setLocalView(next);
+    props.onScriptViewChange?.(next);
+  };
+  const [localDestination, setLocalDestination] = useState(SCRIPT);
+  const destination = props.destination ?? localDestination;
+  const setDestination = (next: string) => {
+    setLocalDestination(next);
+    props.onDestinationChange?.(next);
+  };
   const [visited, setVisited] = useState<string[]>([]);
-  const [director, setDirector] = useState(false);
+  const [director, setDirector] = useState(true);
   const [stageCollapsed, setStageCollapsed] = useState(false);
   const [sheet, setSheet] = useState<Sheet | null>(null);
+  const [panelCollapsed, setPanelCollapsed] = useState(false);
   const [localSelection, setLocalSelection] = useState(NO_SELECTION);
   const [touchSelecting, setTouchSelecting] = useState(false);
   const [editing, setEditing] = useState<LineId | null>(null);
@@ -290,6 +309,7 @@ export function AuthoringWorkspace(props: AuthoringWorkspaceProps) {
   const lastLine = scene.lines[scene.lines.length - 1];
 
   const select = (lines: LineId[], cursor: LineId | null) => {
+    setSheet((open) => (open?.kind === "inspect" && open.nodeIds ? { ...open, nodeIds: undefined } : open));
     if (!props.selection) setLocalSelection({ lines, cursor });
     onSelectionChange?.(scene.id, lines, cursor);
   };
@@ -301,6 +321,13 @@ export function AuthoringWorkspace(props: AuthoringWorkspaceProps) {
     setTouchSelecting(false);
     setSheet((open) => (open?.kind === "cast" || open?.kind === "inspect" ? null : open));
   }, [scene.id]);
+  useEffect(() => {
+    if (!props.inspectRequest) return;
+    setPanelCollapsed(false);
+    setSheet({ kind: "inspect", lines: [], nodeIds: [props.inspectRequest] });
+    setDestination(SCRIPT);
+    setView("script");
+  }, [props.inspectRequest]);
 
   useEffect(() => {
     if (pendingFocus.current && byId.has(pendingFocus.current)) {
@@ -348,13 +375,22 @@ export function AuthoringWorkspace(props: AuthoringWorkspaceProps) {
 
   const openSheet = (next: Sheet) => {
     flush();
+    if ((next.kind === "storyboard" || next.kind === "timeline") && destination !== SCRIPT) {
+      bridge.openScene(scene.id);
+      setDestination(SCRIPT);
+    }
+    setPanelCollapsed(false);
     setSheet(next);
+  };
+  const closePanel = () => {
+    setSheet(null);
+    setPanelCollapsed(true);
   };
 
   const goTo = (id: string) => {
     flush();
+    setSheet(null);
     setDestination(id);
-    props.onDestinationChange?.(id);
     if (id !== SCRIPT && !visited.includes(id)) setVisited((list) => [...list, id]);
   };
 
@@ -390,8 +426,11 @@ export function AuthoringWorkspace(props: AuthoringWorkspaceProps) {
     setEditing(line.id);
   };
 
-  const inspect = (line: StudioLine) => {
-    if (renderInspector) openSheet({ kind: "inspect", lines: targets(line.id) });
+  const inspect = (line: StudioLine, nodeId?: string) => {
+    if (renderInspector) {
+      if (!selected.includes(line.id) || (nodeId && selected.length > 1)) select([line.id], line.id);
+      openSheet({ kind: "inspect", lines: targets(line.id), ...(nodeId ? { nodeIds: [nodeId] } : {}) });
+    }
   };
 
   const play = () => {
@@ -423,13 +462,15 @@ export function AuthoringWorkspace(props: AuthoringWorkspaceProps) {
     press.current = null;
   };
 
-  const openCast = (line: StudioLine, castId: string | null, tab: CastPickerTab) =>
+  const openCast = (line: StudioLine, castId: string | null, tab: CastPickerTab) => {
+    if (!selected.includes(line.id)) select([line.id], line.id);
     openSheet({ kind: "cast", castId, lines: targets(line.id), tab });
+  };
 
   const onWorkbenchKey = (event: ReactKeyboardEvent<HTMLDivElement>) => {
     if (event.nativeEvent.isComposing) return;
     const target = event.target as Element;
-    if (target.closest(".author-sheet")) return;
+    if (target.closest(".author-sheet, .author-panel")) return;
     const mod = event.ctrlKey || event.metaKey;
     if (mod && event.key === "Enter") {
       event.preventDefault();
@@ -578,15 +619,40 @@ export function AuthoringWorkspace(props: AuthoringWorkspaceProps) {
 
   const sheetLines =
     sheet?.kind === "cast" || sheet?.kind === "inspect"
-      ? sheet.lines.map((id) => byId.get(id)).filter((line): line is StudioLine => line !== undefined)
+      ? (selected.length ? selected : sheet.lines)
+          .map((id) => byId.get(id))
+          .filter((line): line is StudioLine => line !== undefined)
       : [];
   const playingId = model.playback.playing ? model.playback.lineId : null;
+  const inspectorIds = sheet?.kind === "inspect" ? (sheet.nodeIds ?? sheetLines.map((line) => line.id)) : [];
   const rowFocus = current ?? scene.lines[0]?.id;
   const selecting = view === "script" && (selected.length > 1 || touchSelecting);
+  const activePanel = !panelCollapsed && sheet && sheet.kind !== "paste" && sheet.kind !== "timeline";
+  const inspectorNavigation = (
+    <>
+      {([-1, 1] as const).map((step) => {
+        const next = scene.lines[(current ? indexOf.get(current)! : 0) + step];
+        const label = t(step < 0 ? "Previous line" : "Next line");
+        return (
+          <button
+            type="button"
+            key={step}
+            className="author-icon-button"
+            aria-label={label}
+            title={label}
+            disabled={!next}
+            onClick={() => choose(next!.id, "replace")}
+          >
+            {step < 0 ? <ChevronLeft aria-hidden /> : <ChevronRight aria-hidden />}
+          </button>
+        );
+      })}
+    </>
+  );
 
   return (
     <div
-      className={destinations.length > 0 ? "author-workbench has-destinations" : "author-workbench"}
+      className={`${destinations.length > 0 ? "author-workbench has-destinations" : "author-workbench"}${sheet?.kind === "timeline" ? " has-timeline" : ""}${activePanel ? " has-active-panel" : ""}`}
       onKeyDown={onWorkbenchKey}
     >
       {destinations.length > 0 && (
@@ -839,7 +905,7 @@ export function AuthoringWorkspace(props: AuthoringWorkspaceProps) {
                               const pickable =
                                 note.castId !== undefined &&
                                 (note.kind === "costume" || note.kind === "motion" || note.kind === "face");
-                              const opens = pickable || timeline !== undefined;
+                              const opens = pickable || renderInspector !== undefined || timeline !== undefined;
                               return (
                                 <li key={note.id} className={locked ? "author-note is-locked" : "author-note"}>
                                   {opens ? (
@@ -850,6 +916,7 @@ export function AuthoringWorkspace(props: AuthoringWorkspaceProps) {
                                       tabIndex={-1}
                                       onClick={() => {
                                         if (pickable) openCast(line, note.castId!, note.kind as CastOptionGroup);
+                                        else if (renderInspector) inspect(line, note.id);
                                         else {
                                           choose(line.id, "replace");
                                           openSheet({ kind: "timeline" });
@@ -1032,132 +1099,157 @@ export function AuthoringWorkspace(props: AuthoringWorkspaceProps) {
           ))}
       </div>
 
-      <StageDock
-        key="stage"
-        stage={stage}
-        aspect={stageAspect}
-        collapsed={stageCollapsed}
-        playing={model.playback.playing}
-        position={model.playback.position}
-        length={model.playback.length}
-        canPlay={scene.lines.length > 0 && model.playback.ready}
-        speakers={current ? byId.get(current)!.speakers : []}
-        tools={tools}
-        onToggleCollapsed={() => setStageCollapsed((value) => !value)}
-        onPlay={play}
-        onResume={() => bridge.resume()}
-        onRestart={() => bridge.restart()}
-        onSeek={(index) => bridge.seekIndex(index)}
-        onStop={() => bridge.stop()}
-      />
-
-      {sheet?.kind === "cast" && sheetLines.length > 0 && (
-        <TaskSheet
-          title={sheetLines.length > 1 ? t("authoring.selectedCount", { count: sheetLines.length }) : t("Character")}
-          onClose={() => setSheet(null)}
-        >
-          <CastPicker
-            key={`${scene.id}:${sheet.lines.join(",")}`}
-            bridge={bridge}
-            sceneId={scene.id}
-            cast={model.cast}
-            castId={sheet.castId}
-            lines={sheetLines}
-            initialTab={sheet.tab}
-            onApply={(change) => apply(sheet.lines, change)}
-            onAdd={
-              onAssets
-                ? () => {
-                    setSheet(null);
-                    onAssets();
-                  }
-                : undefined
-            }
-          />
-        </TaskSheet>
-      )}
-      {sheet?.kind === "inspect" && renderInspector && sheetLines.length > 0 && (
-        <TaskSheet
-          title={
-            sheetLines.length > 1 ? t("authoring.selectedCount", { count: sheetLines.length }) : t("authoring.details")
-          }
-          onClose={() => setSheet(null)}
-        >
-          {renderInspector(
-            scene.id,
-            sheetLines.map((line) => line.id),
+      <div
+        className="author-companion"
+        data-has-panel={!panelCollapsed && (Boolean(sheet && sheet.kind !== "paste") || selected.length > 0)}
+      >
+        <StageDock
+          key="stage"
+          stage={stage}
+          aspect={stageAspect}
+          collapsed={stageCollapsed}
+          playing={model.playback.playing}
+          position={Math.max(
+            0,
+            scene.lines.findIndex((line) => line.id === (model.playback.lineId ?? current)),
           )}
-        </TaskSheet>
-      )}
-      {sheet?.kind === "locks" && (
-        <TaskSheet title={t("authoring.locks")} onClose={() => setSheet(null)}>
-          <div className="author-lock-grid">
-            {LOCK_FIELDS.map((field) => {
-              const count = selected.filter((id) => byId.get(id)!.locked[field]).length;
-              const all = selected.length > 0 && count === selected.length;
-              return (
-                <button
-                  key={field}
-                  type="button"
-                  className="author-lock-toggle"
-                  aria-pressed={all ? true : count > 0 ? "mixed" : false}
-                  onClick={() => apply(selected, { kind: "lock", field, locked: !all })}
-                >
-                  <Lock aria-hidden />
-                  {t(FIELD_LABEL[field])}
-                </button>
-              );
-            })}
-          </div>
-        </TaskSheet>
-      )}
-      {sheet?.kind === "timeline" && (
-        <TaskSheet wide title={t("Timeline")} onClose={() => setSheet(null)}>
-          {timeline}
-        </TaskSheet>
-      )}
-      {sheet?.kind === "storyboard" && (
-        <TaskSheet wide title={t("Storyboard")} onClose={() => setSheet(null)}>
-          {storyboard}
-        </TaskSheet>
-      )}
-      {sheet?.kind === "issues" && (
-        <TaskSheet title={t("authoring.issues")} onClose={() => setSheet(null)}>
-          <ul className="author-issues">
-            {model.issues.map((issue) => (
-              <li key={issue.id}>
-                {issue.lineId ? (
-                  <button
-                    type="button"
-                    className={`author-issue author-issue--${issue.severity}`}
-                    onClick={() => {
-                      const lineId = issue.lineId!;
-                      setSheet(null);
-                      setView("script");
-                      setDestination(SCRIPT);
-                      if (issue.sceneId && issue.sceneId !== scene.id) {
-                        pendingFocus.current = lineId;
-                        bridge.openScene(issue.sceneId);
-                      } else {
-                        choose(lineId, "replace");
-                        requestAnimationFrame(() => focusLine(lineId));
+          length={scene.lines.length}
+          canPlay={scene.lines.length > 0 && model.playback.ready}
+          speakers={current ? byId.get(current)!.speakers : []}
+          tools={tools}
+          onToggleCollapsed={() => setStageCollapsed((value) => !value)}
+          onPlay={play}
+          onResume={() => bridge.resume()}
+          onRestart={() => bridge.restart()}
+          onSeek={(index) => {
+            const line = scene.lines[index];
+            if (line) bridge.seek(scene.id, line.id);
+          }}
+          onStop={() => bridge.stop()}
+        />
+
+        <div className="author-inspector" data-panel={sheet?.kind ?? "inspect"}>
+          {!panelCollapsed && (!sheet || sheet.kind === "timeline") && renderInspector && selected.length > 0 && (
+            <DockPanel title={t("Properties")} actions={inspectorNavigation} onClose={closePanel}>
+              {renderInspector(scene.id, selected)}
+            </DockPanel>
+          )}
+          {!panelCollapsed && sheet?.kind === "cast" && sheetLines.length > 0 && (
+            <DockPanel
+              title={
+                sheetLines.length > 1 ? t("authoring.selectedCount", { count: sheetLines.length }) : t("Character")
+              }
+              onClose={closePanel}
+            >
+              <CastPicker
+                key={`${scene.id}:${sheetLines.map((line) => line.id).join(",")}`}
+                bridge={bridge}
+                sceneId={scene.id}
+                cast={model.cast}
+                castId={sheet.castId}
+                lines={sheetLines}
+                initialTab={sheet.tab}
+                onApply={(change) =>
+                  apply(
+                    sheetLines.map((line) => line.id),
+                    change,
+                  )
+                }
+                onAdd={
+                  onAssets
+                    ? () => {
+                        setSheet(null);
+                        onAssets();
                       }
-                    }}
-                  >
-                    <AlertCircle aria-hidden />
-                    {issue.message}
-                  </button>
-                ) : (
-                  <p className={`author-issue author-issue--${issue.severity}`}>
-                    <AlertCircle aria-hidden />
-                    {issue.message}
-                  </p>
-                )}
-              </li>
-            ))}
-          </ul>
-          {diagnostics}
-        </TaskSheet>
+                    : undefined
+                }
+              />
+            </DockPanel>
+          )}
+          {!panelCollapsed && sheet?.kind === "inspect" && renderInspector && inspectorIds.length > 0 && (
+            <DockPanel
+              title={
+                sheetLines.length > 1
+                  ? t("authoring.selectedCount", { count: sheetLines.length })
+                  : t("authoring.details")
+              }
+              onClose={closePanel}
+              actions={inspectorNavigation}
+            >
+              {renderInspector(scene.id, inspectorIds)}
+            </DockPanel>
+          )}
+          {!panelCollapsed && sheet?.kind === "locks" && (
+            <DockPanel title={t("authoring.locks")} onClose={closePanel}>
+              <div className="author-lock-grid">
+                {LOCK_FIELDS.map((field) => {
+                  const count = selected.filter((id) => byId.get(id)!.locked[field]).length;
+                  const all = selected.length > 0 && count === selected.length;
+                  return (
+                    <button
+                      key={field}
+                      type="button"
+                      className="author-lock-toggle"
+                      aria-pressed={all ? true : count > 0 ? "mixed" : false}
+                      onClick={() => apply(selected, { kind: "lock", field, locked: !all })}
+                    >
+                      <Lock aria-hidden />
+                      {t(FIELD_LABEL[field])}
+                    </button>
+                  );
+                })}
+              </div>
+            </DockPanel>
+          )}
+          {!panelCollapsed && sheet?.kind === "storyboard" && (
+            <DockPanel title={t("Storyboard")} onClose={closePanel}>
+              {storyboard}
+            </DockPanel>
+          )}
+          {!panelCollapsed && sheet?.kind === "issues" && (
+            <DockPanel title={t("authoring.issues")} onClose={closePanel}>
+              <ul className="author-issues">
+                {model.issues.map((issue) => (
+                  <li key={issue.id}>
+                    {issue.lineId ? (
+                      <button
+                        type="button"
+                        className={`author-issue author-issue--${issue.severity}`}
+                        onClick={() => {
+                          const lineId = issue.lineId!;
+                          setSheet(null);
+                          setView("script");
+                          setDestination(SCRIPT);
+                          if (issue.sceneId && issue.sceneId !== scene.id) {
+                            pendingFocus.current = lineId;
+                            bridge.openScene(issue.sceneId);
+                          } else {
+                            choose(lineId, "replace");
+                            requestAnimationFrame(() => focusLine(lineId));
+                          }
+                        }}
+                      >
+                        <AlertCircle aria-hidden />
+                        {issue.message}
+                      </button>
+                    ) : (
+                      <p className={`author-issue author-issue--${issue.severity}`}>
+                        <AlertCircle aria-hidden />
+                        {issue.message}
+                      </p>
+                    )}
+                  </li>
+                ))}
+              </ul>
+              {diagnostics}
+            </DockPanel>
+          )}
+        </div>
+      </div>
+      {sheet?.kind === "timeline" && (
+        <DockPanel timeline title={t("Timeline")} onClose={() => setSheet(null)}>
+          {timeline}
+        </DockPanel>
       )}
       {sheet?.kind === "paste" && (
         <TaskSheet title={t("authoring.pasteText")} onClose={() => setSheet(null)}>

@@ -22,7 +22,7 @@
   align-items: center;
   gap: 8px;
   padding: 12px 0;
-  border-bottom: 1px solid var(--border, #dedee3);
+  border-bottom: 1px solid var(--md-sys-color-outline-variant);
 }
 .webgal-engine-list li > div {
   flex: 1;
@@ -32,12 +32,12 @@
 .webgal-engine-list small {
   display: block;
   margin-top: 4px;
-  color: var(--muted, #686873);
+  color: var(--md-sys-color-on-surface-variant);
 }
 .webgal-export-review {
   margin-top: 16px;
   padding-top: 12px;
-  border-top: 1px solid var(--border, #dedee3);
+  border-top: 1px solid var(--md-sys-color-outline-variant);
 }
 .webgal-export-diagnostics {
   max-height: 180px;

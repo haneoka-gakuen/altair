@@ -1,7 +1,7 @@
 import { InterfaceSettings } from "./preferences";
 import { useEffect, useState } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
-import { Upload, Trash2, X, Boxes } from "lucide-react";
+import { Upload, Trash2, X, Boxes } from "@haneoka/altair-ui-react";
 import { tr, useStudioI18n } from "./i18n";
 import { runtimeLibraries, RUNTIME_LIBRARIES, type RuntimeLibrary, type RuntimeLibraryId } from "./runtimes";
 export function RuntimeSettings() {

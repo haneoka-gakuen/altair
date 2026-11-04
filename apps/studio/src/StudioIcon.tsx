@@ -46,9 +46,9 @@ import {
   X,
   ZoomIn,
   ZoomOut,
-  type LucideIcon,
-  type LucideProps,
-} from "lucide-react";
+  type MaterialIconComponent,
+  type MaterialIconShapeProps,
+} from "@haneoka/altair-ui-react";
 
 export type StudioIconName =
   | "add"
@@ -99,7 +99,7 @@ export type StudioIconName =
   | "zoom-in"
   | "zoom-out";
 
-const ICONS: Readonly<Record<StudioIconName, LucideIcon>> = Object.freeze({
+const ICONS: Readonly<Record<StudioIconName, MaterialIconComponent>> = Object.freeze({
   add: Plus,
   altair: Sparkles,
   audio: Music2,
@@ -149,7 +149,7 @@ const ICONS: Readonly<Record<StudioIconName, LucideIcon>> = Object.freeze({
   "zoom-out": ZoomOut,
 });
 
-export interface StudioIconProps extends Omit<LucideProps, "children" | "name"> {
+export interface StudioIconProps extends Omit<MaterialIconShapeProps, "children" | "name"> {
   readonly name: StudioIconName;
   readonly size?: number | string;
 }

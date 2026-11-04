@@ -26,12 +26,12 @@ button {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 7px;
+  gap: var(--md-sys-spacing-2);
   color: inherit;
   background: none;
   border: 1px solid transparent;
-  border-radius: 5px;
-  padding: 6px 9px;
+  border-radius: var(--md-sys-shape-corner-extra-small);
+  padding: var(--md-sys-spacing-3) var(--md-sys-spacing-5);
   cursor: pointer;
   white-space: nowrap;
 }
@@ -51,7 +51,7 @@ input,
 textarea,
 select {
   border: 1px solid var(--md-sys-color-outline-variant);
-  border-radius: 5px;
+  border-radius: var(--md-sys-shape-corner-extra-small);
   padding: 8px 9px;
   background: var(--md-sys-color-surface);
   color: inherit;
@@ -59,7 +59,7 @@ select {
 }
 input:focus,
 textarea:focus {
-  outline: 2px solid var(--md-sys-color-primary-container);
+  outline: 2px solid var(--md-sys-color-primary);
   border-color: var(--md-sys-color-primary);
 }
 textarea {
@@ -86,18 +86,23 @@ a {
   background: var(--md-sys-color-primary);
   color: var(--md-sys-color-on-primary);
   border-color: var(--md-sys-color-primary);
-  padding: 8px 13px;
-  font-weight: 500;
+  padding: var(--md-sys-spacing-3) var(--md-sys-spacing-6);
+  border-radius: var(--md-sys-shape-corner-full);
+  font-weight: var(--md-sys-typescale-label-large-weight);
 }
 .primary-button:hover {
   background: var(--md-sys-color-primary);
 }
 .secondary-button {
+  border-radius: var(--md-sys-shape-corner-full);
   border-color: var(--md-sys-color-outline-variant);
   background: var(--md-sys-color-surface);
 }
 .icon-button {
-  padding: 5px;
+  min-inline-size: 48px;
+  min-block-size: 48px;
+  padding: var(--md-sys-spacing-3);
+  border-radius: var(--md-sys-shape-corner-full);
 }
 .brand {
   display: flex;
@@ -300,7 +305,7 @@ a {
   width: 25px;
   height: 25px;
   font-size: 17px;
-  border-radius: 5px;
+  border-radius: var(--md-sys-shape-corner-extra-small);
 }
 .workspace-header .primary-button,
 .workspace-header .secondary-button {
@@ -661,9 +666,9 @@ a {
 .field {
   display: flex;
   flex-direction: column;
-  gap: 7px;
-  margin-bottom: 16px;
-  font-size: 12px;
+  gap: var(--md-sys-spacing-2);
+  margin-bottom: var(--md-sys-spacing-4);
+  font-size: var(--md-sys-typescale-body-medium-size);
   color: var(--md-sys-color-on-surface-variant);
 }
 .field > span {
@@ -854,25 +859,25 @@ a {
   left: 50%;
   top: 50%;
   transform: translate(-50%, -50%);
-  background: var(--md-sys-color-surface);
-  border: 1px solid var(--md-sys-color-outline-variant);
-  border-radius: 10px;
+  background: var(--md-sys-color-surface-container-high);
+  border: 0;
+  border-radius: var(--md-sys-shape-corner-extra-large);
   width: min(440px, calc(100vw - 32px));
-  box-shadow: 0 20px 80px color-mix(in srgb, var(--md-sys-color-shadow) 20%, transparent);
+  box-shadow: var(--md-sys-elevation-level3);
   z-index: 101;
-  padding: 27px;
+  padding: var(--md-sys-spacing-6);
   max-height: 90vh;
   overflow: auto;
 }
 .modal-content h2 {
-  font-size: 19px;
-  margin: 0 0 9px;
-  font-weight: 600;
+  font-size: var(--md-sys-typescale-title-large-size);
+  margin: 0 0 var(--md-sys-spacing-4);
+  font-weight: var(--md-sys-typescale-title-large-weight);
 }
 .modal-content > p {
   color: var(--md-sys-color-on-surface-variant);
-  font-size: 12px;
-  margin-bottom: 24px;
+  font-size: var(--md-sys-typescale-body-medium-size);
+  margin-bottom: var(--md-sys-spacing-6);
 }
 .modal-content form > .field {
   margin-top: 22px;
@@ -880,9 +885,13 @@ a {
 .modal-close {
   position: absolute;
   top: 13px;
-  right: 13px;
+  right: var(--md-sys-spacing-2);
+  min-width: 48px;
+  min-height: 48px;
+  display: grid;
+  place-items: center;
   color: var(--md-sys-color-on-surface-variant);
-  padding: 4px;
+  padding: var(--md-sys-spacing-1);
 }
 .modal-actions {
   display: flex;
@@ -1151,7 +1160,7 @@ a {
 .library-confirm button {
   border: 1px solid var(--md-sys-color-outline-variant);
   background: var(--md-sys-color-surface);
-  border-radius: 5px;
+  border-radius: var(--md-sys-shape-corner-extra-small);
   padding: 5px 9px;
   cursor: pointer;
 }
@@ -1224,7 +1233,7 @@ a {
   max-width: 180px;
   padding: 6px 8px;
   border: 1px solid var(--md-sys-color-outline-variant);
-  border-radius: 5px;
+  border-radius: var(--md-sys-shape-corner-extra-small);
   background: var(--md-sys-color-surface);
   color: var(--md-sys-color-on-surface);
   font: inherit;
@@ -1280,7 +1289,7 @@ a {
   flex: 1;
   padding: 8px 10px;
   border: 1px solid var(--md-sys-color-outline-variant);
-  border-radius: 5px;
+  border-radius: var(--md-sys-shape-corner-extra-small);
 }
 .editor-file-menu {
   min-width: 230px;
@@ -1347,7 +1356,7 @@ a {
   max-width: 200px;
   border: 1px solid var(--md-sys-color-outline-variant);
   background: var(--md-sys-color-surface);
-  border-radius: 5px;
+  border-radius: var(--md-sys-shape-corner-extra-small);
   padding: 6px 8px;
   color: inherit;
   font: inherit;
@@ -1460,7 +1469,7 @@ a {
   background: var(--md-sys-color-primary-container);
   border-color: var(--md-sys-color-primary-container);
   color: var(--md-sys-color-on-primary-container);
-  border-radius: 5px;
+  border-radius: var(--md-sys-shape-corner-extra-small);
 }
 .timeline-canvas .vis-item.vis-selected {
   background: var(--md-sys-color-primary-container);
@@ -1485,7 +1494,7 @@ a {
     monospace;
   padding: 12px;
   border: 1px solid var(--md-sys-color-outline-variant);
-  border-radius: 5px;
+  border-radius: var(--md-sys-shape-corner-extra-small);
   resize: vertical;
 }
 .transform-fields {
@@ -1556,7 +1565,7 @@ a {
   gap: 6px;
   position: relative;
   border: 1px solid var(--md-sys-color-outline-variant);
-  border-radius: 5px;
+  border-radius: var(--md-sys-shape-corner-extra-small);
   padding: 7px 9px;
   cursor: pointer;
   white-space: nowrap;
@@ -1853,4 +1862,20 @@ html[data-theme="light"] {
   .timeline-cue-inspector {
     overflow: visible;
   }
+}
+
+button:not(:where(.monaco-editor *, .vega-player *)) {
+  min-block-size: 48px;
+  font-family: var(--app-font);
+  font-size: var(--md-sys-typescale-label-large-size);
+  line-height: var(--md-sys-typescale-label-large-line-height);
+}
+:is(input:not([type="checkbox"]):not([type="radio"]), select):not(:where(.monaco-editor *, .vega-player *)) {
+  min-block-size: 48px;
+  font-family: var(--app-font);
+  font-size: var(--md-sys-typescale-body-medium-size);
+}
+.field :is(input, textarea, select) {
+  font-family: var(--app-font);
+  font-size: var(--md-sys-typescale-body-medium-size);
 }

@@ -60,6 +60,19 @@ export type StudioAssetRequest =
   | { mode: "path"; path: string }
   | { mode: "select"; id: string }
   | { mode: "cancel" };
+export interface StudioStorySelection {
+  readonly source: StudioAssetSource;
+  readonly storyId: string;
+  readonly title: string;
+}
+export interface StudioStoryPickerRequest {
+  readonly requestId: string;
+  readonly provider: StudioAssetSource["provider"];
+}
+export interface StudioStoryPickerResult {
+  readonly requestId: string;
+  readonly selection?: StudioStorySelection;
+}
 export type StudioAction =
   | "state"
   | "configure"
@@ -70,6 +83,7 @@ export type StudioAction =
   | "new"
   | "import"
   | "import-source"
+  | "select-story"
   | "stories"
   | "folder"
   | "library"
@@ -107,7 +121,7 @@ export class AltairStudioClient {
     { resolve(value: unknown): void; reject(error: Error): void; timer: ReturnType<typeof setTimeout> }
   >();
   private readonly listeners = new Set<(state: StudioState) => void>();
-  private readonly intents = new Set<(action: StudioAction | "publish") => void>();
+  private readonly intents = new Set<(action: StudioAction | "publish", value?: unknown) => void>();
   private readonly downloads = new Set<(download: StudioDownload) => void>();
   private current: StudioState | undefined;
   private disposed = false;
@@ -152,7 +166,7 @@ export class AltairStudioClient {
         this.resolveReady();
         for (const listener of this.listeners) listener(this.current);
       } else if (message.type === "intent" && message.action) {
-        for (const listener of this.intents) listener(message.action);
+        for (const listener of this.intents) listener(message.action, message.value);
       } else if (message.type === "download") {
         for (const listener of this.downloads) listener(message.value as StudioDownload);
       } else if (message.type === "response" && message.id) {
@@ -176,7 +190,7 @@ export class AltairStudioClient {
     if (this.current) listener(this.current);
     return () => this.listeners.delete(listener);
   }
-  onIntent(listener: (action: StudioAction | "publish") => void): () => void {
+  onIntent(listener: (action: StudioAction | "publish", value?: unknown) => void): () => void {
     this.intents.add(listener);
     return () => this.intents.delete(listener);
   }
@@ -200,6 +214,7 @@ export class AltairStudioClient {
       "open-local",
       "import",
       "import-source",
+      "select-story",
       "folder",
       "library",
     ].includes(action);
@@ -247,7 +262,7 @@ export function installAltairStudioHost(options: {
   readonly window?: Window;
 }): {
   publish(): void;
-  intent(action: StudioAction | "publish"): void;
+  intent(action: StudioAction | "publish", value?: unknown): void;
   download(value: StudioDownload): void;
   dispose(): void;
 } {
@@ -326,7 +341,7 @@ export function installAltairStudioHost(options: {
     view.parent.postMessage({ protocol: ALTAIR_STUDIO_PROTOCOL, type: "ready" }, view.location.origin);
   return {
     publish,
-    intent: (action) => send({ protocol: ALTAIR_STUDIO_PROTOCOL, type: "intent", action }),
+    intent: (action, value) => send({ protocol: ALTAIR_STUDIO_PROTOCOL, type: "intent", action, value }),
     download: (value) => send({ protocol: ALTAIR_STUDIO_PROTOCOL, type: "download", value }),
     dispose() {
       disposed = true;

@@ -5,15 +5,23 @@ import { ProjectPlugins } from "./ProjectPlugins";
 import { PresentationSettings } from "./PresentationSettings";
 import { GameSettings } from "./GameSettings";
 import { useState, useSyncExternalStore } from "react";
-import { Plus, Star, Trash2 } from "lucide-react";
+import { Plus, Star, Trash2 } from "@haneoka/altair-ui-react";
 import { parseAltairProjectDocument, serializeAltairDocument } from "@haneoka/altair";
-import { canonicalLanguage, deviceLanguage, tr, useStudioI18n } from "./i18n";
+import { canonicalLanguage, tr, useStudioI18n } from "./i18n";
+import {
+  ProjectLanguagePicker,
+  resolveProjectLanguage,
+  withProjectLanguageName,
+  projectLanguageLabel,
+  orderedProjectLocales,
+} from "./project-language";
 import { NATIVE_PROJECT_PATH } from "./native-project";
 import type { EditorSession } from "./session";
 export function ProjectSettings({ session }: { session: EditorSession }) {
   const state = useSyncExternalStore(session.subscribe, session.getSnapshot),
     { i18n } = useStudioI18n();
-  const [language, setLanguage] = useState(deviceLanguage),
+  const [languageChoice, setLanguage] = useState<string>(),
+    [customName, setCustomName] = useState(""),
     [issue, setIssue] = useState(""),
     [titleDraft, setTitleDraft] = useState<{ base: string; text: string }>();
   const document = state.documents.find((document) => document.path === NATIVE_PROJECT_PATH);
@@ -26,24 +34,24 @@ export function ProjectSettings({ session }: { session: EditorSession }) {
   }
   const update = (locales: readonly string[]) =>
     session.update(document.path, serializeAltairDocument({ ...project, locales }, document.text));
-  const label = (code: string) => {
+  const language = languageChoice ?? i18n.resolvedLanguage ?? "en";
+  const label = (code: string) => projectLanguageLabel(project, code, i18n.resolvedLanguage);
+  const add = async () => {
     try {
-      return (
-        new Intl.DisplayNames([i18n.resolvedLanguage ?? "en"], {
-          type: "language",
-        }).of(code) ?? code
-      );
-    } catch {
-      return code;
-    }
-  };
-  const add = () => {
-    try {
-      const next = canonicalLanguage(language);
-      if (project.locales.some((locale) => canonicalLanguage(locale) === next))
+      const next = await resolveProjectLanguage(language, customName);
+      const currentDocument = session.document(NATIVE_PROJECT_PATH)!;
+      const current = parseAltairProjectDocument(currentDocument.text);
+      if (current.locales.some((locale) => canonicalLanguage(locale) === next.tag))
         throw new Error(tr("This language is already present"));
-      update([...project.locales, next]);
-      setLanguage("");
+      session.update(
+        currentDocument.path,
+        serializeAltairDocument(
+          withProjectLanguageName({ ...current, locales: [...current.locales, next.tag] }, next),
+          currentDocument.text,
+        ),
+      );
+      setLanguage(undefined);
+      setCustomName("");
       setIssue("");
     } catch (error) {
       setIssue(
@@ -78,24 +86,24 @@ export function ProjectSettings({ session }: { session: EditorSession }) {
       <RuntimeSettings />
       <WebGalEngineDialog session={session} />
       <ul>
-        {project.locales.map((locale, index) => (
+        {orderedProjectLocales(project.locales, i18n.resolvedLanguage).map((locale) => (
           <li key={locale}>
             <div>
               <strong>{label(locale)}</strong>
-              <code>{locale}</code>
-              {index === 0 && <small>{tr("Default language")}</small>}
+              {!locale.startsWith("und-x-") && <code>{locale}</code>}
+              {locale === project.locales[0] && <small>{tr("Default language")}</small>}
             </div>
             <button
               className="icon-button"
-              aria-label={`${tr("Make default")} · ${locale}`}
-              disabled={index === 0}
+              aria-label={`${tr("Make default")} · ${label(locale)}`}
+              disabled={locale === project.locales[0]}
               onClick={() => update([locale, ...project.locales.filter((value) => value !== locale)])}
             >
-              <Star size={15} fill={index === 0 ? "currentColor" : "none"} />
+              <Star size={15} fill={locale === project.locales[0] ? "currentColor" : "none"} />
             </button>
             <button
               className="icon-button"
-              aria-label={`${tr("Remove language")} · ${locale}`}
+              aria-label={`${tr("Remove language")} · ${label(locale)}`}
               disabled={project.locales.length === 1}
               onClick={() => update(project.locales.filter((value) => value !== locale))}
             >
@@ -107,16 +115,22 @@ export function ProjectSettings({ session }: { session: EditorSession }) {
       <form
         onSubmit={(event) => {
           event.preventDefault();
-          add();
+          void add();
         }}
       >
-        <input
-          aria-label={tr("Language tag")}
-          placeholder="fr-CA"
+        <ProjectLanguagePicker
           value={language}
-          onChange={(event) => setLanguage(event.target.value)}
+          name={customName}
+          onChange={setLanguage}
+          onNameChange={setCustomName}
+          label="Add language"
+          unavailable={project.locales}
         />
-        <button className="secondary-button" type="submit" disabled={!language.trim()}>
+        <button
+          className="secondary-button"
+          type="submit"
+          disabled={language === "custom" ? !customName.trim() : project.locales.includes(language)}
+        >
           <Plus size={14} />
           {tr("Add language")}
         </button>

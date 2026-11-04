@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
-import { Download, X } from "lucide-react";
+import { Download, X } from "@haneoka/altair-ui-react";
 import { exportVegaGame } from "./game-export";
 import { WebGalEngineDialog } from "./WebGalEngineDialog";
 import type { EditorSession } from "./session";

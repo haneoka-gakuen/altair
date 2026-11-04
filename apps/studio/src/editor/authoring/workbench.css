@@ -1,0 +1,310 @@
+@layer pages {
+  .author-workbench > .author-companion {
+    grid-area: stage;
+    container: author-companion / size;
+    display: flex;
+    flex-direction: column;
+    gap: var(--md-sys-spacing-3);
+    min-inline-size: 0;
+    min-block-size: 0;
+    overflow: hidden auto;
+    overscroll-behavior: contain;
+  }
+  .author-workbench .author-companion > .author-stage {
+    --author-stage-max-block: 60cqb;
+    flex: none;
+  }
+  .author-workbench .author-companion:has(> .author-inspector > .author-panel) > .author-stage {
+    --author-stage-max-block: 44cqb;
+  }
+  .author-companion > .author-inspector {
+    display: flex;
+    flex-direction: column;
+    flex: 1 1 auto;
+    min-inline-size: 0;
+    min-block-size: 0;
+  }
+  .author-companion > .author-inspector:empty {
+    display: none;
+  }
+  .author-inspector > .author-panel {
+    flex: 1;
+  }
+
+  .author-workbench .author-panel {
+    display: flex;
+    flex-direction: column;
+    min-inline-size: 0;
+    min-block-size: 0;
+    border-radius: var(--md-sys-shape-corner-extra-large);
+    background: var(--md-sys-color-surface-container-low);
+    overflow: hidden;
+  }
+  .author-panel-header {
+    display: flex;
+    align-items: center;
+    gap: var(--md-sys-spacing-2);
+    flex: none;
+    min-block-size: calc(var(--author-target) + 2 * var(--md-sys-spacing-1));
+    padding: var(--md-sys-spacing-1) var(--md-sys-spacing-1) var(--md-sys-spacing-1) var(--md-sys-spacing-5);
+    border-block-end: 1px solid var(--md-sys-color-outline-variant);
+  }
+  .author-panel-header h2 {
+    flex: 1;
+    min-inline-size: 0;
+    margin: 0;
+    font-size: var(--md-sys-typescale-title-medium-size);
+    line-height: var(--md-sys-typescale-title-medium-line-height);
+    font-weight: var(--md-sys-typescale-emphasized-title-weight);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .author-panel-context-actions {
+    display: flex;
+    flex: none;
+  }
+  .author-workbench .author-notes {
+    flex-wrap: nowrap;
+    min-inline-size: 0;
+    overflow-x: auto;
+    scrollbar-width: thin;
+    overscroll-behavior-inline: contain;
+  }
+  .author-workbench .author-note {
+    flex-shrink: 0;
+  }
+  .author-panel-body {
+    flex: 1;
+    min-inline-size: 0;
+    min-block-size: 0;
+    padding: var(--md-sys-spacing-4);
+    overflow: auto;
+    overscroll-behavior: contain;
+  }
+  .author-timeline > .author-panel-body {
+    padding: var(--md-sys-spacing-2);
+  }
+
+  .author-workbench .author-panel-body :is(button, select, summary, input:not([type="checkbox"]):not([type="radio"])) {
+    min-block-size: var(--author-target);
+  }
+  .author-workbench .author-panel-body :is(select, textarea, input:not([type="checkbox"]):not([type="radio"])) {
+    box-sizing: border-box;
+    min-inline-size: 0;
+    max-inline-size: 100%;
+  }
+  .author-workbench .author-panel-body label:has(> :is(input[type="checkbox"], input[type="radio"])) {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--md-sys-spacing-2);
+    min-block-size: var(--author-target);
+  }
+  .author-panel-body fieldset {
+    min-inline-size: 0;
+  }
+  .author-panel-body :is(label, legend, summary, dt, dd, p, li, h3, h4) {
+    overflow-wrap: anywhere;
+  }
+  .author-panel-body :is(img, video) {
+    max-inline-size: 100%;
+  }
+
+  .author-workbench .author-panel .author-picker-option {
+    display: grid;
+    align-content: start;
+    gap: var(--md-sys-spacing-1);
+    min-inline-size: 0;
+    padding: var(--md-sys-spacing-1);
+    border: 0;
+    border-radius: var(--md-sys-shape-corner-large);
+    background: transparent;
+    cursor: pointer;
+    transition: border-radius var(--author-fast) var(--author-ease);
+  }
+  .author-workbench .author-panel .author-picker-option:hover {
+    background: color-mix(
+      in srgb,
+      var(--md-sys-color-on-surface) calc(var(--md-sys-state-hover-state-layer-opacity) * 100%),
+      transparent
+    );
+  }
+  .author-workbench .author-panel .author-picker-option[aria-pressed="true"] {
+    border-radius: var(--md-sys-shape-corner-extra-large);
+    background: var(--md-sys-color-secondary-container);
+    color: var(--md-sys-color-on-secondary-container);
+  }
+  .author-workbench .author-panel .author-lock-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--md-sys-spacing-2);
+    min-inline-size: 0;
+    min-block-size: var(--author-target);
+    padding-inline: var(--md-sys-spacing-4);
+    border: 1px solid var(--md-sys-color-outline-variant);
+    border-radius: var(--md-sys-shape-corner-small);
+    background: transparent;
+    font-size: var(--md-sys-typescale-label-large-size);
+    overflow-wrap: anywhere;
+    cursor: pointer;
+    transition: border-radius var(--author-fast) var(--author-ease);
+  }
+  .author-workbench .author-panel .author-lock-toggle[aria-pressed="true"] {
+    border-color: transparent;
+    border-radius: var(--md-sys-shape-corner-medium);
+    background: var(--md-sys-color-secondary-container);
+    color: var(--md-sys-color-on-secondary-container);
+  }
+  .author-workbench .author-panel .author-lock-toggle[aria-pressed="mixed"] {
+    border-style: dashed;
+    border-color: var(--md-sys-color-secondary);
+  }
+  .author-workbench .author-panel .author-issue {
+    display: flex;
+    align-items: center;
+    gap: var(--md-sys-spacing-3);
+    inline-size: 100%;
+    min-block-size: var(--author-target);
+    margin: 0;
+    padding: var(--md-sys-spacing-2) var(--md-sys-spacing-3);
+    border: 0;
+    border-radius: var(--md-sys-shape-corner-medium);
+    background: transparent;
+    text-align: start;
+    font-size: var(--md-sys-typescale-body-medium-size);
+    line-height: var(--md-sys-typescale-body-medium-line-height);
+    overflow-wrap: anywhere;
+  }
+  .author-workbench .author-panel button.author-issue {
+    cursor: pointer;
+  }
+  .author-workbench .author-panel button.author-issue:hover {
+    background: var(--md-sys-color-surface-container-high);
+  }
+
+  .author-workbench .author-segmented > button[role="tab"] {
+    min-block-size: var(--author-target);
+  }
+  .author-workbench .author-note > button {
+    position: relative;
+  }
+  .author-workbench .author-note > button::after {
+    content: "";
+    position: absolute;
+    inset-block: -4px;
+    inset-inline: 0;
+  }
+  .author-workbench .author-note > .author-note-remove {
+    min-inline-size: var(--author-target);
+  }
+
+  .author-workbench .author-source > * {
+    min-block-size: 0;
+  }
+
+  .author-workbench.has-timeline:has(> .author-companion) {
+    grid-template-rows: minmax(0, 3fr) minmax(12rem, 2fr);
+    grid-template-areas: "work stage" "timeline stage";
+  }
+  .author-workbench.has-timeline.has-destinations:has(> .author-companion) {
+    grid-template-areas: "nav work stage" "nav timeline stage";
+  }
+  .author-workbench > .author-timeline {
+    grid-area: timeline;
+  }
+
+  @media (max-width: 839px) {
+    .author-workbench:has(> .author-companion) {
+      grid-template-rows: minmax(0, auto) minmax(32dvh, 1fr);
+      grid-template-areas: "stage" "work";
+    }
+    .author-workbench.has-destinations:has(> .author-companion) {
+      grid-template-rows: auto minmax(0, auto) minmax(32dvh, 1fr);
+      grid-template-areas: "nav" "stage" "work";
+    }
+    .author-workbench.has-timeline:has(> .author-companion) {
+      grid-template-rows: minmax(0, auto) minmax(20dvh, 1fr) 30dvh;
+      grid-template-areas: "stage" "work" "timeline";
+    }
+    .author-workbench.has-timeline.has-destinations:has(> .author-companion) {
+      grid-template-rows: auto minmax(0, auto) minmax(20dvh, 1fr) 30dvh;
+      grid-template-areas: "nav" "stage" "work" "timeline";
+    }
+    .author-workbench > .author-companion {
+      container-type: normal;
+      gap: var(--md-sys-spacing-2);
+    }
+    .author-workbench .author-companion > .author-stage {
+      --author-stage-max-block: 30dvh;
+    }
+    .author-workbench .author-companion:has(> .author-inspector > .author-panel) > .author-stage {
+      --author-stage-max-block: 24dvh;
+    }
+    .author-workbench.has-timeline > .author-companion:has(> .author-inspector) > .author-stage {
+      --author-stage-max-block: 20dvh;
+    }
+    .author-companion > .author-inspector {
+      min-block-size: 7.5rem;
+      max-block-size: 36dvh;
+    }
+    .author-workbench.has-timeline .author-companion > .author-inspector {
+      max-block-size: 28dvh;
+    }
+    .author-workbench .author-panel {
+      border-radius: var(--md-sys-shape-corner-large);
+    }
+    .author-panel-header {
+      padding-inline-start: var(--md-sys-spacing-4);
+    }
+    .author-panel-body {
+      padding: var(--md-sys-spacing-3);
+    }
+    .author-workbench .author-line .author-speaker {
+      min-block-size: var(--author-target);
+    }
+    .author-workbench .author-stage-bar {
+      display: grid;
+      grid-template-columns: repeat(3, var(--author-target)) minmax(0, 1fr) var(--author-target);
+    }
+    .author-workbench .author-stage-position {
+      min-inline-size: 0;
+    }
+    .author-workbench .author-stage-position input {
+      min-inline-size: 24px;
+    }
+    .author-workbench .author-stage-cast,
+    .author-workbench .author-stage-tools {
+      grid-column: 1 / -1;
+    }
+    .author-workbench .author-stage-collapse {
+      grid-column: 5;
+      grid-row: 1;
+    }
+  }
+  .author-workbench .author-stage-cast:empty {
+    display: none;
+  }
+  @media (max-width: 839px) {
+    .author-workbench > .author-companion {
+      display: contents;
+    }
+    .author-workbench:not(.has-active-panel) .author-inspector {
+      display: none;
+    }
+    .author-workbench.has-active-panel .author-work {
+      display: none;
+    }
+    .author-workbench.has-active-panel .author-inspector {
+      display: flex;
+      grid-area: work;
+      min-block-size: 0;
+      max-block-size: none;
+    }
+    .author-workbench .author-companion:has(> .author-inspector > .author-panel) > .author-stage {
+      --author-stage-max-block: 30dvh;
+    }
+    .author-workbench.has-timeline .author-companion:has(> .author-inspector) > .author-stage {
+      --author-stage-max-block: 16dvh;
+    }
+  }
+}

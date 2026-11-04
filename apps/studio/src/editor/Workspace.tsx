@@ -35,7 +35,7 @@ import {
   Trash2,
   Undo2,
   X,
-} from "lucide-react";
+} from "@haneoka/altair-ui-react";
 import { nativeStatements, nativeCommands, nativeScenePath, NATIVE_PROJECT_PATH } from "./native-project";
 import { readLocalizedText } from "./localized-text";
 import { sessionCommandLibrary, COMMAND_LIBRARY_PATH, insertLibraryCommand } from "./command-library";

@@ -1,5 +1,5 @@
 import { useMemo, useState, useSyncExternalStore } from "react";
-import { Plus, Search, Star } from "lucide-react";
+import { Plus, Search, Star } from "@haneoka/altair-ui-react";
 import type { AltairAuthoredNode, JsonObject } from "@haneoka/altair/documents";
 import { importWebGal, webGalCommandToAuthoredNode } from "@haneoka/altair-plugin-webgal";
 import { nativeCommands, nativeStatements } from "./native-project";

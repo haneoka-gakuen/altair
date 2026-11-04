@@ -1,12 +1,13 @@
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
-import { Boxes, Download, FolderOpen, Trash2, Upload, X } from "lucide-react";
+import { Boxes, Download, FolderOpen, Trash2, Upload, X } from "@haneoka/altair-ui-react";
 import { BrowserWorkspaceService } from "@haneoka/altair-plugin-workspace-browser";
 import { parseAltairProjectDocument, serializeAltairDocument } from "@haneoka/altair";
 import { NATIVE_PROJECT_PATH } from "./native-project";
 import { projectLibrary } from "./library";
 import type { EditorSession } from "./session";
 import { tr, useStudioI18n } from "./i18n";
+import { orderedProjectLocales, projectLanguageLabel } from "./project-language";
 import {
   webGalEngines,
   webGalEngineRef,
@@ -20,7 +21,7 @@ import { readWebGalEngineFolder } from "./webgal-engine-folder";
 import "./webgal-engine.css";
 
 export function WebGalEngineDialog({ session, exportMode = false }: { session: EditorSession; exportMode?: boolean }) {
-  useStudioI18n();
+  const { i18n } = useStudioI18n();
   const state = useSyncExternalStore(session.subscribe, session.getSnapshot);
   const [open, setOpen] = useState(false),
     [engines, setEngines] = useState<WebGalEngineMetadata[]>([]),
@@ -274,9 +275,9 @@ export function WebGalEngineDialog({ session, exportMode = false }: { session: E
           <label className="field">
             <span>{tr("Export language")}</span>
             <select value={locale} disabled={busy} onChange={(event) => setLocale(event.target.value)}>
-              {project?.locales.map((language) => (
+              {(project ? orderedProjectLocales(project.locales, i18n.resolvedLanguage) : []).map((language) => (
                 <option key={language} value={language}>
-                  {language}
+                  {projectLanguageLabel(project, language, i18n.resolvedLanguage)}
                 </option>
               ))}
             </select>

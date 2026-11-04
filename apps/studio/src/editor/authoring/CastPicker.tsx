@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Plus, Search, UserRound } from "lucide-react";
+import { Plus, Search, UserRound } from "@haneoka/altair-ui-react";
 import { useStudioI18n } from "../i18n";
 import type { CastOption, CastOptionGroup, CastRef, StudioBridge, StudioChange, StudioLine } from "./Manuscript";
 

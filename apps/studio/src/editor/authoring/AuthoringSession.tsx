@@ -30,16 +30,15 @@ import {
   type CastOptionsRequest,
 } from "./Manuscript";
 import { ResourceRecovery } from "./ResourceRecovery";
-import { TaskSheet } from "./TaskSheet";
 import "./integration.css";
 import { Preview } from "../Preview";
-import { ArrowUp, ArrowDown, Copy, Trash2 } from "lucide-react";
+import { ArrowUp, ArrowDown, Copy, Trash2 } from "@haneoka/altair-ui-react";
 import { NativeInspector } from "../NativeInspector";
 import { NativeCommandPalette } from "../NativeCommandPalette";
 import { adaptProseDeterministically } from "@haneoka/altair-plugin-prose";
 import { parseWebGalScene, editWebGalStatement } from "@haneoka/altair-plugin-webgal/codec";
 import { advCommandToAuthoredNode } from "@haneoka/altair-plugin-adv/documents";
-import type { EditorSession } from "../session";
+import type { EditorSession, EditorDocument } from "../session";
 import {
   nativeDialogueNodes,
   nativeStatementIsVisible,
@@ -51,6 +50,7 @@ import {
 import { readLocalizedText, editLocalizedText } from "../localized-text";
 import { tr, useStudioI18n } from "../i18n";
 const TimelineEditor = lazy(() => import("../TimelineEditor").then((module) => ({ default: module.TimelineEditor })));
+const SourceEditor = lazy(() => import("../SourceEditor"));
 const StoryboardEditor = lazy(() =>
   import("../StoryboardEditor").then((module) => ({ default: module.StoryboardEditor })),
 );
@@ -60,14 +60,26 @@ const object = (value: unknown): JsonObject =>
 const nodes = (node: AltairAuthoredNode): AltairAuthoredNode[] => [node, ...(node.children ?? []).flatMap(nodes)];
 const keyOf = (node: AltairAuthoredNode) => String(node.arguments.targetName ?? "");
 const localeIndex = (locale: string) => Math.max(0, ["ja", "en", "zh-TW", "zh-CN", "ko"].indexOf(locale));
+const projectDocuments = new WeakMap<EditorDocument, ReturnType<typeof parseAltairProjectDocument>>();
+const sceneDocuments = new WeakMap<EditorDocument, AltairSceneDocument>();
 function context(session: EditorSession) {
   const state = session.getSnapshot();
   const manifest = session.document(NATIVE_PROJECT_PATH);
   if (!manifest) throw new Error(tr("File is missing"));
-  const project = parseAltairProjectDocument(manifest.text);
+  let project = projectDocuments.get(manifest);
+  if (!project) {
+    project = parseAltairProjectDocument(manifest.text);
+    projectDocuments.set(manifest, project);
+  }
   const scenes = project.scenes.flatMap((ref) => {
     const doc = session.document(ref.path);
-    return doc ? [{ ref, doc, scene: parseAltairSceneDocument(doc.text) }] : [];
+    if (!doc) return [];
+    let scene = sceneDocuments.get(doc);
+    if (!scene) {
+      scene = parseAltairSceneDocument(doc.text);
+      sceneDocuments.set(doc, scene);
+    }
+    return [{ ref, doc, scene }];
   });
   return { state, project, scenes, locale: project.locales[0] ?? "ja" };
 }
@@ -625,13 +637,21 @@ export function AuthoringSession({
       : [];
   const renderInspector = (sceneId: string, ids: string[]) => {
     const entry = context(session).scenes.find((entry) => entry.scene.id === sceneId)!;
+    const selectedLines =
+      manuscript.scenes.find((scene) => scene.id === sceneId)?.lines.filter((line) => ids.includes(line.id)) ?? [];
+    const requested = [...new Set([...ids, ...selectedLines.flatMap((line) => line.notes.map((note) => note.id))])];
     const roots = new Set(
-      ids.map((id) => entry.scene.nodes.find((root) => nodes(root).some((node) => node.id === id))?.id),
+      requested.map((id) => entry.scene.nodes.find((root) => nodes(root).some((node) => node.id === id))?.id),
     );
     return nativeStatements(entry.doc.text)
       .filter((statement) => roots.has(statement.id))
       .map((statement) => (
-        <section key={statement.id}>
+        <details
+          className="argument-section"
+          key={statement.id}
+          open={roots.size === 1 || ids.some((id) => nodes(statement.node).some((node) => node.id === id))}
+        >
+          <summary>{nativeNodeLabel(statement.node)}</summary>
           <div className="author-file-actions" role="group" aria-label={tr("Properties")}>
             {[
               { label: "Move statement up", icon: <ArrowUp aria-hidden />, run: () => session.move(statement, -1) },
@@ -662,7 +682,7 @@ export function AuthoringSession({
             ))}
           </div>
           <NativeInspector statement={statement} session={session} embedded />
-        </section>
+        </details>
       ));
   };
   const insert = (sceneId: string, after: string | null) => {
@@ -710,6 +730,27 @@ export function AuthoringSession({
         stage={<Preview session={session} surfaceOnly toolsMount={previewTools} />}
         stageAspect={Number.isFinite(aspect) && aspect > 0 ? aspect : 16 / 9}
         source={{ text: draft.text, onChange: onSourceChange }}
+        scriptView={state.view === "native-source" ? "source" : state.view === "visual" ? "script" : undefined}
+        onScriptViewChange={(view) => session.setView(view === "source" ? "native-source" : "visual")}
+        destination={
+          state.view?.startsWith("panel:")
+            ? state.view.slice(6)
+            : state.view === "source" || state.view === "files" || !nativeScenePath(state.active)
+              ? "files"
+              : "script"
+        }
+        sourceEditor={
+          <Suspense fallback={<div role="status">{tr("Loading")}</div>}>
+            <SourceEditor
+              session={session}
+              document={{ ...active.doc, path: `${state.id}/${active.scene.id}.native.txt`, text: draft.text }}
+              language="ournotes"
+              onChange={onSourceChange}
+              error={state.error}
+            />
+          </Suspense>
+        }
+        inspectRequest={inserted}
         selection={{
           sceneId: state.authoringSelection?.sceneId ?? active.scene.id,
           lines: [...(state.authoringSelection?.lines ?? [])],
@@ -720,6 +761,7 @@ export function AuthoringSession({
         renderInspector={renderInspector}
         destinations={destinations}
         onDestinationChange={(id) => {
+          session.setView(id === "script" ? "visual" : id === "files" ? "files" : `panel:${id}`);
           if (id !== "script") return;
           const current = context(session).scenes.find((entry) => entry.scene.id === active.scene.id)!;
           const root = current.scene.nodes.find((node) =>
@@ -738,7 +780,7 @@ export function AuthoringSession({
         }
         storyboard={
           <Suspense fallback={null}>
-            <StoryboardEditor session={session} scope={scope} />
+            <StoryboardEditor session={session} scope={scope.length > 1 ? scope : undefined} />
           </Suspense>
         }
         onImport={onImport}
@@ -765,16 +807,10 @@ export function AuthoringSession({
             const root = current.scene.nodes.find((node) => node.id === session.getSnapshot().selectedNodeId);
             if (root) {
               const id = nativeDialogueNodes(root)[0]?.id ?? root.id;
-              session.setAuthoringSelection(active.scene.id, [id], id);
               setInserted(id);
             }
           }}
         />
-      )}
-      {inserted && (
-        <TaskSheet title={tr("Properties")} wide onClose={() => setInserted(undefined)}>
-          {renderInspector(active.scene.id, [inserted])}
-        </TaskSheet>
       )}
     </>
   );

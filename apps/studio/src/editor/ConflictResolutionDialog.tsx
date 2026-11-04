@@ -1,7 +1,7 @@
 import { lazy, Suspense, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
 import * as Tabs from "@radix-ui/react-tabs";
-import { ArrowRight, LoaderCircle, RefreshCw, X } from "lucide-react";
+import { ArrowRight, LoaderCircle, RefreshCw, X } from "@haneoka/altair-ui-react";
 import type { EditorSession } from "./session";
 import { conflictReviewMatches } from "./conflict-resolution";
 import { tr, useStudioI18n } from "./i18n";

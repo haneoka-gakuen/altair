@@ -126,6 +126,17 @@ const isText = (path: string) =>
   /\.(?:txt|wg|webgal|json|jsonl|ndjson|wgcp|css|html|js|yaml|yml|atlas|mtn|exp)$/iu.test(path);
 export class EditorSession {
   private compilationError = "";
+  private scenePreview: { sceneId: string; source: EditorDocument; extensions: JsonObject } | undefined;
+  previewSceneExtensions(sceneId: string, source: EditorDocument, extensions: JsonObject): () => void {
+    const preview = { sceneId, source, extensions };
+    this.scenePreview = preview;
+    void this.compile();
+    return () => {
+      if (this.scenePreview !== preview) return;
+      this.scenePreview = undefined;
+      void this.compile();
+    };
+  }
   setAuthoringSelection(sceneId: string, lines: readonly string[], cursor: string | null = null): void {
     const selection = { sceneId, lines: [...lines], cursor };
     if (JSON.stringify(selection) !== JSON.stringify(this.state.authoringSelection))
@@ -1643,6 +1654,17 @@ export class EditorSession {
       const result = { project: authoring.host.compileDocuments(authored) };
       const { compileAltairVegaPreviewStory } = await import("@haneoka/altair-plugin-vega-preview");
       let previewProject = result.project;
+      if (this.scenePreview) {
+        const { source, sceneId: previewSceneId, extensions } = this.scenePreview;
+        if (this.document(source.path)?.text !== source.text) this.scenePreview = undefined;
+        else
+          previewProject = {
+            ...previewProject,
+            scenes: previewProject.scenes.map((scene) =>
+              scene.id === previewSceneId ? { ...scene, extensions } : scene,
+            ),
+          };
+      }
       let sceneId: string;
       let previewSourceIndex = 0;
       if (isScene(active.path)) sceneId = parseAltairSceneDocument(active.text).id;

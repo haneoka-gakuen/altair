@@ -1,7 +1,7 @@
 import { downloadStudioFile } from "./studio-host";
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
-import { Download, RefreshCw, X } from "lucide-react";
+import { Download, RefreshCw, X } from "@haneoka/altair-ui-react";
 import type { EditorSession } from "./session";
 import { projectLibrary, type NativeImportJournal } from "./library";
 import { nativeImportBackupFiles, type NativeImportReview } from "./native-import";

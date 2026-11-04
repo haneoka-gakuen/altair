@@ -6,7 +6,7 @@ import {
   type PropertyAnimationClip,
   type PropertyAnimationPoint,
 } from "@haneoka/vega/renderer-kit";
-import { Plus, Trash2 } from "lucide-react";
+import { Plus, Trash2 } from "@haneoka/altair-ui-react";
 import type { JsonObject, JsonValue } from "@haneoka/altair";
 import { tr } from "./i18n";
 

@@ -1,6 +1,6 @@
 import { useState } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
-import { Video, Square, X } from "lucide-react";
+import { Video, Square, X } from "@haneoka/altair-ui-react";
 import { createFilesZip } from "./archive";
 import type { StudioPreviewBridge } from "../preview-bridge";
 import { downloadStudioFile } from "./studio-host";

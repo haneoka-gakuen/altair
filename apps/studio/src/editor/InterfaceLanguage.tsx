@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Languages } from "lucide-react";
+import { Languages } from "@haneoka/altair-ui-react";
 import { availableStudioLanguages, interfaceLanguageChoice, selectInterfaceLanguage, tr, useStudioI18n } from "./i18n";
 export function InterfaceLanguage() {
   const { i18n } = useStudioI18n();

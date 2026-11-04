@@ -9,7 +9,7 @@
   --editor-line: var(--md-sys-color-outline-variant, var(--line, ButtonBorder));
   --editor-selected: var(--md-sys-color-secondary, var(--accent, Highlight));
   --editor-on-selected: var(--md-sys-color-on-secondary, HighlightText);
-  --editor-control: var(--control-height, 40px);
+  --editor-control: 48px;
   --editor-spatial: var(
     --motion-spatial-fast,
     linear(

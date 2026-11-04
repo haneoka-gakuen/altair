@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
-import { Plus, Import, Maximize, Trash2, X } from "lucide-react";
+import { Plus, Import, Maximize, Trash2, X } from "@haneoka/altair-ui-react";
 import { DataSet } from "vis-data";
 import { Timeline, type DataItem, type TimelineOptions } from "vis-timeline/peer";
 import "vis-timeline/styles/vis-timeline-graph2d.css";
@@ -14,7 +14,6 @@ import { nativeCommands, nativeNodeLabel, type EditorStatement } from "./native-
 import type { EditorSession } from "./session";
 import {
   createTimeline,
-  cueDuration,
   durationField,
   importTimelineScript,
   isTimeline,

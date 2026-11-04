@@ -1,13 +1,15 @@
 import "./storyboard-editor.css";
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
-import { Camera, Check, Lock, Plus, Trash2, Unlock } from "lucide-react";
+import { Camera, Check, Lock, Plus, Trash2, Unlock } from "@haneoka/altair-ui-react";
 import {
   parseAltairSceneDocument,
   serializeAltairDocument,
   authoredNodeLines,
   type AltairAuthoredNode,
   type JsonObject,
+  type JsonValue,
 } from "@haneoka/altair";
+import { commandDescriptor } from "@haneoka/altair-plugin-adv/commands";
 import { storyProjectToAuthoredWorkspace } from "@haneoka/altair-plugin-adv/documents";
 import { webGalCommandToAuthoredNode } from "@haneoka/altair-plugin-webgal";
 import {
@@ -25,9 +27,12 @@ import {
 import { VEGA_ADV_OPCODE } from "@haneoka/vega-protocol";
 import { NativeInspector } from "./NativeInspector";
 import { NumberInput } from "@haneoka/altair-ui-react";
-import { nativeStatements, nativeNodeLabel, nativeNodeExcerpt } from "./native-project";
+import { nativeStatements, nativeNodeLabel, nativeNodeExcerpt, nativeScenePath } from "./native-project";
 import { tr } from "./i18n";
 import type { EditorSession } from "./session";
+import { readLocalizedText } from "./localized-text";
+const record = (value: JsonValue | undefined): JsonObject =>
+  value && typeof value === "object" && !Array.isArray(value) ? value : {};
 
 export function StoryboardEditor({ session, scope }: { session: EditorSession; scope?: readonly string[] }) {
   const state = useSyncExternalStore(session.subscribe, session.getSnapshot);
@@ -36,6 +41,14 @@ export function StoryboardEditor({ session, scope }: { session: EditorSession; s
   const [thumbnails, setThumbnails] = useState<Record<string, { revision: unknown; image: string }>>({}),
     [captureError, setCaptureError] = useState("");
   const [expandedShot, setExpandedShot] = useState<string>();
+  const [proposal, setProposal] = useState<{
+    source: { path: string; text: string };
+    sceneId: string;
+    extensions: JsonObject;
+    shots: readonly StoryShot[];
+  }>();
+  const [previewProposal, setPreviewProposal] = useState(true);
+  const [capturing, setCapturing] = useState(false);
   const capture = useRef<AbortController | undefined>(undefined);
   useEffect(() => () => capture.current?.abort(), []);
   const presented = useMemo(
@@ -43,11 +56,19 @@ export function StoryboardEditor({ session, scope }: { session: EditorSession; s
     [state.project],
   );
   const doc = session.document();
-  const authored = doc ? parseAltairSceneDocument(doc.text) : undefined;
+  const pending = proposal?.source.path === doc?.path && proposal?.source.text === doc?.text ? proposal : undefined;
+  useEffect(() => {
+    if (!pending || !previewProposal || !doc) return;
+    return session.previewSceneExtensions(pending.sceneId, doc, {
+      ...pending.extensions,
+      [STORYBOARD_KEY]: { version: 1, shots: pending.shots as unknown as JsonObject[] },
+    });
+  }, [session, pending, previewProposal, doc?.path, doc?.text]);
+  const authored = doc && nativeScenePath(doc.path) ? parseAltairSceneDocument(doc.text) : undefined;
   const scene = state.project?.scenes.find((scene) => scene.id === authored?.id);
   if (!scene || !authored || !doc) return <div className="empty-panel">{tr("Open a scene first")}</div>;
   const authoredShots = sceneStoryboard({ extensions: authored.extensions ?? {} });
-  const shots = sceneStoryboard(presented?.scenes.find((value) => value.id === scene.id) ?? scene);
+  const shots = pending?.shots ?? sceneStoryboard(presented?.scenes.find((value) => value.id === scene.id) ?? scene);
   const currentScene = { ...scene, extensions: authored.extensions ?? {} };
   const issues = validateStoryboard(currentScene);
   const nodeIds = new Set(authored.nodes.map((node) => node.id));
@@ -98,6 +119,35 @@ export function StoryboardEditor({ session, scope }: { session: EditorSession; s
         doc.text,
       ),
     );
+  const frameId = (shot: StoryShot) => {
+    const head = scene.commands.findIndex((command) => command.id === shot.start),
+      tail = scene.commands.findIndex((command) => command.id === shot.end);
+    return (
+      scene.commands
+        .slice(head, tail + 1)
+        .find((command) => storyCommandAtoms([command]).some((child) => child.command === VEGA_ADV_OPCODE.Talk))?.id ??
+      shot.start
+    );
+  };
+  const captureAll = async () => {
+    capture.current?.abort();
+    const controller = (capture.current = new AbortController());
+    const revision = state.compilation;
+    setCaptureError("");
+    setCapturing(true);
+    try {
+      for (const shot of shots) {
+        controller.signal.throwIfAborted();
+        if (session.getSnapshot().compilation !== revision) break;
+        const image = await session.captureFrame(frameId(shot), controller.signal);
+        if (!controller.signal.aborted) setThumbnails((current) => ({ ...current, [shot.id]: { revision, image } }));
+      }
+    } catch (error) {
+      if (!controller.signal.aborted) setCaptureError(tr(error instanceof Error ? error.message : String(error)));
+    } finally {
+      if (capture.current === controller) setCapturing(false);
+    }
+  };
   const storeShot = (next: StoryShot) => {
     const head = authored.nodes.findIndex((node) => node.id === next.start),
       tail = authored.nodes.findIndex((node) => node.id === next.end);
@@ -157,11 +207,30 @@ export function StoryboardEditor({ session, scope }: { session: EditorSession; s
     ...new Set(
       storyCommandAtoms(scene.commands).flatMap((command) => {
         if (command.command !== VEGA_ADV_OPCODE.Character && command.command !== VEGA_ADV_OPCODE.In) return [];
-        const value = command.fields.targetName;
-        return typeof value === "string" && value ? [value] : [];
+        const values = [
+          command.fields.targetName,
+          ...(Array.isArray(command.fields.targets)
+            ? command.fields.targets.map((target) => record(target).target)
+            : []),
+        ];
+        return values.filter((value): value is string => typeof value === "string" && Boolean(value));
       }),
     ),
   ];
+  const actorNames = new Map<string, string>();
+  for (const source of state.project?.scenes ?? [])
+    for (const command of storyCommandAtoms(source.commands)) {
+      if (command.command !== VEGA_ADV_OPCODE.Talk) continue;
+      const names = Array.isArray(command.fields.targetTextNames) ? command.fields.targetTextNames : [];
+      const targets = Array.isArray(command.fields.targets)
+        ? command.fields.targets
+        : [{ target: command.fields.targetName ?? "" }];
+      targets.forEach((target, index) => {
+        const id = record(target).target,
+          name = readLocalizedText(names[index], locale);
+        if (typeof id === "string" && id && name) actorNames.set(id, name);
+      });
+    }
   const cameraStatements = (shot: StoryShot) => {
     const lines = authoredNodeLines(doc.text),
       all = nativeStatements(doc.text);
@@ -277,16 +346,20 @@ export function StoryboardEditor({ session, scope }: { session: EditorSession; s
             !end ||
             authored.nodes.findIndex((node) => node.id === end) < authored.nodes.findIndex((node) => node.id === start)
           }
-          onClick={() =>
-            commit(
-              planStoryShots(currentScene, {
+          onClick={() => {
+            setPreviewProposal(true);
+            setProposal({
+              source: { path: doc.path, text: doc.text },
+              sceneId: scene.id,
+              extensions: sceneExtensions,
+              shots: planStoryShots(currentScene, {
                 start,
                 end,
                 intent,
                 bindings: (state.project?.runtime.presentation as JsonObject)?.bindings as JsonObject,
               }),
-            )
-          }
+            });
+          }}
         >
           <Camera size={18} />
           {tr("Plan shots")}
@@ -314,284 +387,335 @@ export function StoryboardEditor({ session, scope }: { session: EditorSession; s
           {tr("Bake camera commands")}
         </button>
       </div>
-      <ol className="storyboard-shots">
-        {shots.map((shot, index) => (
-          <li
-            className="surface storyboard-shot"
-            key={shot.id}
-            data-selected={state.selectedNodeId === shot.start}
-            data-expanded={expandedShot === shot.id}
-          >
-            <div className="panel-heading">
-              <button
-                className="text-button"
-                onClick={() => {
-                  selectShot(shot);
-                  setExpandedShot(shot.id);
-                }}
-              >
-                {tr("Shot {{count}}", { count: index + 1 })}
-              </button>
-              <button
-                className="icon-button"
-                aria-label={tr(shot.locked ? "Unlock shot" : "Lock shot")}
-                onClick={() => update(shot.id, { locked: !shot.locked })}
-              >
-                {shot.locked ? <Lock size={18} /> : <Unlock size={18} />}
-              </button>
-              <button
-                className="icon-button"
-                aria-label={tr(shot.origin === "automatic" ? "Keep manual camera" : "Remove shot")}
-                disabled={shot.locked}
-                onClick={() =>
-                  shot.origin === "automatic"
-                    ? update(shot.id, { kind: "manual" })
-                    : commit(authoredShots.filter((value) => value.id !== shot.id))
-                }
-              >
-                <Trash2 size={18} />
-              </button>
-            </div>
-            <small className="storyboard-ownership">
-              {tr(shot.origin === "automatic" ? "Automatic shot" : "Author shot")}
-            </small>
-            <p className="storyboard-shot-excerpt">{caption(shot)}</p>
-            <div className="storyboard-thumbnail">
-              {thumbnails[shot.id]?.revision === state.compilation && (
-                <img src={thumbnails[shot.id]!.image} alt="" width={512} height={288} />
-              )}
-              <button
-                className="secondary-button"
-                disabled={!ready}
-                onClick={() => {
-                  capture.current?.abort();
-                  const controller = (capture.current = new AbortController()),
-                    revision = state.compilation;
-                  setCaptureError("");
-                  selectShot(shot);
-                  const head = scene.commands.findIndex((command) => command.id === shot.start),
-                    tail = scene.commands.findIndex((command) => command.id === shot.end);
-                  const frameId =
-                    scene.commands
-                      .slice(head, tail + 1)
-                      .find((command) =>
-                        storyCommandAtoms([command]).some((child) => child.command === VEGA_ADV_OPCODE.Talk),
-                      )?.id ?? shot.start;
-                  void session
-                    .captureFrame(frameId, controller.signal)
-                    .then((image) => {
-                      if (!controller.signal.aborted)
-                        setThumbnails((current) => ({ ...current, [shot.id]: { revision, image } }));
-                    })
-                    .catch((error) => {
-                      if (!controller.signal.aborted)
-                        setCaptureError(tr(error instanceof Error ? error.message : String(error)));
-                    });
-                }}
-              >
-                {tr("Capture shot")}
-              </button>
-            </div>
-            <div className="storyboard-shot-tools">
-              <button
-                className="text-button"
-                disabled={
-                  shot.locked ||
-                  !state.selectedNodeId ||
-                  authored.nodes.findIndex((node) => node.id === state.selectedNodeId) <=
-                    authored.nodes.findIndex((node) => node.id === shot.start) ||
-                  authored.nodes.findIndex((node) => node.id === state.selectedNodeId) >
-                    authored.nodes.findIndex((node) => node.id === shot.end)
-                }
-                onClick={() => {
-                  const at = authored.nodes.findIndex((node) => node.id === state.selectedNodeId);
-                  commit(
-                    shots.flatMap((value) =>
-                      value.id === shot.id
-                        ? [
-                            { ...shot, origin: "author", end: authored.nodes[at - 1]!.id },
-                            { ...shot, origin: "author", id: crypto.randomUUID(), start: authored.nodes[at]!.id },
-                          ]
-                        : [value],
-                    ),
-                  );
-                }}
-              >
-                {tr("Split at selection")}
-              </button>
-              <button
-                className="text-button"
-                disabled={
-                  shot.locked ||
-                  !shots[index + 1] ||
-                  shots[index + 1]!.locked ||
-                  authored.nodes.findIndex((node) => node.id === shot.end) + 1 !==
-                    authored.nodes.findIndex((node) => node.id === shots[index + 1]?.start)
-                }
-                onClick={() => {
-                  const next = shots[index + 1]!;
-                  commit(
-                    shots
-                      .filter((value) => value.id !== next.id)
-                      .map((value) =>
-                        value.id === shot.id ? { ...shot, origin: "author" as const, end: next.end } : value,
-                      ),
-                  );
-                }}
-              >
-                {tr("Merge with next shot")}
-              </button>
-            </div>
-            <details
-              className="argument-section"
-              open={expandedShot === shot.id}
-              onToggle={(event) => {
-                if (event.currentTarget.open) setExpandedShot(shot.id);
-                else if (expandedShot === shot.id) setExpandedShot(undefined);
+      {pending && (
+        <div className="storyboard-proposal" role="group" aria-label={tr("Shot proposal")}>
+          <strong>{tr("Shot proposal")}</strong>
+          <div className="storyboard-shot-tools">
+            <button
+              className="secondary-button"
+              aria-pressed={!previewProposal}
+              onClick={() => setPreviewProposal(false)}
+            >
+              {tr("Current shots")}
+            </button>
+            <button
+              className="secondary-button"
+              aria-pressed={previewProposal}
+              onClick={() => setPreviewProposal(true)}
+            >
+              {tr("Preview proposal")}
+            </button>
+            <button
+              className="primary-button"
+              disabled={!ready}
+              onClick={() => {
+                session.endGesture();
+                commit(pending.shots);
+                setProposal(undefined);
               }}
             >
-              <summary>{tr("Shot settings")}</summary>
-              {expandedShot === shot.id && (
-                <div className="storyboard-shot-settings">
-                  {shot.kind === "manual" && (
-                    <section>
-                      <h3>{tr("Camera commands")}</h3>
-                      {cameraStatements(shot).map((statement) => (
-                        <NativeInspector key={statement.id} statement={statement} session={session} embedded />
-                      ))}
-                    </section>
-                  )}
-                  {ranges(shot.start, (value) => update(shot.id, { start: value }), "Range start", shot.locked)}
-                  {ranges(shot.end, (value) => update(shot.id, { end: value }), "Range end", shot.locked)}
-                  <label className="field">
-                    <span>{tr("Shot kind")}</span>
-                    <select
-                      value={shot.kind}
-                      disabled={shot.locked}
-                      onChange={(event) => update(shot.id, { kind: event.target.value as StoryShot["kind"] })}
-                    >
-                      {(["speaker", "reaction", "two", "group", "wide", "manual"] as const).map((value) => (
-                        <option key={value} value={value}>
-                          {tr(`shot.${value}`)}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                  <label className="field">
-                    <span>{tr("Target")}</span>
-                    <select
-                      value={shot.targetName ?? ""}
-                      disabled={
-                        shot.locked ||
-                        shot.kind === "wide" ||
-                        shot.kind === "two" ||
-                        shot.kind === "group" ||
-                        shot.kind === "manual"
-                      }
-                      onChange={(event) =>
-                        update(shot.id, {
-                          targetName: event.target.value,
-                          subjects: event.target.value ? [event.target.value] : [],
-                        })
-                      }
-                    >
-                      <option value="">{tr("Automatic")}</option>
-                      {shot.targetName && !actors.includes(shot.targetName) && (
-                        <option value={shot.targetName}>
-                          {tr("Unbound")} · {shot.targetName}
-                        </option>
-                      )}
-                      {actors.map((actor) => (
-                        <option key={actor} value={actor}>
-                          {actor}
-                        </option>
-                      ))}
-                    </select>
-                  </label>
-                  {(shot.kind === "two" || shot.kind === "group" || shot.kind === "wide") && (
-                    <div className="field">
-                      <span>{tr("Shot subjects")}</span>
-                      <div className="storyboard-shot-tools">
-                        {actors.map((actor) => {
-                          const selected = shot.subjects ?? [];
-                          return (
-                            <button
-                              type="button"
-                              className="secondary-button"
-                              key={actor}
-                              disabled={shot.locked}
-                              aria-pressed={selected.includes(actor)}
-                              style={
-                                selected.includes(actor)
-                                  ? {
-                                      backgroundColor: "var(--md-sys-color-secondary-container)",
-                                      color: "var(--md-sys-color-on-secondary-container)",
-                                    }
-                                  : undefined
-                              }
-                              onClick={() =>
-                                update(shot.id, {
-                                  subjects: selected.includes(actor)
-                                    ? selected.filter((name) => name !== actor)
-                                    : [...selected, actor],
-                                  targetName: undefined,
-                                })
-                              }
-                            >
-                              {selected.includes(actor) && <Check size={18} aria-hidden />}
-                              {actor}
-                            </button>
-                          );
-                        })}
+              {tr("Apply proposal")}
+            </button>
+            <button className="text-button" onClick={() => setProposal(undefined)}>
+              {tr("Discard proposal")}
+            </button>
+          </div>
+        </div>
+      )}
+      <div className="storyboard-shot-tools">
+        <button
+          className="secondary-button"
+          disabled={!ready || !shots.length}
+          onClick={() => (capturing ? capture.current?.abort() : void captureAll())}
+        >
+          {tr(capturing ? "Stop" : "Generate thumbnails")}
+        </button>
+      </div>
+      <fieldset className="storyboard-shot-editing" disabled={Boolean(pending)} aria-label={tr("Storyboard")}>
+        <ol className="storyboard-shots">
+          {shots.map((shot, index) => (
+            <li
+              className="surface storyboard-shot"
+              key={shot.id}
+              data-selected={state.selectedNodeId === shot.start}
+              data-expanded={expandedShot === shot.id}
+            >
+              <div className="panel-heading">
+                <button
+                  className="text-button"
+                  onClick={() => {
+                    selectShot(shot);
+                    setExpandedShot(shot.id);
+                  }}
+                >
+                  {tr("Shot {{count}}", { count: index + 1 })}
+                </button>
+                <button
+                  className="icon-button"
+                  aria-label={tr(shot.locked ? "Unlock shot" : "Lock shot")}
+                  onClick={() => update(shot.id, { locked: !shot.locked })}
+                >
+                  {shot.locked ? <Lock size={18} /> : <Unlock size={18} />}
+                </button>
+                <button
+                  className="icon-button"
+                  aria-label={tr(shot.origin === "automatic" ? "Keep manual camera" : "Remove shot")}
+                  disabled={shot.locked}
+                  onClick={() =>
+                    shot.origin === "automatic"
+                      ? update(shot.id, { kind: "manual" })
+                      : commit(authoredShots.filter((value) => value.id !== shot.id))
+                  }
+                >
+                  <Trash2 size={18} />
+                </button>
+              </div>
+              <small className="storyboard-ownership">
+                {tr(shot.origin === "automatic" ? "Automatic shot" : "Author shot")}
+              </small>
+              <p className="storyboard-shot-excerpt">{caption(shot)}</p>
+              <div className="storyboard-thumbnail">
+                {thumbnails[shot.id]?.revision === state.compilation && (
+                  <img src={thumbnails[shot.id]!.image} alt="" width={512} height={288} />
+                )}
+                <button
+                  className="secondary-button"
+                  disabled={!ready}
+                  onClick={() => {
+                    capture.current?.abort();
+                    const controller = (capture.current = new AbortController()),
+                      revision = state.compilation;
+                    setCaptureError("");
+                    selectShot(shot);
+                    const head = scene.commands.findIndex((command) => command.id === shot.start),
+                      tail = scene.commands.findIndex((command) => command.id === shot.end);
+                    const frameId =
+                      scene.commands
+                        .slice(head, tail + 1)
+                        .find((command) =>
+                          storyCommandAtoms([command]).some((child) => child.command === VEGA_ADV_OPCODE.Talk),
+                        )?.id ?? shot.start;
+                    void session
+                      .captureFrame(frameId, controller.signal)
+                      .then((image) => {
+                        if (!controller.signal.aborted)
+                          setThumbnails((current) => ({ ...current, [shot.id]: { revision, image } }));
+                      })
+                      .catch((error) => {
+                        if (!controller.signal.aborted)
+                          setCaptureError(tr(error instanceof Error ? error.message : String(error)));
+                      });
+                  }}
+                >
+                  {tr("Capture shot")}
+                </button>
+              </div>
+              <div className="storyboard-shot-tools">
+                <button
+                  className="text-button"
+                  disabled={
+                    shot.locked ||
+                    !state.selectedNodeId ||
+                    authored.nodes.findIndex((node) => node.id === state.selectedNodeId) <=
+                      authored.nodes.findIndex((node) => node.id === shot.start) ||
+                    authored.nodes.findIndex((node) => node.id === state.selectedNodeId) >
+                      authored.nodes.findIndex((node) => node.id === shot.end)
+                  }
+                  onClick={() => {
+                    const at = authored.nodes.findIndex((node) => node.id === state.selectedNodeId);
+                    commit(
+                      shots.flatMap((value) =>
+                        value.id === shot.id
+                          ? [
+                              { ...shot, origin: "author", end: authored.nodes[at - 1]!.id },
+                              { ...shot, origin: "author", id: crypto.randomUUID(), start: authored.nodes[at]!.id },
+                            ]
+                          : [value],
+                      ),
+                    );
+                  }}
+                >
+                  {tr("Split at selection")}
+                </button>
+                <button
+                  className="text-button"
+                  disabled={
+                    shot.locked ||
+                    !shots[index + 1] ||
+                    shots[index + 1]!.locked ||
+                    authored.nodes.findIndex((node) => node.id === shot.end) + 1 !==
+                      authored.nodes.findIndex((node) => node.id === shots[index + 1]?.start)
+                  }
+                  onClick={() => {
+                    const next = shots[index + 1]!;
+                    commit(
+                      shots
+                        .filter((value) => value.id !== next.id)
+                        .map((value) =>
+                          value.id === shot.id ? { ...shot, origin: "author" as const, end: next.end } : value,
+                        ),
+                    );
+                  }}
+                >
+                  {tr("Merge with next shot")}
+                </button>
+              </div>
+              <details
+                className="argument-section"
+                open={expandedShot === shot.id}
+                onToggle={(event) => {
+                  if (event.currentTarget.open) setExpandedShot(shot.id);
+                  else if (expandedShot === shot.id) setExpandedShot(undefined);
+                }}
+              >
+                <summary>{tr("Shot settings")}</summary>
+                {expandedShot === shot.id && (
+                  <div className="storyboard-shot-settings">
+                    {shot.kind === "manual" && (
+                      <section>
+                        <h3>{tr("Camera commands")}</h3>
+                        {cameraStatements(shot).map((statement) => (
+                          <NativeInspector key={statement.id} statement={statement} session={session} embedded />
+                        ))}
+                      </section>
+                    )}
+                    {ranges(shot.start, (value) => update(shot.id, { start: value }), "Range start", shot.locked)}
+                    {ranges(shot.end, (value) => update(shot.id, { end: value }), "Range end", shot.locked)}
+                    <label className="field">
+                      <span>{tr("Shot kind")}</span>
+                      <select
+                        value={shot.kind}
+                        disabled={shot.locked}
+                        onChange={(event) => update(shot.id, { kind: event.target.value as StoryShot["kind"] })}
+                      >
+                        {(["speaker", "reaction", "two", "group", "wide", "manual"] as const).map((value) => (
+                          <option key={value} value={value}>
+                            {tr(`shot.${value}`)}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    <label className="field">
+                      <span>{tr("Target")}</span>
+                      <select
+                        value={shot.targetName ?? ""}
+                        disabled={
+                          shot.locked ||
+                          shot.kind === "wide" ||
+                          shot.kind === "two" ||
+                          shot.kind === "group" ||
+                          shot.kind === "manual"
+                        }
+                        onChange={(event) =>
+                          update(shot.id, {
+                            targetName: event.target.value,
+                            subjects: event.target.value ? [event.target.value] : [],
+                          })
+                        }
+                      >
+                        <option value="">{tr("Automatic")}</option>
+                        {shot.targetName && !actors.includes(shot.targetName) && (
+                          <option value={shot.targetName}>
+                            {tr("Unbound")} · {shot.targetName}
+                          </option>
+                        )}
+                        {actors.map((actor) => (
+                          <option key={actor} value={actor}>
+                            {actorNames.get(actor) ?? actor}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                    {(shot.kind === "two" || shot.kind === "group" || shot.kind === "wide") && (
+                      <div className="field">
+                        <span>{tr("Shot subjects")}</span>
+                        <div className="storyboard-shot-tools">
+                          {actors.map((actor) => {
+                            const selected = shot.subjects ?? [];
+                            return (
+                              <button
+                                type="button"
+                                className="secondary-button"
+                                key={actor}
+                                disabled={shot.locked}
+                                aria-pressed={selected.includes(actor)}
+                                style={
+                                  selected.includes(actor)
+                                    ? {
+                                        backgroundColor: "var(--md-sys-color-secondary-container)",
+                                        color: "var(--md-sys-color-on-secondary-container)",
+                                      }
+                                    : undefined
+                                }
+                                onClick={() =>
+                                  update(shot.id, {
+                                    subjects: selected.includes(actor)
+                                      ? selected.filter((name) => name !== actor)
+                                      : [...selected, actor],
+                                    targetName: undefined,
+                                  })
+                                }
+                              >
+                                {selected.includes(actor) && <Check size={18} aria-hidden />}
+                                {actorNames.get(actor) ?? actor}
+                              </button>
+                            );
+                          })}
+                        </div>
                       </div>
-                    </div>
-                  )}
-                  <label className="field">
-                    <span>{tr("Shot transition")}</span>
-                    <select
-                      disabled={shot.locked || shot.kind === "manual"}
-                      value={shot.transition ?? (shot.transitionSeconds === 0 ? "cut" : "glide")}
-                      onChange={(event) =>
-                        update(shot.id, {
-                          transition: event.target.value as "cut" | "glide",
-                          transitionSeconds: event.target.value === "cut" ? 0 : 0.65,
-                        })
-                      }
-                    >
-                      <option value="cut">{tr("Cut")}</option>
-                      <option value="glide">{tr("Glide")}</option>
-                    </select>
-                  </label>
-                  <label className="field">
-                    <span>{tr("Focus shot")}</span>
-                    <NumberInput
-                      min={0}
-                      max={6}
-                      step={1}
-                      value={shot.cameraDistance ?? 2}
-                      disabled={shot.locked || shot.kind === "manual"}
-                      onCommit={(value) => update(shot.id, { cameraDistance: value })}
-                    />
-                  </label>
-                  <label className="field">
-                    <span>{tr("Camera transition (s)")}</span>
-                    <NumberInput
-                      min={0}
-                      max={2}
-                      step={0.05}
-                      value={shot.transitionSeconds ?? 0.35}
-                      disabled={shot.locked || shot.kind === "manual"}
-                      onCommit={(value) =>
-                        update(shot.id, { transitionSeconds: value, transition: value > 0 ? "glide" : "cut" })
-                      }
-                    />
-                  </label>
-                </div>
-              )}
-            </details>
-          </li>
-        ))}
-      </ol>
+                    )}
+                    <label className="field">
+                      <span>{tr("Shot transition")}</span>
+                      <select
+                        disabled={shot.locked || shot.kind === "manual"}
+                        value={shot.transition ?? (shot.transitionSeconds === 0 ? "cut" : "glide")}
+                        onChange={(event) =>
+                          update(shot.id, {
+                            transition: event.target.value as "cut" | "glide",
+                            transitionSeconds: event.target.value === "cut" ? 0 : 0.65,
+                          })
+                        }
+                      >
+                        <option value="cut">{tr("Cut")}</option>
+                        <option value="glide">{tr("Glide")}</option>
+                      </select>
+                    </label>
+                    <label className="field">
+                      <span>{tr("Focus shot")}</span>
+                      <select
+                        value={shot.cameraDistance ?? 2}
+                        disabled={shot.locked || shot.kind === "manual"}
+                        onChange={(event) => update(shot.id, { cameraDistance: Number(event.target.value) })}
+                      >
+                        {commandDescriptor(VEGA_ADV_OPCODE.Focus)
+                          ?.fields.find((field) => field.key === "cameraDistance")
+                          ?.choices?.map((choice) => (
+                            <option key={String(choice.value)} value={String(choice.value)}>
+                              {tr(`choice.${choice.label}`)}
+                            </option>
+                          ))}
+                      </select>
+                    </label>
+                    <label className="field">
+                      <span>{tr("Camera transition (s)")}</span>
+                      <NumberInput
+                        min={0}
+                        max={2}
+                        step={0.05}
+                        value={shot.transitionSeconds ?? 0.35}
+                        disabled={shot.locked || shot.kind === "manual"}
+                        onCommit={(value) =>
+                          update(shot.id, { transitionSeconds: value, transition: value > 0 ? "glide" : "cut" })
+                        }
+                      />
+                    </label>
+                  </div>
+                )}
+              </details>
+            </li>
+          ))}
+        </ol>
+      </fieldset>
       {captureError && <div role="alert">{captureError}</div>}
       {issues.length > 0 && <div role="alert">{issues.map((issue) => tr(issue.message)).join(" · ")}</div>}
     </section>

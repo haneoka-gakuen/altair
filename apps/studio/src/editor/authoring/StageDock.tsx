@@ -1,5 +1,5 @@
 import type { CSSProperties, ReactNode } from "react";
-import { ChevronDown, ChevronUp, Play, Pause, RotateCcw, StepForward } from "lucide-react";
+import { ChevronDown, ChevronUp, Play, Pause, RotateCcw, StepForward } from "@haneoka/altair-ui-react";
 import { useStudioI18n } from "../i18n";
 import type { CastRef } from "./Manuscript";
 
@@ -82,16 +82,14 @@ export function StageDock({
           <input
             type="range"
             min={0}
-            max={length}
+            max={Math.max(0, length - 1)}
             step={1}
-            value={Math.min(position, length)}
+            value={Math.min(position, Math.max(0, length - 1))}
             disabled={!canPlay}
             aria-label={t("Playback position")}
             onChange={(event) => onSeek(event.currentTarget.valueAsNumber)}
           />
-          <output>
-            {position} / {length}
-          </output>
+          <output>{t("authoring.lineProgress", { current: length ? position + 1 : 0, total: length })}</output>
         </label>
         <ul className="author-stage-cast" aria-label={t("authoring.speakers")}>
           {speakers.map((speaker) => (

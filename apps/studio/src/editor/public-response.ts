@@ -34,20 +34,38 @@ export async function readPublicResponse(url: string, options: PublicResponseOpt
   };
   try {
     resetDeadline();
-    const pending = fetch(url, {
-      signal: controller.signal,
-      credentials: "omit",
-      mode: "cors",
-      redirect: "error",
-      referrerPolicy: "no-referrer",
-    });
-    // A host/test fetch implementation can return a late body even after signal abort.
-    void pending
-      .then((value) => {
-        if (controller.signal.aborted && response !== value) return cancelResponse(value);
-      })
-      .catch(() => undefined);
-    response = await abortableOperation(() => pending, [controller.signal]);
+    for (let attempt = 0; ; attempt++) {
+      const pending = fetch(url, {
+        signal: controller.signal,
+        credentials: "omit",
+        mode: "cors",
+        redirect: "error",
+        referrerPolicy: "no-referrer",
+      });
+      void pending
+        .then((value) => {
+          if (controller.signal.aborted && response !== value) return cancelResponse(value);
+        })
+        .catch(() => undefined);
+      response = await abortableOperation(() => pending, [controller.signal]);
+      if (attempt >= 2 || ![408, 429, 500, 502, 503, 504].includes(response.status)) break;
+      await cancelResponse(response);
+      const seconds = Number(response.headers.get("retry-after"));
+      const delay = seconds > 0 ? Math.min(seconds * 1000, 3000) : 250 * 2 ** attempt;
+      let retryTimer: ReturnType<typeof setTimeout> | undefined;
+      try {
+        await abortableOperation(
+          () =>
+            new Promise<void>((resolve) => {
+              retryTimer = setTimeout(resolve, delay);
+            }),
+          [controller.signal],
+        );
+      } finally {
+        clearTimeout(retryTimer);
+      }
+      resetDeadline();
+    }
     controller.signal.throwIfAborted();
     if (!response.ok) throw new Error(`${options.label} HTTP ${response.status}`);
     const declared = response.headers.get("content-length");

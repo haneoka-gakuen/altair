@@ -1,6 +1,6 @@
 import { useId, useMemo, useState } from "react";
 import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
-import { ChevronRight, FileText, Folder, MoreVertical } from "lucide-react";
+import { ChevronRight, FileText, Folder, MoreVertical } from "@haneoka/altair-ui-react";
 import type { ProjectFile } from "./library";
 import { tr, useStudioI18n } from "./i18n";
 import "./file-tree.css";

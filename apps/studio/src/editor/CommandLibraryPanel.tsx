@@ -3,7 +3,7 @@ import { tr } from "./i18n";
 import { useMemo, useRef, useState, useSyncExternalStore } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
 import * as Tabs from "@radix-ui/react-tabs";
-import { Download, Upload, Plus, Star, Trash2, X } from "lucide-react";
+import { Download, Upload, Plus, Star, Trash2, X } from "@haneoka/altair-ui-react";
 import {
   altairCommandTypeKey,
   parseAltairSceneDocument,
@@ -366,7 +366,8 @@ export function CommandLibraryPanel({ session, onClose }: { session: EditorSessi
                           onChange={(event) =>
                             setPicked((previous) => {
                               const next = new Set(previous);
-                              event.target.checked ? next.add(node.id) : next.delete(node.id);
+                              if (event.target.checked) next.add(node.id);
+                              else next.delete(node.id);
                               return next;
                             })
                           }

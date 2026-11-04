@@ -5,12 +5,12 @@ import {
   type StudioDownload,
 } from "@haneoka/altair/studio-host";
 import type { EditorSession } from "./session";
-import { projectFilePath } from "./file-operations";
 import { selectInterfaceLanguage } from "./i18n";
 import { authoringProjectFiles } from "./authoring-project";
+import { configureMaterialIcons } from "@haneoka/altair-ui-react";
 
 const handlers = new Map<StudioAction, (value?: unknown) => unknown | Promise<unknown>>();
-let intent: ((action: StudioAction | "publish") => void) | undefined;
+let intent: ((action: StudioAction | "publish", value?: unknown) => void) | undefined;
 let download: ((value: StudioDownload) => void) | undefined;
 let environment: StudioEnvironment = {};
 export interface StudioEnvironment {
@@ -18,6 +18,7 @@ export interface StudioEnvironment {
   readonly theme?: "light" | "dark";
   readonly tokens?: Readonly<Record<string, string>>;
   readonly fontFamily?: string;
+  readonly iconSprite?: string;
   readonly fontStylesheets?: readonly string[];
   readonly origin?: string;
   readonly server?: string;
@@ -26,10 +27,12 @@ export interface StudioEnvironment {
 export const studioEnvironment = () => environment;
 export function configureStudio(value: StudioEnvironment): void {
   environment = { ...environment, ...value };
+  if (value.iconSprite) configureMaterialIcons(value.iconSprite);
   if (value.locale) selectInterfaceLanguage(value.locale);
   if (value.theme) document.documentElement.dataset.theme = value.theme;
   for (const [name, token] of Object.entries(value.tokens ?? {}))
-    if (name.startsWith("--md-sys-") || name.startsWith("--md-ref-typeface-")) document.documentElement.style.setProperty(name, token);
+    if (name.startsWith("--md-sys-") || name.startsWith("--md-ref-typeface-"))
+      document.documentElement.style.setProperty(name, token);
   if (value.fontFamily) document.documentElement.style.setProperty("--app-font", value.fontFamily);
   if (value.fontStylesheets) {
     const sources = new Set(value.fontStylesheets.map((source) => new URL(source, document.baseURI).href));
@@ -37,7 +40,12 @@ export function configureStudio(value: StudioEnvironment): void {
       if (!sources.has(link.href)) link.remove();
     for (const source of sources) {
       if (new URL(source).origin !== location.origin) continue;
-      if ([...document.querySelectorAll<HTMLLinkElement>("link[data-studio-host-font]")].some((link) => link.href === source)) continue;
+      if (
+        [...document.querySelectorAll<HTMLLinkElement>("link[data-studio-host-font]")].some(
+          (link) => link.href === source,
+        )
+      )
+        continue;
       const link = document.createElement("link");
       link.rel = "stylesheet";
       link.href = source;
@@ -60,15 +68,15 @@ export async function executeStudioAction(action: StudioAction, value?: unknown)
   if (!run) throw new Error("studio_not_ready");
   return run(value);
 }
-export function registerStudioIntent(send: (action: StudioAction | "publish") => void): () => void {
+export function registerStudioIntent(send: (action: StudioAction | "publish", value?: unknown) => void): () => void {
   intent = send;
   return () => {
     if (intent === send) intent = undefined;
   };
 }
-export function studioIntent(action: StudioAction | "publish"): boolean {
+export function studioIntent(action: StudioAction | "publish", value?: unknown): boolean {
   if (!intent || document.documentElement.dataset.studioHosted !== "true") return false;
-  intent(action);
+  intent(action, value);
   return true;
 }
 export function registerStudioDownload(send: (value: StudioDownload) => void): () => void {
