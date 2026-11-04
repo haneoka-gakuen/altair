@@ -750,7 +750,7 @@ export function EditorApp() {
               {serverTemplate && (
                 <button
                   type="button"
-                  className="secondary-button"
+                  className="secondary-button project-template-story"
                   disabled={busy}
                   onClick={() => {
                     const requestId = crypto.randomUUID();

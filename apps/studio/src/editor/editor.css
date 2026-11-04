@@ -893,6 +893,15 @@ a {
   color: var(--md-sys-color-on-surface-variant);
   padding: var(--md-sys-spacing-1);
 }
+.project-template-story {
+  inline-size: 100%;
+  min-inline-size: 0;
+  min-block-size: 48px;
+  justify-content: flex-start;
+  text-align: start;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
 .modal-actions {
   display: flex;
   justify-content: flex-end;
