@@ -212,7 +212,7 @@ export function EditorApp() {
       setName("");
       await open(project);
     } catch (error) {
-      setError(String(error));
+      setError(serverTemplate ? tr("authoring.optionsFailed") : String(error));
     } finally {
       setBusy(false);
     }
