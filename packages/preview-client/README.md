@@ -10,11 +10,6 @@ correlates request IDs and monotonic revisions, supports per-request
 `AbortSignal`/timeouts, and rejects every pending operation on transport
 closure.
 
-`timeoutMs` controls the handshake and short control requests. `sceneTimeoutMs`
-allows 120 seconds by default for scene loading, checkpoint replay, and snippets.
-A request can override either deadline with `timeoutMs` or cancel through its
-`AbortSignal`.
-
 The public client includes typed helpers for revisioned scene sync, running a
 scene/from a command/snippet, scene-qualified breakpoints, and stage reference
 frame/transform inspection. Advanced helpers still check the runtime's
