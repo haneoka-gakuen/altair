@@ -189,7 +189,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           repository: haneoka-gakuen/altair-plugin-haneoka
-          ref: d82487d031f8c53996d202ebb67e66f796b43757
+          ref: 59ab259333d605b4ccfd08afd7c32599dde7bcfd
           path: altair/.dependencies/altair-plugin-haneoka
           persist-credentials: false
 
