@@ -34,6 +34,7 @@ export interface ResourceBrowserFile<Reference = unknown> {
   readonly displayKind: ResourceBrowserDisplayKind;
   readonly previewUrl?: string;
   readonly audioPreviewUrl?: string;
+  readonly presentation?: { readonly kind: "live2d" | "spine"; readonly data: Readonly<Record<string, unknown>> };
   /** Insert kinds this file can produce when opened. */
   readonly acceptedKinds: readonly string[];
   readonly available: boolean;

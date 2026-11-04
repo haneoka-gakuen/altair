@@ -2,6 +2,7 @@ import { lazy, Suspense, useEffect, useMemo, useRef, useState, useSyncExternalSt
 import * as Dialog from "@radix-ui/react-dialog";
 import * as Tabs from "@radix-ui/react-tabs";
 import { ArrowLeft, ChevronRight, FileImage, Folder, Music, Video, RefreshCw, X } from "lucide-react";
+import type { JsonObject } from "@haneoka/altair/model";
 import type { ResourceBrowserFile } from "@haneoka/altair/resource-browser";
 import type { EditorSession } from "./session";
 import {
@@ -108,8 +109,22 @@ export function PublicResourcePicker({
       if (mounted.current && controller.getSnapshot().asset) setPage("selected");
     });
   };
+  const memberHashes = new Map(
+    (state.plan?.metadata.members as JsonObject[] | undefined)?.map((row) => [
+      String(row.memberId),
+      String(row.originalSha256 ?? ""),
+    ]),
+  );
   const storyProject = state.asset?.kind === "project";
-  const importReady = storyProject || Boolean(state.plan && metadata.author.trim() && metadata.license.trim() && metadata.version.trim() && metadata.directory.trim());
+  const importReady =
+    storyProject ||
+    Boolean(
+      state.plan &&
+      metadata.author.trim() &&
+      metadata.license.trim() &&
+      metadata.version.trim() &&
+      metadata.directory.trim(),
+    );
   const importAsset = () => {
     if (!importReady || busy || project.saving) return;
     setIssue("");
@@ -376,6 +391,7 @@ export function PublicResourcePicker({
                         {node.type === "file" && node.previewUrl && state.scope && (
                           <img
                             loading="lazy"
+                            referrerPolicy="no-referrer"
                             alt=""
                             src={publicResourceRequestUrl(
                               new URL(node.previewUrl, state.scope.origin).href,
@@ -406,7 +422,9 @@ export function PublicResourcePicker({
               aria-labelledby="public-selected-tab"
             >
               <div className="public-resource-picker__preview">
-                {storyProject ? <strong>{state.asset!.name}</strong> : state.asset && state.plan ? (
+                {storyProject ? (
+                  <strong>{state.asset!.name}</strong>
+                ) : state.asset && state.plan ? (
                   <Suspense fallback={<p role="status">{tr("Loading preview")}</p>}>
                     <PublicAssetPreview asset={state.asset} plan={state.plan} />
                   </Suspense>
@@ -422,39 +440,18 @@ export function PublicResourcePicker({
                       <li key={member.id}>
                         <strong>{member.role}</strong>
                         <code>{member.source}</code>
-                        {state.plan &&
-                          (state.plan.metadata.members as any[])?.find((row) => row.memberId === member.id)
-                            ?.originalSha256 && (
-                            <small>
-                              SHA-256{" "}
-                              {
-                                (state.plan.metadata.members as any[]).find((row) => row.memberId === member.id)
-                                  .originalSha256
-                              }
-                            </small>
-                          )}
+                        {memberHashes.get(member.id) && <small>SHA-256 {memberHashes.get(member.id)}</small>}
                       </li>
                     ))}
                   </ul>
                 </details>
               )}
-              {!storyProject && <section className="public-resource-picker__metadata">
-                <h3>{tr("Local import")}</h3>
-                {(["author", "license"] as const).map((field) => (
-                  <label className="field" key={field}>
-                    <span>{tr(field === "author" ? "Author" : "License")}</span>
-                    <input
-                      value={metadata[field]}
-                      disabled={busy}
-                      onChange={(event) => setMetadata((current) => ({ ...current, [field]: event.target.value }))}
-                    />
-                  </label>
-                ))}
-                <details className="public-resource-picker__advanced">
-                  <summary>{tr("Import options")}</summary>
-                  {(["directory", "version"] as const).map((field) => (
+              {!storyProject && (
+                <section className="public-resource-picker__metadata">
+                  <h3>{tr("Local import")}</h3>
+                  {(["author", "license"] as const).map((field) => (
                     <label className="field" key={field}>
-                      <span>{tr(field === "directory" ? "Import directory" : "Version")}</span>
+                      <span>{tr(field === "author" ? "Author" : "License")}</span>
                       <input
                         value={metadata[field]}
                         disabled={busy}
@@ -462,8 +459,21 @@ export function PublicResourcePicker({
                       />
                     </label>
                   ))}
-                </details>
-              </section>}
+                  <details className="public-resource-picker__advanced">
+                    <summary>{tr("Import options")}</summary>
+                    {(["directory", "version"] as const).map((field) => (
+                      <label className="field" key={field}>
+                        <span>{tr(field === "directory" ? "Import directory" : "Version")}</span>
+                        <input
+                          value={metadata[field]}
+                          disabled={busy}
+                          onChange={(event) => setMetadata((current) => ({ ...current, [field]: event.target.value }))}
+                        />
+                      </label>
+                    ))}
+                  </details>
+                </section>
+              )}
             </aside>
           </div>
           <footer className="public-resource-picker__actions">

@@ -1577,5 +1577,6 @@
   "Camera commands": "카메라 명령",
   "Missing scene: {{scene}}": "없는 장면: {{scene}}",
   "Missing command: {{node}}": "없는 명령: {{node}}",
-  "Select a target scene": "대상 장면 선택"
+  "Select a target scene": "대상 장면 선택",
+  "Import Our Notes story": "Our Notes 스토리 가져오기"
 }

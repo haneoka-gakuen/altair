@@ -1577,5 +1577,6 @@
   "Camera commands": "Camera commands",
   "Missing scene: {{scene}}": "Missing scene: {{scene}}",
   "Missing command: {{node}}": "Missing command: {{node}}",
-  "Select a target scene": "Select a target scene"
+  "Select a target scene": "Select a target scene",
+  "Import Our Notes story": "Import Our Notes story"
 }

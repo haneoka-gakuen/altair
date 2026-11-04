@@ -1,6 +1,5 @@
 import { GameExportDialog } from "./GameExportDialog";
 import { readPanelLayout, savePanelLayout } from "./preferences";
-import { WebGalEngineDialog } from "./WebGalEngineDialog";
 import { PluginPanel } from "./PluginPanel";
 import { tr, useStudioI18n } from "./i18n";
 import { InterfaceLanguage } from "./InterfaceLanguage";
@@ -23,7 +22,6 @@ import {
   FilePlus2,
   FileText,
   Folder,
-  FolderPlus,
   GanttChart,
   LayoutList,
   Library,
@@ -38,7 +36,6 @@ import {
   Undo2,
   X,
 } from "lucide-react";
-import { parseAltairSceneDocument } from "@haneoka/altair";
 import { nativeStatements, nativeCommands, nativeScenePath, NATIVE_PROJECT_PATH } from "./native-project";
 import { readLocalizedText } from "./localized-text";
 import { sessionCommandLibrary, COMMAND_LIBRARY_PATH, insertLibraryCommand } from "./command-library";
@@ -180,6 +177,32 @@ export function Workspace({ session, onHome }: { session: EditorSession; onHome:
           node.type === "file" && node.previewUrl && snapshot.scope
             ? publicResourceRequestUrl(new URL(node.previewUrl, snapshot.scope.origin).href, snapshot.scope)
             : "",
+        ...(node.type === "file" && node.presentation && snapshot.scope
+          ? {
+              presentation: {
+                kind: node.presentation.kind,
+                data: {
+                  ...node.presentation.data,
+                  faceImage:
+                    typeof node.presentation.data.faceImage === "string"
+                      ? publicResourceRequestUrl(
+                          new URL(node.presentation.data.faceImage, snapshot.scope.origin).href,
+                          snapshot.scope,
+                        )
+                      : "",
+                  preview: {
+                    ...(node.presentation.data.preview as Record<string, unknown>),
+                    image: node.previewUrl
+                      ? publicResourceRequestUrl(new URL(node.previewUrl, snapshot.scope.origin).href, snapshot.scope)
+                      : "",
+                    url: node.previewUrl
+                      ? publicResourceRequestUrl(new URL(node.previewUrl, snapshot.scope.origin).href, snapshot.scope)
+                      : "",
+                  },
+                },
+              },
+            }
+          : {}),
         displayKind: node.type === "file" ? node.displayKind : "directory",
         available:
           node.type === "directory" ||
@@ -332,7 +355,8 @@ export function Workspace({ session, onHome }: { session: EditorSession; onHome:
       if (target.closest(".monaco-editor") || target.matches("input,textarea")) return;
       if (event.key.toLowerCase() === "z") {
         event.preventDefault();
-        event.shiftKey ? session.redo() : session.undo();
+        if (event.shiftKey) session.redo();
+        else session.undo();
       }
     };
     const beforeUnload = (event: BeforeUnloadEvent) => {

@@ -4,7 +4,7 @@ import { tr, useStudioI18n, deviceLanguage, canonicalLanguage, studioI18n } from
 import { InterfaceLanguage } from "./InterfaceLanguage";
 import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import * as Dialog from "@radix-ui/react-dialog";
-import { Boxes, FolderOpen, Gamepad2, Import, Plus, Search, Settings, Star, X } from "lucide-react";
+import { Boxes, FolderOpen, Gamepad2, Import, Plus, Search, Star, X } from "lucide-react";
 import { BrowserWorkspaceService } from "@haneoka/altair-plugin-workspace-browser";
 import { projectLibrary, type LibraryProject } from "./library";
 import { EditorSession } from "./session";
@@ -20,6 +20,7 @@ import {
   registerStudioDownload,
   studioProjectSnapshot,
   studioState,
+  studioIntent,
   type StudioEnvironment,
 } from "./studio-host";
 import altairMark from "../../../../docs/brand/favicon.svg?url";
@@ -677,6 +678,23 @@ export function EditorApp() {
           <Dialog.Overlay className="modal-overlay" />
           <Dialog.Content className="modal-content">
             <Dialog.Title>{tr("New project")}</Dialog.Title>
+            {window.parent !== window && (
+              <>
+                <button
+                  type="button"
+                  className="secondary-button"
+                  style={{ minHeight: 48 }}
+                  disabled={busy}
+                  onClick={() => {
+                    setCreate(false);
+                    studioIntent("stories");
+                  }}
+                >
+                  <Import size={18} />
+                  {tr("Import Our Notes story")}
+                </button>
+              </>
+            )}
             <form
               onSubmit={(event) => {
                 event.preventDefault();

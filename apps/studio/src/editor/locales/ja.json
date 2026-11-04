@@ -1577,5 +1577,6 @@
   "Camera commands": "カメラコマンド",
   "Missing scene: {{scene}}": "シーンがありません：{{scene}}",
   "Missing command: {{node}}": "コマンドがありません：{{node}}",
-  "Select a target scene": "移動先のシーンを選択"
+  "Select a target scene": "移動先のシーンを選択",
+  "Import Our Notes story": "Our Notes のストーリーを読み込む"
 }

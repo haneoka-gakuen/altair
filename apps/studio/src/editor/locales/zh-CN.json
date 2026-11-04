@@ -1577,5 +1577,6 @@
   "Camera commands": "镜头指令",
   "Missing scene: {{scene}}": "场景不存在：{{scene}}",
   "Missing command: {{node}}": "指令不存在：{{node}}",
-  "Select a target scene": "选择目标场景"
+  "Select a target scene": "选择目标场景",
+  "Import Our Notes story": "导入 Our Notes 故事"
 }

@@ -44,6 +44,7 @@ export interface StudioAssetCatalogue {
     name: string;
     title: string;
     image: string;
+    presentation?: { readonly kind: "live2d" | "spine"; readonly data: Readonly<Record<string, unknown>> };
     displayKind: string;
     available: boolean;
   }[];
@@ -69,6 +70,7 @@ export type StudioAction =
   | "new"
   | "import"
   | "import-source"
+  | "stories"
   | "folder"
   | "library"
   | "save"
@@ -203,10 +205,13 @@ export class AltairStudioClient {
     ].includes(action);
     const projectId = options.projectId === undefined ? (this.current?.projectId ?? null) : options.projectId;
     return new Promise<T>((resolve, reject) => {
-      const timer = setTimeout(() => {
-        this.pending.delete(id);
-        reject(new Error("studio_timeout"));
-      }, 120000);
+      const timer = setTimeout(
+        () => {
+          this.pending.delete(id);
+          reject(new Error("studio_timeout"));
+        },
+        ["import-source", "folder"].includes(action) ? 30 * 60 * 1000 : 120000,
+      );
       this.pending.set(id, { resolve: (value) => resolve(value as T), reject, timer });
       this.port!.postMessage({
         protocol: ALTAIR_STUDIO_PROTOCOL,
