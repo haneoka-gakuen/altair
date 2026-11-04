@@ -1,3 +1,4 @@
+export { authoredTypeLabelKey } from "./command-labels.js";
 import { createContext, createElement, useContext, type ReactNode } from "react";
 import { createRoot } from "react-dom/client";
 import type { AltairEditorWorkspace, AltairPanelContext } from "@haneoka/altair";

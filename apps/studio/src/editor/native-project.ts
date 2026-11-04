@@ -1,3 +1,4 @@
+import { authoredTypeLabelKey } from "@haneoka/altair-ui-react";
 import { convertWorkspaceModels } from "@haneoka/altair-plugin-models/models";
 import { tr, deviceLanguage, canonicalLanguage } from "./i18n";
 import {
@@ -132,51 +133,8 @@ export function nativeNodeLabel(node: AltairAuthoredNode): string {
                     : "Animation curves";
     return tr(label);
   }
-  const core: Record<string, string> = {
-    timeline: "Timeline",
-    audioClip: "Audio clip",
-    sequence: "Sequence",
-    note: "Note",
-    jump: "Jump to scene",
-    call: "Call scene",
-    return: "Return",
-    end: "End story",
-    branch: "Conditional branch",
-    setVariable: "Set variable",
-    input: "Text input",
-    unlock: "Unlock gallery item",
-    dialogue: "Dialogue visibility",
-  };
-  const effects: Record<string, string> = {
-    "effect.dialoguePortrait": "Dialogue portrait",
-    "effect.figureDiff": "Portrait difference",
-    "effect.intro": "Fullscreen text",
-    "effect.setTransform": "Transform",
-    "effect.setTempAnimation": "Animation",
-    "effect.setTempAnimationV2": "Animation",
-    "effect.setAnimation": "Animation",
-    "effect.setFilter": "Visual filters",
-    "effect.pixiPerform": "Visual effect",
-    "effect.pixiInit": "Clear WebGAL weather",
-  };
-  const system: Record<string, string> = {
-    SetVariable: "Set variable",
-    Branch: "Conditional branch",
-    JumpScene: "Jump to scene",
-    CallScene: "Call scene",
-    ReturnScene: "Return",
-    Input: "Text input",
-    Unlock: "Unlock gallery item",
-    FlowCheckpoint: "Checkpoint",
-    SetSetting: "Setting",
-    End: "End story",
-    SceneMarker: "Scene",
-    SetDialogueVisibility: "Dialogue visibility",
-  };
-  if (node.type.plugin === "haneoka.altair-webgal" && node.type.name.startsWith("system."))
-    return tr(system[node.type.name.slice(7)] ?? "System");
-  if (node.type.plugin === "haneoka.altair" && core[node.type.name]) return tr(core[node.type.name]!);
-  if (node.type.plugin === "haneoka.altair-webgal" && effects[node.type.name]) return tr(effects[node.type.name]!);
+  const key = authoredTypeLabelKey(node.type.plugin, node.type.name);
+  if (key) return tr(key);
   return node.type.name.replace(/^(?:effect|system)\./u, "");
 }
 export function newNativeScene(name: string): AltairSceneDocument {
