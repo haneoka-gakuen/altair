@@ -81,7 +81,12 @@ const TimelineEditor = lazy(() =>
     default: module.TimelineEditor,
   })),
 );
-export function Workspace({ session, onHome }: { session: EditorSession; onHome: () => void }) {
+export function Workspace({ session, onHome, externalError, onClearError }: {
+  session: EditorSession;
+  onHome: () => void;
+  externalError?: string;
+  onClearError?: () => void;
+}) {
   const [authoringTools, setAuthoringTools] = useState(false);
   const documentTabs = useRef<HTMLDivElement>(null);
   const { i18n } = useStudioI18n();
@@ -1291,17 +1296,23 @@ export function Workspace({ session, onHome }: { session: EditorSession; onHome:
       </Group>
       </div></TaskSheet>}
       <Dialog.Root
-        open={Boolean(issue)}
+        open={Boolean(issue || externalError)}
         onOpenChange={(open) => {
-          if (!open) setIssue("");
+          if (!open) {
+            setIssue("");
+            onClearError?.();
+          }
         }}
       >
         <Dialog.Portal>
           <Dialog.Overlay className="modal-overlay" />
           <Dialog.Content className="modal-content">
             <Dialog.Title>{tr("Error")}</Dialog.Title>
-            <Dialog.Description>{issue}</Dialog.Description>
-            <button className="primary-button" onClick={() => setIssue("")}>
+            <Dialog.Description>{externalError || issue}</Dialog.Description>
+            <button className="primary-button" onClick={() => {
+              setIssue("");
+              onClearError?.();
+            }}>
               {tr("Close")}
             </button>
           </Dialog.Content>

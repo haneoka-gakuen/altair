@@ -388,6 +388,7 @@ export async function normalizeImportedProject(project: LibraryProject): Promise
         throw new Error(tr("The imported source document is too large"));
       files.push({ path: file.path, bytes: new Uint8Array(await file.blob.arrayBuffer()) });
     }
+    if (!files.length) throw new Error(tr("No supported story source was found"));
     workspace = await importWebGalAuthoredWorkspace({ files, signal: new AbortController().signal });
   }
   const models = await convertWorkspaceModels(workspace, project.files);

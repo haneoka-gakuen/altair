@@ -1729,5 +1729,8 @@
   "ai.currentVersion": "現在の版",
   "ai.previewVersion": "提案をプレビュー",
   "Proposed shots": "提案ショット",
-  "ai.request": "編集リクエスト"
+  "ai.request": "編集リクエスト",
+  "Damaged archive file: {{path}}": "アーカイブ内のファイルが破損しています：{{path}}",
+  "Unsupported archive compression": "未対応の圧縮方式です",
+  "No supported story source was found": "読み込めるストーリーのソースがありません"
 }

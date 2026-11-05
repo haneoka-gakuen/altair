@@ -1729,5 +1729,8 @@
   "ai.currentVersion": "当前版本",
   "ai.previewVersion": "预览提案",
   "Proposed shots": "提案镜头",
-  "ai.request": "修改请求"
+  "ai.request": "修改请求",
+  "Damaged archive file: {{path}}": "压缩包文件损坏：{{path}}",
+  "Unsupported archive compression": "不支持此压缩方式",
+  "No supported story source was found": "未找到可导入的故事源码"
 }

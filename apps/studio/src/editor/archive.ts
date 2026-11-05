@@ -1,7 +1,7 @@
 import { downloadStudioFile } from "./studio-host";
 import { createWorkspaceZip } from "@haneoka/altair-plugin-workspace-browser/archive";
 import { tr } from "./i18n";
-import { Unzip, UnzipInflate, strFromU8, type UnzipFile } from "fflate";
+import { strFromU8 } from "fflate";
 import type { EditorSession } from "./session";
 import type { ProjectFile } from "./library";
 import { projectDirectories, projectFilePath } from "./file-operations";
@@ -95,7 +95,10 @@ export async function readProjectZip(
   if (directorySize > 64 * 1024 * 1024) throw new Error(tr("The archive metadata is too large"));
   signal?.throwIfAborted();
   const metadata = new DataView(await file.slice(directoryOffset, directoryOffset + directorySize).arrayBuffer());
-  const entries = new Map<string, { crc: number; size: number }>();
+  const entries = new Map<
+    string,
+    { crc: number; size: number; compressed: number; method: number; flags: number; offset: number }
+  >();
   const declaredPaths = new Set<string>();
   let declaredBytes = 0;
   for (let offset = 0; offset < metadata.byteLength;) {
@@ -117,112 +120,100 @@ export async function readProjectZip(
     if ((mode & 0o170000) === 0o120000) throw new Error(tr("Archive symbolic links are unsupported"));
     declaredBytes += size;
     if (declaredBytes > maxBytes) throw new Error(tr("The archive exceeds its decoded byte limit"));
-    entries.set(name, { crc: metadata.getUint32(offset + 16, true), size });
+    entries.set(name, {
+      crc: metadata.getUint32(offset + 16, true),
+      size,
+      compressed: metadata.getUint32(offset + 20, true),
+      method: metadata.getUint16(offset + 10, true),
+      flags,
+      offset: metadata.getUint32(offset + 42, true),
+    });
     offset = next;
   }
   if (entries.size !== expectedCount) throw new Error(tr("The archive is incomplete"));
   const files: ProjectFile[] = [],
-    directories: string[] = [],
-    paths = new Set<string>(),
-    active = new Set<UnzipFile>();
-  let total = 0,
-    count = 0,
-    failure: unknown;
-  const archive = new Unzip((entry) => {
+    directories: string[] = [];
+  let total = 0;
+  for (const [name, entry] of entries) {
+    signal?.throwIfAborted();
+    const damaged = () => new Error(tr("Damaged archive file: {{path}}", { path: name }));
+    if (entry.offset + 30 > directoryOffset) throw new Error(tr("The archive is incomplete"));
+    const header = new DataView(await file.slice(entry.offset, entry.offset + 30).arrayBuffer());
+    if (
+      header.byteLength !== 30 ||
+      header.getUint32(0, true) !== 0x04034b50 ||
+      header.getUint16(6, true) !== entry.flags ||
+      header.getUint16(8, true) !== entry.method
+    )
+      throw damaged();
+    const nameLength = header.getUint16(26, true),
+      start = entry.offset + 30 + nameLength + header.getUint16(28, true);
+    if (start + entry.compressed > directoryOffset) throw new Error(tr("The archive is incomplete"));
+    const localName = strFromU8(
+      new Uint8Array(await file.slice(entry.offset + 30, entry.offset + 30 + nameLength).arrayBuffer()),
+      !(entry.flags & 2048),
+    );
+    if (localName !== name) throw new Error(tr("The archive contains an invalid path"));
+    if (
+      !(entry.flags & 8) &&
+      (header.getUint32(14, true) !== entry.crc ||
+        header.getUint32(18, true) !== entry.compressed ||
+        header.getUint32(22, true) !== entry.size)
+    )
+      throw damaged();
+    if (entry.method !== 0 && entry.method !== 8) throw new Error(tr("Unsupported archive compression"));
+    if (entry.method === 0 && entry.compressed !== entry.size) throw damaged();
+    const directory = name.endsWith("/"),
+      path = projectFilePath(directory ? name.slice(0, -1) : name),
+      chunks: BlobPart[] = [],
+      source = file.slice(start, start + entry.compressed).stream();
+    const reader = (
+      entry.method === 8 ? source.pipeThrough(new DecompressionStream("deflate-raw")) : source
+    ).getReader();
+    let crc = 0xffffffff,
+      size = 0;
     try {
-      if (++count > MAX_ARCHIVE_ENTRIES) throw new Error(tr("The archive contains too many entries"));
-      const directory = entry.name.endsWith("/");
-      const expected = entries.get(entry.name);
-      if (!expected) throw new Error(tr("The archive is incomplete"));
-      const path = projectFilePath(directory ? entry.name.slice(0, -1) : entry.name);
-      if (paths.has(path)) throw new Error(tr("The archive contains duplicate paths"));
-      paths.add(path);
-      if (entry.originalSize !== undefined && entry.originalSize > maxBytes)
-        throw new Error(tr("The archive exceeds its decoded byte limit"));
-      const chunks: BlobPart[] = [];
-      let crc = 0xffffffff,
-        size = 0;
-      active.add(entry);
-      entry.ondata = (error, data, final) => {
-        if (error) {
-          failure = error;
-          return;
-        }
-        total += data.byteLength;
-        size += data.byteLength;
-        if (size > expected.size) {
-          failure = new Error(tr("The archive contains a damaged file"));
-          entry.terminate();
-          return;
-        }
-        if (total > maxBytes) {
-          failure = new Error(tr("The archive exceeds its decoded byte limit"));
-          entry.terminate();
-          return;
-        }
-        for (const value of data) crc = (crc >>> 8) ^ crcTable[(crc ^ value) & 255]!;
-        if (directory && data.byteLength) {
-          failure = new Error(tr("The archive contains an invalid path"));
-          entry.terminate();
-          return;
-        }
-        if (!directory) chunks.push(new Blob([data as Uint8Array<ArrayBuffer>]));
-        if (final) {
-          if (size !== expected.size || (crc ^ 0xffffffff) >>> 0 !== expected.crc) {
-            failure = new Error(tr("The archive contains a damaged file"));
-            return;
-          }
-          active.delete(entry);
-          if (directory) directories.push(path);
-          else files.push({ path, blob: new Blob(chunks) });
-        }
-      };
-      entry.start();
-    } catch (error) {
-      failure = error;
-      entry.terminate();
-    }
-  });
-  archive.register(UnzipInflate);
-  const reader = file.stream().getReader();
-  try {
-    while (true) {
-      signal?.throwIfAborted();
-      const { done, value } = await reader.read();
-      if (done) {
-        archive.push(new Uint8Array(), true);
-        break;
+      for (;;) {
+        signal?.throwIfAborted();
+        const { value, done } = await reader.read().catch((error: unknown) => {
+          signal?.throwIfAborted();
+          throw new Error(tr("Damaged archive file: {{path}}", { path: name }), { cause: error });
+        });
+        if (done) break;
+        size += value.byteLength;
+        total += value.byteLength;
+        if (size > entry.size) throw damaged();
+        if (total > maxBytes) throw new Error(tr("The archive exceeds its decoded byte limit"));
+        if (directory && value.byteLength) throw new Error(tr("The archive contains an invalid path"));
+        for (const byte of value) crc = (crc >>> 8) ^ crcTable[(crc ^ byte) & 255]!;
+        if (!directory) chunks.push(new Blob([value as Uint8Array<ArrayBuffer>]));
       }
-      archive.push(value);
-      if (failure) throw failure;
+    } finally {
+      await reader.cancel().catch(() => undefined);
+      reader.releaseLock();
     }
-    if (failure) throw failure;
-    if (active.size || count !== expectedCount) throw new Error(tr("The archive is incomplete"));
-    projectDirectories(files, directories);
-    const paths = [...files.map((file) => file.path), ...directories];
-    const root = paths[0]?.split("/")[0];
-    // A packaging folder may have its own ZIP directory entry; retain WebGAL's semantic game/ root.
-    const prefix =
-      root &&
-      root !== "game" &&
-      paths.every((path) => path === root || path.startsWith(`${root}/`)) &&
-      files.every((file) => file.path.startsWith(`${root}/`))
-        ? root.length + 1
-        : 0;
-    return {
-      files: files.map((file) => ({ ...file, path: file.path.slice(prefix) })),
-      directories: projectDirectories(
-        [],
-        directories.filter((path) => !prefix || path.length >= prefix).map((path) => path.slice(prefix)),
-      ),
-    };
-  } catch (error) {
-    for (const entry of active) entry.terminate();
-    throw error;
-  } finally {
-    await reader.cancel().catch(() => undefined);
-    reader.releaseLock();
+    if (size !== entry.size || (crc ^ 0xffffffff) >>> 0 !== entry.crc) throw damaged();
+    if (directory) directories.push(path);
+    else files.push({ path, blob: new Blob(chunks) });
   }
+  projectDirectories(files, directories);
+  const paths = [...files.map((file) => file.path), ...directories];
+  const root = paths[0]?.split("/")[0];
+  // Keep WebGAL's semantic game/ root when removing a packaging folder.
+  const prefix =
+    root &&
+    root !== "game" &&
+    paths.every((path) => path === root || path.startsWith(`${root}/`)) &&
+    files.every((file) => file.path.startsWith(`${root}/`))
+      ? root.length + 1
+      : 0;
+  return {
+    files: files.map((file) => ({ ...file, path: file.path.slice(prefix) })),
+    directories: projectDirectories(
+      [],
+      directories.filter((path) => !prefix || path.length >= prefix).map((path) => path.slice(prefix)),
+    ),
+  };
 }
 
 /** Existing consumers may continue using the files-only import API. */

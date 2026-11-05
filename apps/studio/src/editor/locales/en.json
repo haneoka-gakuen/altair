@@ -1729,5 +1729,8 @@
   "ai.currentVersion": "Current version",
   "ai.previewVersion": "Preview proposal",
   "Proposed shots": "Proposed shots",
-  "ai.request": "Edit request"
+  "ai.request": "Edit request",
+  "Damaged archive file: {{path}}": "Damaged archive file: {{path}}",
+  "Unsupported archive compression": "Unsupported archive compression",
+  "No supported story source was found": "No supported story source was found"
 }

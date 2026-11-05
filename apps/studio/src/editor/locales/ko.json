@@ -1729,5 +1729,8 @@
   "ai.currentVersion": "현재 버전",
   "ai.previewVersion": "제안 미리보기",
   "Proposed shots": "제안 샷",
-  "ai.request": "편집 요청"
+  "ai.request": "편집 요청",
+  "Damaged archive file: {{path}}": "압축 파일이 손상되었습니다: {{path}}",
+  "Unsupported archive compression": "지원하지 않는 압축 방식입니다",
+  "No supported story source was found": "가져올 수 있는 스토리 소스가 없습니다"
 }

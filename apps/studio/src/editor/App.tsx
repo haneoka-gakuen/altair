@@ -487,10 +487,9 @@ export function EditorApp() {
               files,
               directories,
             };
-            await projectLibrary.put(project);
             await open(project);
           })
-          .catch((error) => setError(String(error)))
+          .catch((error) => setError(error instanceof Error ? error.message : String(error)))
           .finally(() => setBusy(false));
       }}
     />
@@ -508,6 +507,8 @@ export function EditorApp() {
         <Suspense fallback={<div className="app-loading">{tr("Opening editor\u2026")}</div>}>
           <Workspace
             session={session}
+            externalError={error}
+            onClearError={() => setError("")}
             onHome={() => {
               localStorage.removeItem("altair.library.active");
               void session
