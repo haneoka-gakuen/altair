@@ -89,6 +89,9 @@ export type StudioAction =
   | "library"
   | "save"
   | "settings"
+  | "ai-settings"
+  | "assistant"
+  | "cinematic"
   | "export-project"
   | "export-game"
   | "undo"
@@ -209,6 +212,7 @@ export class AltairStudioClient {
     const bound = ![
       "state",
       "configure",
+      "ai-settings",
       "new",
       "open",
       "open-local",

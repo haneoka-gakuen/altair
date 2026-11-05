@@ -1,3 +1,10 @@
+import {
+  planProtectedShots,
+  replaceProjectShot,
+  shotProposalChange,
+  cameraLocked,
+  type ProjectShotProposal,
+} from "./cinematic";
 import "./storyboard-editor.css";
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { Camera, Check, Lock, Plus, Trash2, Unlock } from "@haneoka/altair-ui-react";
@@ -13,7 +20,6 @@ import { commandDescriptor } from "@haneoka/altair-plugin-adv/commands";
 import { storyProjectToAuthoredWorkspace } from "@haneoka/altair-plugin-adv/documents";
 import { webGalCommandToAuthoredNode } from "@haneoka/altair-plugin-webgal";
 import {
-  planStoryShots,
   storyShotsOutsideRange,
   prepareStoryPresentation,
   sceneStoryboard,
@@ -34,20 +40,65 @@ import { readLocalizedText } from "./localized-text";
 const record = (value: JsonValue | undefined): JsonObject =>
   value && typeof value === "object" && !Array.isArray(value) ? value : {};
 
-export function StoryboardEditor({ session, scope }: { session: EditorSession; scope?: readonly string[] }) {
+interface ShotProposal {
+  source: { path: string; text: string };
+  sceneId: string;
+  extensions: JsonObject;
+  shots: readonly StoryShot[];
+}
+function AutoPlan({ request, ready, run }: { request?: string; ready: boolean; run(): void }) {
+  const consumed = useRef<string | undefined>(undefined);
+  useEffect(() => {
+    if (request && ready && consumed.current !== request) {
+      consumed.current = request;
+      run();
+    }
+  }, [request, ready, run]);
+  return null;
+}
+export function StoryboardEditor({
+  session,
+  scope,
+  autoPlanRequest,
+}: {
+  session: EditorSession;
+  scope?: readonly string[];
+  autoPlanRequest?: string;
+}) {
   const state = useSyncExternalStore(session.subscribe, session.getSnapshot);
   const [intent, setIntent] = useState<StoryIntent>("dialogue"),
     [range, setRange] = useState({ start: "", end: "" });
   const [thumbnails, setThumbnails] = useState<Record<string, { revision: unknown; image: string }>>({}),
     [captureError, setCaptureError] = useState("");
   const [expandedShot, setExpandedShot] = useState<string>();
-  const [proposal, setProposal] = useState<{
-    source: { path: string; text: string };
-    sceneId: string;
-    extensions: JsonObject;
-    shots: readonly StoryShot[];
-  }>();
-  const [previewProposal, setPreviewProposal] = useState(true);
+  const stored = state.proposals?.find((proposal) => proposal.origin === "storyboard");
+  const data = stored?.data as ShotProposal | ProjectShotProposal | undefined;
+  const proposal = data && "kind" in data ? data.scenes.find((scene) => scene.source.path === state.active) : data;
+  const previewProposal = !!stored && state.previewProposalId === stored.id;
+  const setPreviewProposal = (preview: boolean) => session.previewProposal(preview ? stored?.id : undefined);
+  const setProposal = (value?: ShotProposal, replace = false) => {
+    if (!value) {
+      if (stored) void session.discardProposal(stored.id);
+      return;
+    }
+    if (replace && stored && data && "kind" in data) {
+      void session
+        .stageProposal(replaceProjectShot(session, stored, value))
+        .catch((error) => setCaptureError(String(error)));
+      return;
+    }
+    const change = shotProposalChange(session, value);
+    void session
+      .stageProposal({
+        id: replace && stored ? stored.id : crypto.randomUUID(),
+        origin: "storyboard",
+        title: tr("Proposed shots"),
+        createdAt: new Date().toISOString(),
+        changes: [change],
+        data: value,
+      })
+      .catch((error) => setCaptureError(String(error)));
+  };
   const [capturing, setCapturing] = useState(false);
   const capture = useRef<AbortController | undefined>(undefined);
   useEffect(() => () => capture.current?.abort(), []);
@@ -56,20 +107,25 @@ export function StoryboardEditor({ session, scope }: { session: EditorSession; s
     [state.project],
   );
   const doc = session.document();
-  const pending = proposal?.source.path === doc?.path && proposal?.source.text === doc?.text ? proposal : undefined;
-  useEffect(() => {
-    if (!pending || !previewProposal || !doc) return;
-    return session.previewSceneExtensions(pending.sceneId, doc, {
-      ...pending.extensions,
-      [STORYBOARD_KEY]: { version: 1, shots: pending.shots as unknown as JsonObject[] },
-    });
-  }, [session, pending, previewProposal, doc?.path, doc?.text]);
+  const pending =
+    proposal?.source.path === doc?.path &&
+    proposal?.source.text === doc?.text &&
+    !!stored &&
+    session.proposalCurrent(stored)
+      ? proposal
+      : undefined;
   const authored = doc && nativeScenePath(doc.path) ? parseAltairSceneDocument(doc.text) : undefined;
   const scene = state.project?.scenes.find((scene) => scene.id === authored?.id);
   if (!scene || !authored || !doc) return <div className="empty-panel">{tr("Open a scene first")}</div>;
-  const authoredShots = sceneStoryboard({ extensions: authored.extensions ?? {} });
+  const authoredShots = pending?.shots ?? sceneStoryboard({ extensions: authored.extensions ?? {} });
   const shots = pending?.shots ?? sceneStoryboard(presented?.scenes.find((value) => value.id === scene.id) ?? scene);
-  const currentScene = { ...scene, extensions: authored.extensions ?? {} };
+  const currentScene = {
+    ...scene,
+    extensions: {
+      ...authored.extensions,
+      ...(pending ? { [STORYBOARD_KEY]: { version: 1, shots: pending.shots as unknown as JsonObject[] } } : {}),
+    },
+  };
   const issues = validateStoryboard(currentScene);
   const nodeIds = new Set(authored.nodes.map((node) => node.id));
   const ready =
@@ -102,7 +158,11 @@ export function StoryboardEditor({ session, scope }: { session: EditorSession; s
     scenePresentation && typeof scenePresentation === "object" && !Array.isArray(scenePresentation)
       ? scenePresentation
       : {};
-  const commit = (next: readonly StoryShot[]) =>
+  const commit = (next: readonly StoryShot[]) => {
+    if (pending) {
+      setProposal({ ...pending, shots: next }, true);
+      return;
+    }
     session.update(
       doc.path,
       serializeAltairDocument(
@@ -119,6 +179,7 @@ export function StoryboardEditor({ session, scope }: { session: EditorSession; s
         doc.text,
       ),
     );
+  };
   const frameId = (shot: StoryShot) => {
     const head = scene.commands.findIndex((command) => command.id === shot.start),
       tail = scene.commands.findIndex((command) => command.id === shot.end);
@@ -151,6 +212,10 @@ export function StoryboardEditor({ session, scope }: { session: EditorSession; s
   const storeShot = (next: StoryShot) => {
     const head = authored.nodes.findIndex((node) => node.id === next.start),
       tail = authored.nodes.findIndex((node) => node.id === next.end);
+    if (authored.nodes.slice(head, tail + 1).some(cameraLocked)) {
+      setCaptureError(tr("ai.locked"));
+      return;
+    }
     if (
       authoredShots.some(
         (shot) =>
@@ -293,9 +358,41 @@ export function StoryboardEditor({ session, scope }: { session: EditorSession; s
     ).scenes[0]!;
     session.update(doc.path, serializeAltairDocument(document, doc.text));
   };
+  const generateProposal = () => {
+    setProposal({
+      source: { path: doc.path, text: doc.text },
+      sceneId: scene.id,
+      extensions: sceneExtensions,
+      shots: planProtectedShots(state.project!, authored, { start, end, intent }),
+    });
+  };
   return (
     <section className="storyboard-editor">
+      <AutoPlan
+        request={autoPlanRequest}
+        ready={ready && !!start && !!end}
+        run={() => {
+          generateProposal();
+          session.consumeToolRequest(autoPlanRequest!);
+        }}
+      />
       <div className="panel-heading">{tr("Storyboard")}</div>
+      {(state.proposals?.filter((item) => item.origin === "storyboard").length ?? 0) > 1 && (
+        <label className="field">
+          <span>{tr("ai.proposals")}</span>
+          <select value={stored?.id ?? ""} onChange={(event) => session.selectProposal(event.target.value)}>
+            {state.proposals
+              ?.filter((item) => item.origin === "storyboard")
+              .map((item) => (
+                <option key={item.id} value={item.id}>
+                  {item.title}
+                </option>
+              ))}
+          </select>
+        </label>
+      )}
+      {stored?.detail && <span>{stored.detail}</span>}
+      {stored && !session.proposalCurrent(stored) && <span className="ai-status">{tr("ai.proposalExpired")}</span>}
       <div className="storyboard-planner">
         <label className="field">
           <span>{tr("Direction mode")}</span>
@@ -346,20 +443,7 @@ export function StoryboardEditor({ session, scope }: { session: EditorSession; s
             !end ||
             authored.nodes.findIndex((node) => node.id === end) < authored.nodes.findIndex((node) => node.id === start)
           }
-          onClick={() => {
-            setPreviewProposal(true);
-            setProposal({
-              source: { path: doc.path, text: doc.text },
-              sceneId: scene.id,
-              extensions: sceneExtensions,
-              shots: planStoryShots(currentScene, {
-                start,
-                end,
-                intent,
-                bindings: (state.project?.runtime.presentation as JsonObject)?.bindings as JsonObject,
-              }),
-            });
-          }}
+          onClick={generateProposal}
         >
           <Camera size={18} />
           {tr("Plan shots")}
@@ -387,7 +471,7 @@ export function StoryboardEditor({ session, scope }: { session: EditorSession; s
           {tr("Bake camera commands")}
         </button>
       </div>
-      {pending && (
+      {proposal && (
         <div className="storyboard-proposal" role="group" aria-label={tr("Shot proposal")}>
           <strong>{tr("Shot proposal")}</strong>
           <div className="storyboard-shot-tools">
@@ -407,11 +491,10 @@ export function StoryboardEditor({ session, scope }: { session: EditorSession; s
             </button>
             <button
               className="primary-button"
-              disabled={!ready}
+              disabled={!ready || !pending || !stored || !session.proposalCurrent(stored)}
               onClick={() => {
-                session.endGesture();
-                commit(pending.shots);
-                setProposal(undefined);
+                if (pending && stored)
+                  void session.acceptProposal(stored.id).catch((error) => setCaptureError(String(error)));
               }}
             >
               {tr("Apply proposal")}
@@ -431,7 +514,11 @@ export function StoryboardEditor({ session, scope }: { session: EditorSession; s
           {tr(capturing ? "Stop" : "Generate thumbnails")}
         </button>
       </div>
-      <fieldset className="storyboard-shot-editing" disabled={Boolean(pending)} aria-label={tr("Storyboard")}>
+      <fieldset
+        className="storyboard-shot-editing"
+        disabled={Boolean(proposal && !pending)}
+        aria-label={tr("Storyboard")}
+      >
         <ol className="storyboard-shots">
           {shots.map((shot, index) => (
             <li

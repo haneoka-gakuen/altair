@@ -1,3 +1,4 @@
+import { executeStudioAction } from "./studio-host";
 import { InterfaceSettings } from "./preferences";
 import { WebGalEngineDialog } from "./WebGalEngineDialog";
 import { RuntimeSettings } from "./RuntimeSettings";
@@ -80,11 +81,14 @@ export function ProjectSettings({ session }: { session: EditorSession }) {
         />
       </label>
       <InterfaceSettings />
+      <button className="secondary-button" onClick={() => void executeStudioAction("ai-settings")}>
+        {tr("ai.services")}
+      </button>
       <PresentationSettings session={session} />
       <GameSettings session={session} />
-      <h3>{tr("Project languages")}</h3>
       <RuntimeSettings />
       <WebGalEngineDialog session={session} />
+      <h3>{tr("Project languages")}</h3>
       <ul>
         {orderedProjectLocales(project.locales, i18n.resolvedLanguage).map((locale) => (
           <li key={locale}>

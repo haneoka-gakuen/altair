@@ -1,0 +1,562 @@
+/* Shared controls */
+.ai-settings-dialog :is(button, input, select),
+.ai-assistant :is(button, input, select) {
+  min-block-size: 48px;
+  box-sizing: border-box;
+}
+.ai-settings-dialog button,
+.ai-assistant button {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.ai-settings-dialog button svg,
+.ai-assistant button svg {
+  flex: none;
+}
+.ai-settings-dialog .icon-button,
+.ai-assistant .icon-button {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-inline-size: 48px;
+}
+.ai-settings-dialog .field,
+.ai-assistant .field {
+  min-inline-size: 0;
+}
+.ai-settings-dialog .field > :is(input, select),
+.ai-assistant .field > :is(input, select, textarea) {
+  inline-size: 100%;
+  min-inline-size: 0;
+  box-sizing: border-box;
+}
+.ai-settings-dialog summary,
+.ai-assistant summary {
+  min-block-size: 48px;
+  box-sizing: border-box;
+  padding-block: var(--md-sys-spacing-3);
+  cursor: pointer;
+}
+.ai-settings-dialog button:focus-visible,
+.ai-assistant button:focus-visible,
+.ai-settings-dialog summary:focus-visible,
+.ai-assistant summary:focus-visible {
+  outline: 2px solid var(--md-sys-color-primary);
+  outline-offset: -2px;
+}
+.ai-button-row {
+  display: flex;
+  align-items: center;
+  gap: var(--md-sys-spacing-2);
+  flex-wrap: wrap;
+  min-inline-size: 0;
+}
+.ai-button-row > button {
+  min-inline-size: 0;
+}
+.ai-status {
+  flex: 1;
+  min-inline-size: 0;
+  min-block-size: 48px;
+  display: flex;
+  align-items: safe center;
+  color: var(--md-sys-color-on-surface-variant);
+  font-size: var(--md-sys-typescale-body-small-size);
+  overflow-wrap: anywhere;
+  overflow-y: auto;
+}
+
+/* Dialog frame: header, tabs and footer stay put, the body scrolls inside */
+.modal-content.ai-settings-dialog {
+  inline-size: min(880px, calc(100vw - 32px));
+  max-inline-size: calc(100vw - 32px);
+  block-size: min(720px, calc(100dvh - 32px));
+  max-block-size: calc(100dvh - 32px);
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  gap: var(--md-sys-spacing-3);
+}
+.ai-dialog-header {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: var(--md-sys-spacing-3);
+  min-inline-size: 0;
+}
+.ai-dialog-header h2 {
+  flex: 1;
+  margin: 0;
+  min-inline-size: 0;
+  overflow-wrap: anywhere;
+}
+.ai-device {
+  min-inline-size: 0;
+  color: var(--md-sys-color-on-surface-variant);
+  font-size: var(--md-sys-typescale-label-large-size);
+  overflow-wrap: anywhere;
+}
+.ai-tabs {
+  flex: none;
+  display: flex;
+  gap: var(--md-sys-spacing-2);
+  border-block-end: 1px solid var(--md-sys-color-outline-variant);
+}
+.ai-settings-dialog .ai-tabs button {
+  min-inline-size: 0;
+  padding-inline: var(--md-sys-spacing-4);
+  border: 0;
+  border-radius: var(--md-sys-shape-corner-small) var(--md-sys-shape-corner-small) 0 0;
+  background: transparent;
+  color: var(--md-sys-color-on-surface-variant);
+  cursor: pointer;
+}
+.ai-settings-dialog .ai-tabs button:hover {
+  background: color-mix(in srgb, var(--md-sys-color-on-surface) 8%, transparent);
+}
+.ai-settings-dialog .ai-tabs [aria-selected="true"] {
+  color: var(--md-sys-color-primary);
+  box-shadow: inset 0 -3px 0 var(--md-sys-color-primary);
+}
+.ai-settings-body {
+  flex: 1 1 auto;
+  display: flex;
+  min-block-size: 0;
+  min-inline-size: 0;
+  overflow: hidden;
+}
+.ai-settings-footer {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: var(--md-sys-spacing-3);
+  padding-block-start: var(--md-sys-spacing-3);
+  border-block-start: 1px solid var(--md-sys-color-outline-variant);
+}
+.ai-settings-footer .ai-status {
+  block-size: 48px;
+  min-block-size: 0;
+}
+.ai-settings-footer .ai-button-row {
+  flex: none;
+  flex-wrap: nowrap;
+  min-inline-size: 216px;
+}
+.ai-settings-footer .ai-button-row > :last-child {
+  margin-inline-start: auto;
+  min-inline-size: 96px;
+}
+
+/* Services: list and configuration scroll separately */
+.ai-settings-layout {
+  flex: 1;
+  min-inline-size: 0;
+  min-block-size: 0;
+  display: grid;
+  grid-template-columns: minmax(232px, 280px) minmax(0, 1fr);
+  grid-template-rows: minmax(0, 1fr);
+  gap: var(--md-sys-spacing-4);
+}
+.ai-services-list {
+  min-inline-size: 0;
+  min-block-size: 0;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-rows: auto auto minmax(0, 1fr);
+  gap: var(--md-sys-spacing-2);
+  padding-inline-end: var(--md-sys-spacing-4);
+  border-inline-end: 1px solid var(--md-sys-color-outline-variant);
+}
+.ai-services-list > .field,
+.ai-profile-choices {
+  grid-column: 1 / -1;
+}
+.ai-settings-dialog .ai-services-list > button {
+  padding-inline: var(--md-sys-spacing-2);
+}
+.ai-profile-choices {
+  min-inline-size: 0;
+  min-block-size: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--md-sys-spacing-2);
+  overflow-y: auto;
+}
+.ai-settings-dialog .ai-profile-choices button {
+  flex: none;
+  inline-size: 100%;
+  min-block-size: 56px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 2px;
+  padding: var(--md-sys-spacing-2) var(--md-sys-spacing-3);
+  border: 0;
+  border-radius: var(--md-sys-shape-corner-medium);
+  background: transparent;
+  color: var(--md-sys-color-on-surface);
+  text-align: start;
+  cursor: pointer;
+}
+.ai-settings-dialog .ai-profile-choices button:hover {
+  background: color-mix(in srgb, var(--md-sys-color-on-surface) 8%, transparent);
+}
+.ai-settings-dialog .ai-profile-choices [aria-pressed="true"],
+.ai-settings-dialog .ai-profile-choices [aria-pressed="true"]:hover {
+  background: var(--md-sys-color-secondary-container);
+  color: var(--md-sys-color-on-secondary-container);
+}
+.ai-profile-choices strong,
+.ai-profile-choices span {
+  max-inline-size: 100%;
+  overflow-wrap: anywhere;
+}
+.ai-profile-choices span {
+  font-size: var(--md-sys-typescale-body-small-size);
+  opacity: 0.8;
+}
+.ai-profile-form {
+  min-inline-size: 0;
+  min-block-size: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--md-sys-spacing-3);
+  margin: 0;
+  padding: 0 var(--md-sys-spacing-2) var(--md-sys-spacing-3) 0;
+  border: 0;
+  overflow-y: auto;
+  scrollbar-gutter: stable;
+}
+.ai-profile-form > * {
+  flex: none;
+  min-inline-size: 0;
+}
+.ai-profile-form > .ai-button-row > button {
+  flex: 1 1 auto;
+}
+.ai-key-input {
+  display: flex;
+  align-items: center;
+  gap: var(--md-sys-spacing-2);
+  min-inline-size: 0;
+}
+.ai-key-input input {
+  flex: 1;
+  inline-size: 100%;
+  min-inline-size: 0;
+}
+.ai-settings-dialog .ai-key-input button {
+  flex: none;
+  max-inline-size: 45%;
+  padding-inline: var(--md-sys-spacing-3);
+  border: 0;
+  border-radius: var(--md-sys-shape-corner-full);
+  background: transparent;
+  color: var(--md-sys-color-primary);
+  cursor: pointer;
+}
+.ai-settings-dialog .ai-key-input button:hover {
+  background: color-mix(in srgb, var(--md-sys-color-primary) 8%, transparent);
+}
+.ai-probe {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: var(--md-sys-spacing-2) var(--md-sys-spacing-3);
+  margin: 0;
+  padding-block-start: var(--md-sys-spacing-3);
+  border-block-start: 1px solid var(--md-sys-color-outline-variant);
+  font-size: var(--md-sys-typescale-body-small-size);
+}
+.ai-probe dt {
+  color: var(--md-sys-color-on-surface-variant);
+}
+.ai-probe dd {
+  margin: 0;
+  min-inline-size: 0;
+  overflow-wrap: anywhere;
+}
+
+/* Sections and task models: divided rows, not cards */
+.ai-section {
+  min-inline-size: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--md-sys-spacing-3);
+}
+.ai-section h3 {
+  margin: 0;
+  min-inline-size: 0;
+  font-size: var(--md-sys-typescale-title-small-size);
+  overflow-wrap: anywhere;
+}
+.ai-task-routes {
+  flex: 1;
+  min-inline-size: 0;
+  min-block-size: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--md-sys-spacing-4);
+  padding-inline-end: var(--md-sys-spacing-2);
+  overflow-y: auto;
+  scrollbar-gutter: stable;
+}
+.ai-task-routes > .ai-section {
+  flex: none;
+}
+.ai-task-routes > .ai-section + .ai-section {
+  padding-block-start: var(--md-sys-spacing-4);
+  border-block-start: 1px solid var(--md-sys-color-outline-variant);
+}
+
+/* Assistant: the dock panel owns scrolling */
+.ai-assistant {
+  min-inline-size: 0;
+  max-inline-size: 100%;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 160px), 1fr));
+  align-items: end;
+  gap: var(--md-sys-spacing-3);
+  overflow-wrap: anywhere;
+}
+.ai-assistant > * {
+  grid-column: 1 / -1;
+  min-inline-size: 0;
+}
+.ai-assistant > .field:has(> select) {
+  grid-column: auto;
+}
+.ai-assistant textarea {
+  inline-size: 100%;
+  min-block-size: 96px;
+  resize: vertical;
+}
+.ai-assistant > .ai-button-row {
+  flex-wrap: nowrap;
+}
+.ai-assistant > .ai-button-row > strong {
+  flex: 1;
+  min-inline-size: 0;
+}
+.ai-service-title {
+  flex: 1;
+  min-inline-size: 0;
+}
+.ai-service-title > .ai-status {
+  display: block;
+  block-size: var(--md-sys-spacing-6);
+  min-block-size: var(--md-sys-spacing-6);
+  line-height: var(--md-sys-spacing-6);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ai-assistant .ai-request {
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+.ai-assistant .ai-request > summary {
+  margin: 0;
+}
+.ai-assistant > .ai-button-row > .primary-button {
+  flex: 1 1 0;
+}
+.ai-assistant .ai-button-row > button:not([class]) {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--md-sys-spacing-2);
+  padding-inline: var(--md-sys-spacing-4);
+  border: 1px solid var(--md-sys-color-outline);
+  border-radius: var(--md-sys-shape-corner-full);
+  background: transparent;
+  color: var(--md-sys-color-on-surface);
+  cursor: pointer;
+}
+.ai-assistant .ai-button-row > button:not([class]):hover:enabled {
+  background: color-mix(in srgb, var(--md-sys-color-on-surface) 8%, transparent);
+}
+.ai-assistant .ai-button-row > button:not([class])[aria-pressed="true"] {
+  border-color: transparent;
+  background: var(--md-sys-color-secondary-container);
+  color: var(--md-sys-color-on-secondary-container);
+}
+.ai-assistant .ai-button-row > button:not([class]):disabled {
+  opacity: 0.38;
+  cursor: default;
+}
+.ai-assistant > .ai-status {
+  max-block-size: 96px;
+}
+.ai-assistant > .ai-section {
+  padding-block-start: var(--md-sys-spacing-3);
+  border-block-start: 1px solid var(--md-sys-color-outline-variant);
+}
+.ai-assistant > .ai-section > .ai-button-row > button {
+  flex: 1 1 auto;
+}
+
+/* Proposal operations */
+.ai-operation {
+  min-inline-size: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) fit-content(50%);
+  align-items: center;
+  gap: var(--md-sys-spacing-2);
+  padding-block: var(--md-sys-spacing-2) var(--md-sys-spacing-3);
+  border-block-end: 1px solid var(--md-sys-color-outline-variant);
+}
+.ai-operation:last-child {
+  border-block-end: 0;
+}
+.ai-operation label {
+  min-inline-size: 0;
+  min-block-size: 48px;
+  display: flex;
+  align-items: center;
+  gap: var(--md-sys-spacing-3);
+  cursor: pointer;
+}
+.ai-assistant .ai-operation input[type="checkbox"] {
+  flex: none;
+  inline-size: 20px;
+  block-size: 20px;
+  min-inline-size: 0;
+  min-block-size: 0;
+  margin: 0 0 0 var(--md-sys-spacing-2);
+  accent-color: var(--md-sys-color-primary);
+}
+.ai-operation > button {
+  min-inline-size: 0;
+  text-align: start;
+}
+.ai-operation > :is(pre, [role="alert"]) {
+  grid-column: 1 / -1;
+  min-inline-size: 0;
+}
+.ai-operation pre {
+  max-block-size: 240px;
+  margin: 0;
+  overflow-y: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font: inherit;
+}
+.ai-operation :is(del, ins) {
+  display: block;
+  padding: var(--md-sys-spacing-2) var(--md-sys-spacing-3);
+  border-radius: var(--md-sys-shape-corner-small);
+}
+.ai-operation del {
+  color: var(--md-sys-color-on-surface-variant);
+  text-decoration-color: var(--md-sys-color-error);
+}
+.ai-operation ins {
+  text-decoration: none;
+  background: var(--md-sys-color-tertiary-container);
+  color: var(--md-sys-color-on-tertiary-container);
+}
+.ai-operation [role="alert"] {
+  color: var(--md-sys-color-error);
+  font-size: var(--md-sys-typescale-body-small-size);
+}
+
+/* Two-column fields where the configuration column has room */
+@media (min-width: 840px) {
+  .ai-profile-form {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    align-content: start;
+    align-items: end;
+  }
+  .ai-profile-form > * {
+    grid-column: 1 / -1;
+  }
+  .ai-profile-form > .field:not(:has(input[type="url"], input[list])) {
+    grid-column: auto;
+  }
+  .ai-settings-dialog .ai-section:has(> .field) {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    align-items: end;
+  }
+  .ai-settings-dialog .ai-section > h3 {
+    grid-column: 1 / -1;
+  }
+}
+
+/* Single column: the dialog body is the only scroller */
+@media (max-width: 720px) {
+  .modal-content.ai-settings-dialog {
+    inline-size: calc(100vw - 16px);
+    max-inline-size: calc(100vw - 16px);
+    block-size: calc(100dvh - 16px);
+    max-block-size: calc(100dvh - 16px);
+    padding: var(--md-sys-spacing-4);
+  }
+  .ai-dialog-header {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    column-gap: var(--md-sys-spacing-2);
+  }
+  .ai-dialog-header h2 {
+    grid-column: 1;
+    grid-row: 1;
+  }
+  .ai-device {
+    grid-column: 1;
+    grid-row: 2;
+  }
+  .ai-dialog-header .icon-button {
+    grid-column: 2;
+    grid-row: 1 / span 2;
+  }
+  .ai-settings-dialog .ai-tabs button {
+    flex: 1 1 0;
+  }
+  .ai-settings-body {
+    display: block;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+  }
+  .ai-settings-layout {
+    display: flex;
+    flex-direction: column;
+    min-block-size: auto;
+  }
+  .ai-services-list {
+    grid-template-rows: none;
+    padding: 0 0 var(--md-sys-spacing-4);
+    border-inline-end: 0;
+    border-block-end: 1px solid var(--md-sys-color-outline-variant);
+  }
+  .ai-profile-choices {
+    flex-direction: row;
+    overflow: auto hidden;
+    padding-block-end: var(--md-sys-spacing-2);
+  }
+  .ai-settings-dialog .ai-profile-choices button {
+    flex: 0 0 min(200px, 72%);
+    inline-size: auto;
+  }
+  .ai-profile-form,
+  .ai-task-routes {
+    overflow: visible;
+    padding: 0;
+    scrollbar-gutter: auto;
+  }
+  .ai-settings-footer {
+    flex-wrap: wrap;
+    row-gap: var(--md-sys-spacing-2);
+  }
+  .ai-settings-footer .ai-status {
+    flex: 1 0 100%;
+  }
+  .ai-settings-footer .ai-button-row {
+    flex: 1 0 100%;
+    min-inline-size: 0;
+  }
+}

@@ -32,6 +32,7 @@ import altairMark from "../../../../docs/brand/favicon.svg?url";
 import "./legacy.css";
 import { ProjectLanguagePicker, resolveProjectLanguage, withProjectLanguageName } from "./project-language";
 import { instantiateProjectTemplate, createWebGalExample } from "./project-template";
+const AiSettings = lazy(() => import("./ai/AiSettings").then((module) => ({ default: module.AiSettings })));
 const Workspace = lazy(() => import("./Workspace").then((module) => ({ default: module.Workspace })));
 export function EditorApp() {
   const { i18n } = useStudioI18n();
@@ -47,6 +48,7 @@ export function EditorApp() {
     [favoritesOnly, setFavoritesOnly] = useState(false);
   const [templatesOnly, setTemplatesOnly] = useState(false),
     [templateId, setTemplateId] = useState("");
+  const [aiSettingsOpen, setAiSettingsOpen] = useState(false);
   const [storyTemplate, setStoryTemplate] = useState<StudioStorySelection>();
   const storyPickerRequest = useRef<string | undefined>(undefined);
   const storySuggestedName = useRef<string | undefined>(undefined);
@@ -320,6 +322,7 @@ export function EditorApp() {
       await reload();
     };
     const unregister = registerStudioActions({
+      "ai-settings": () => setAiSettingsOpen(true),
       "select-story": (value) => {
         const result = value as StudioStoryPickerResult;
         if (result.requestId !== storyPickerRequest.current) return;
@@ -492,10 +495,16 @@ export function EditorApp() {
       }}
     />
   );
+  const aiSettingsDialog = aiSettingsOpen ? (
+    <Suspense fallback={null}>
+      <AiSettings onClose={() => setAiSettingsOpen(false)} />
+    </Suspense>
+  ) : null;
   if (session)
     return (
       <>
         <span hidden>{importInput}</span>
+        {aiSettingsDialog}
         <Suspense fallback={<div className="app-loading">{tr("Opening editor\u2026")}</div>}>
           <Workspace
             session={session}
@@ -516,6 +525,7 @@ export function EditorApp() {
     );
   return (
     <main className="project-home">
+      {aiSettingsDialog}
       {importInput}
       <aside className="home-sidebar">
         <a className="brand" href="#">
@@ -572,6 +582,9 @@ export function EditorApp() {
           </button>
           <button aria-pressed={templatesOnly} onClick={() => setTemplatesOnly((value) => !value)}>
             {tr("Project templates")}
+          </button>
+          <button disabled={busy} onClick={() => setAiSettingsOpen(true)}>
+            {tr("ai.services")}
           </button>
           <select aria-label={tr("Sort projects")} value={sort} onChange={(e) => setSort(e.target.value)}>
             <option value="updated">{tr("Recently updated")}</option>

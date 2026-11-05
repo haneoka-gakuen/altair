@@ -17,6 +17,7 @@ import {
   Puzzle,
   ScrollText,
   Settings2,
+  Sparkles,
   Shirt,
   SlidersHorizontal,
   Smile,
@@ -169,6 +170,8 @@ export interface AuthoringWorkspaceProps {
   inspectRequest?: string;
   timeline?: ReactNode;
   storyboard?: ReactNode;
+  assistant?: ReactNode;
+  toolRequest?: { id: string; key: "assistant" | "storyboard" };
   diagnostics?: ReactNode;
   previewTools?: ReactNode;
   destinations?: StudioDestination[];
@@ -192,7 +195,7 @@ export interface AuthoringWorkspaceProps {
 type Sheet =
   | { kind: "cast"; castId: string | null; lines: LineId[]; tab: CastPickerTab }
   | { kind: "inspect"; lines: LineId[]; nodeIds?: string[] }
-  | { kind: "locks" | "timeline" | "storyboard" | "issues" | "paste" };
+  | { kind: "locks" | "timeline" | "storyboard" | "assistant" | "issues" | "paste" };
 
 const SCRIPT = "script";
 const NO_SELECTION = { lines: [] as LineId[], cursor: null as LineId | null };
@@ -243,6 +246,7 @@ export function AuthoringWorkspace(props: AuthoringWorkspaceProps) {
     sourceEditor,
     timeline,
     storyboard,
+    assistant,
     diagnostics,
     previewTools,
     destinations = [],
@@ -276,6 +280,12 @@ export function AuthoringWorkspace(props: AuthoringWorkspaceProps) {
   const [stageCollapsed, setStageCollapsed] = useState(false);
   const [sheet, setSheet] = useState<Sheet | null>(null);
   const [panelCollapsed, setPanelCollapsed] = useState(false);
+  useEffect(() => {
+    if (!props.toolRequest) return;
+    setSheet({ kind: props.toolRequest.key });
+    setPanelCollapsed(false);
+    setStageCollapsed(false);
+  }, [props.toolRequest?.id]);
   const [localSelection, setLocalSelection] = useState(NO_SELECTION);
   const [touchSelecting, setTouchSelecting] = useState(false);
   const [editing, setEditing] = useState<LineId | null>(null);
@@ -589,6 +599,12 @@ export function AuthoringWorkspace(props: AuthoringWorkspaceProps) {
           onClick={() => openSheet({ kind: "timeline" })}
         >
           <Clock aria-hidden />
+        </button>
+      )}
+      {assistant && (
+        <button type="button" className="author-button" onClick={() => openSheet({ kind: "assistant" })}>
+          <Sparkles aria-hidden />
+          {t("ai.assistant")}
         </button>
       )}
       {storyboard && (
@@ -1199,6 +1215,11 @@ export function AuthoringWorkspace(props: AuthoringWorkspaceProps) {
                   );
                 })}
               </div>
+            </DockPanel>
+          )}
+          {!panelCollapsed && sheet?.kind === "assistant" && (
+            <DockPanel title={t("ai.assistant")} onClose={closePanel}>
+              {assistant}
             </DockPanel>
           )}
           {!panelCollapsed && sheet?.kind === "storyboard" && (

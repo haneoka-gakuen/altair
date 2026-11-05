@@ -1,3 +1,4 @@
+import type { EditorProposal, EditorAiDraft } from "./proposal";
 import { tr } from "./i18n";
 export interface ProjectFile {
   readonly path: string;
@@ -130,6 +131,8 @@ async function commitProject(
   });
 }
 export interface ProjectDraft {
+  readonly aiDraft?: EditorAiDraft;
+  readonly proposals?: readonly EditorProposal[];
   readonly contentVersion?: string;
   readonly projectId: string;
   readonly documents: readonly {

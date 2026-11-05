@@ -23,6 +23,7 @@ import {
   AuthoringWorkspace,
   type CastRef,
   type StudioBridge,
+  type StudioTransaction,
   type StudioLine,
   type StudioModel,
   type StudioNote,
@@ -49,6 +50,7 @@ import {
 } from "../native-project";
 import { readLocalizedText, editLocalizedText } from "../localized-text";
 import { tr, useStudioI18n } from "../i18n";
+const AiAssistant = lazy(() => import("../ai/AiAssistant").then((module) => ({ default: module.AiAssistant })));
 const TimelineEditor = lazy(() => import("../TimelineEditor").then((module) => ({ default: module.TimelineEditor })));
 const SourceEditor = lazy(() => import("../SourceEditor"));
 const StoryboardEditor = lazy(() =>
@@ -83,14 +85,36 @@ function context(session: EditorSession) {
   });
   return { state, project, scenes, locale: project.locales[0] ?? "ja" };
 }
+const sceneSignatures = new WeakMap<AltairSceneDocument, string>();
+const compilationCache = new WeakMap<
+  EditorSession,
+  { manifest: string; scenes: string[]; project: ReturnType<ReturnType<typeof nativeScriptRegistry>["compileDraft"]> }[]
+>();
 function compileScene(session: EditorSession, scene: AltairSceneDocument) {
   const ctx = context(session);
-  return nativeScriptRegistry().compileDraft(
-    withNativeScriptProviders({
-      project: ctx.project,
-      scenes: ctx.scenes.map((entry) => cleanNativeScriptScene(entry.scene.id === scene.id ? scene : entry.scene)),
-    }),
+  const scenes = ctx.scenes.map((entry) => (entry.scene.id === scene.id ? scene : entry.scene));
+  const signatures = scenes.map((value) => {
+    let signature = sceneSignatures.get(value);
+    if (signature === undefined) {
+      signature = JSON.stringify(cleanNativeScriptScene(value));
+      sceneSignatures.set(value, signature);
+    }
+    return signature;
+  });
+  const manifest = session.document(NATIVE_PROJECT_PATH)!.text;
+  const cache = compilationCache.get(session) ?? [];
+  const previous = cache.find(
+    (entry) =>
+      entry.manifest === manifest &&
+      entry.scenes.length === signatures.length &&
+      entry.scenes.every((value, index) => value === signatures[index]),
   );
+  if (previous) return previous.project;
+  const project = nativeScriptRegistry().compileDraft(
+    withNativeScriptProviders({ project: ctx.project, scenes: scenes.map(cleanNativeScriptScene) }),
+  );
+  compilationCache.set(session, [{ manifest, scenes: signatures, project }, ...cache].slice(0, 4));
+  return project;
 }
 function locked(node: AltairAuthoredNode, root: AltairAuthoredNode): Partial<Record<LockField, boolean>> {
   return { ...object(root.extensions?.[LOCKS]), ...object(node.extensions?.[LOCKS]) } as Partial<
@@ -122,10 +146,10 @@ function replaceTree(
   }
   return result;
 }
-function storeScene(session: EditorSession, scene: AltairSceneDocument, preserveSource = true, merge = false) {
+export function prepareSceneWrite(session: EditorSession, scene: AltairSceneDocument, preserveSource = true) {
   const entry = context(session).scenes.find((entry) => entry.scene.id === scene.id)!;
   const previous = nativeScriptState(entry.scene);
-  let next = cleanNativeScriptScene(scene);
+  let next = preserveSource ? cleanNativeScriptScene(scene) : scene;
   if (preserveSource && previous) {
     applyNativeScript(
       compileScene(session, entry.scene),
@@ -136,7 +160,11 @@ function storeScene(session: EditorSession, scene: AltairSceneDocument, preserve
     const draft = rebaseNativeScriptDraft(compileScene(session, next), next, previous);
     next = { ...next, extensions: { ...next.extensions, [NATIVE_SCRIPT_STATE]: draft as unknown as JsonObject } };
   }
-  session.update(entry.doc.path, serializeAltairDocument(next, entry.doc.text), merge);
+  return { path: entry.doc.path, before: entry.doc.text, after: serializeAltairDocument(next, entry.doc.text) };
+}
+function storeScene(session: EditorSession, scene: AltairSceneDocument, preserveSource = true, merge = false) {
+  const change = prepareSceneWrite(session, scene, preserveSource);
+  session.update(change.path, change.after, merge);
 }
 function members(session: EditorSession): CastRef[] {
   const ctx = context(session),
@@ -309,6 +337,121 @@ async function options(session: EditorSession, request: CastOptionsRequest, sign
     ).values(),
   ];
 }
+export function planStudioChange(
+  session: EditorSession,
+  { sceneId, lines, change }: StudioTransaction,
+  override?: AltairSceneDocument,
+  names?: ReadonlyMap<string, string>,
+  locale?: string,
+) {
+  const ctx = { ...context(session), ...(locale ? { locale } : {}) };
+  const original = ctx.scenes.find((entry) => entry.scene.id === sceneId)!;
+  const entry = { ...original, scene: override ?? original.scene };
+  const edits = new Map<string, AltairAuthoredNode | null>(),
+    additions = new Map<string, AltairAuthoredNode[]>();
+  const cast = new Map(members(session).map((member) => [member.castId, member]));
+  let skippedLocked = 0;
+  const field: LockField | undefined =
+    change.kind === "text"
+      ? "text"
+      : change.kind === "speakers"
+        ? "cast"
+        : change.kind === "cast-option"
+          ? change.group === "costume"
+            ? "cast"
+            : change.group === "motion"
+              ? "motion"
+              : "face"
+          : undefined;
+  for (const id of lines) {
+    const root = entry.scene.nodes.find((root) => nodes(root).some((node) => node.id === id));
+    const node = root && nodes(root).find((node) => node.id === id);
+    if (!root || !node) continue;
+    const locks = locked(node, root);
+    if (change.kind !== "lock" && (field ? locks[field] : Object.values(locks).some(Boolean))) {
+      skippedLocked++;
+      continue;
+    }
+    if (change.kind === "text")
+      edits.set(id, {
+        ...node,
+        arguments: {
+          ...node.arguments,
+          text: editLocalizedText(node.arguments.text, ctx.locale, ctx.project.locales[0] ?? ctx.locale, change.text),
+        },
+      });
+    else if (change.kind === "speakers") {
+      const previous = object(node.extensions?.fields),
+        targets = Array.isArray(previous.targets) ? previous.targets : [];
+      const nextTargets = change.speakers.map(
+        (id) =>
+          targets.find((target) => object(target).target === id) ?? {
+            target: id,
+            name: [names?.get(id) ?? cast.get(id)?.displayName ?? id],
+          },
+      );
+      edits.set(id, {
+        ...node,
+        arguments: {
+          ...node.arguments,
+          targetName: change.speakers.join("・"),
+          targetTextNames: change.speakers.map((id) => ({
+            [ctx.locale]: names?.get(id) ?? cast.get(id)?.displayName ?? id,
+          })),
+        },
+        extensions: {
+          ...node.extensions,
+          fields: { ...previous, targets: nextTargets, lipSyncTargets: change.speakers },
+        },
+      });
+    } else if (change.kind === "lock")
+      edits.set(id, {
+        ...node,
+        extensions: {
+          ...node.extensions,
+          [LOCKS]: { ...object(node.extensions?.[LOCKS]), [change.field]: change.locked },
+        },
+      });
+    else if (change.kind === "delete") edits.set(id, null);
+    else if (change.kind === "remove-note") edits.set(change.noteId, null);
+    else if (change.kind === "cast-option") {
+      const type = change.group === "costume" ? "Character" : "Motion";
+      const key =
+        change.group === "costume" ? "live2dKey" : change.group === "motion" ? "motionName" : "expressionName";
+      const existing = nodes(root).find((node) => node.type.name === type && keyOf(node) === change.castId);
+      if (existing)
+        edits.set(existing.id, { ...existing, arguments: { ...existing.arguments, [key]: change.optionId } });
+      else {
+        const cue: AltairAuthoredNode = {
+          id: crypto.randomUUID(),
+          type: { plugin: "haneoka.altair-adv", name: type },
+          schemaVersion: 1,
+          arguments: { targetName: change.castId, [key]: change.optionId },
+          extensions: {},
+        };
+        if (root.type.name === "timeline") {
+          const current = edits.get(root.id) ?? root;
+          edits.set(root.id, {
+            ...current,
+            arguments: {
+              ...current.arguments,
+              tracks: [
+                ...(Array.isArray(current.arguments.tracks) ? current.arguments.tracks : []),
+                { nodeId: cue.id, atSeconds: 0, role: "event" },
+              ],
+            },
+            children: [...(current.children ?? []), cue],
+          });
+        } else additions.set(root.id, [...(additions.get(root.id) ?? []), cue]);
+      }
+    }
+  }
+  const next = entry.scene.nodes.flatMap((root) => {
+    const node = replaceTree(root, edits);
+    return node ? [...(additions.get(root.id) ?? []), node] : [];
+  });
+  return { scene: { ...entry.scene, nodes: next }, skippedLocked };
+}
 function createBridge(session: EditorSession, notify: (message: string) => void): StudioBridge {
   const run = (operation: Promise<void>) =>
     void operation.catch((error) => notify(error instanceof Error ? error.message : String(error)));
@@ -322,112 +465,10 @@ function createBridge(session: EditorSession, notify: (message: string) => void)
     return root;
   };
   return {
-    edit({ sceneId, lines, change }) {
-      const ctx = context(session),
-        entry = ctx.scenes.find((entry) => entry.scene.id === sceneId)!;
-      const edits = new Map<string, AltairAuthoredNode | null>(),
-        additions = new Map<string, AltairAuthoredNode[]>();
-      const cast = new Map(members(session).map((member) => [member.castId, member]));
-      let skippedLocked = 0;
-      const field: LockField | undefined =
-        change.kind === "text"
-          ? "text"
-          : change.kind === "speakers"
-            ? "cast"
-            : change.kind === "cast-option"
-              ? change.group === "costume"
-                ? "cast"
-                : change.group === "motion"
-                  ? "motion"
-                  : "face"
-              : undefined;
-      for (const id of lines) {
-        const root = entry.scene.nodes.find((root) => nodes(root).some((node) => node.id === id));
-        const node = root && nodes(root).find((node) => node.id === id);
-        if (!root || !node) continue;
-        const locks = locked(node, root);
-        if (change.kind !== "lock" && (field ? locks[field] : Object.values(locks).some(Boolean))) {
-          skippedLocked++;
-          continue;
-        }
-        if (change.kind === "text")
-          edits.set(id, {
-            ...node,
-            arguments: {
-              ...node.arguments,
-              text: editLocalizedText(node.arguments.text, ctx.locale, ctx.locale, change.text),
-            },
-          });
-        else if (change.kind === "speakers") {
-          const previous = object(node.extensions?.fields),
-            targets = Array.isArray(previous.targets) ? previous.targets : [];
-          const nextTargets = change.speakers.map(
-            (id) =>
-              targets.find((target) => object(target).target === id) ?? {
-                target: id,
-                name: [cast.get(id)?.displayName ?? id],
-              },
-          );
-          edits.set(id, {
-            ...node,
-            arguments: {
-              ...node.arguments,
-              targetName: change.speakers.join("・"),
-              targetTextNames: change.speakers.map((id) => ({ [ctx.locale]: cast.get(id)?.displayName ?? id })),
-            },
-            extensions: {
-              ...node.extensions,
-              fields: { ...previous, targets: nextTargets, lipSyncTargets: change.speakers },
-            },
-          });
-        } else if (change.kind === "lock")
-          edits.set(id, {
-            ...node,
-            extensions: {
-              ...node.extensions,
-              [LOCKS]: { ...object(node.extensions?.[LOCKS]), [change.field]: change.locked },
-            },
-          });
-        else if (change.kind === "delete") edits.set(id, null);
-        else if (change.kind === "remove-note") edits.set(change.noteId, null);
-        else if (change.kind === "cast-option") {
-          const type = change.group === "costume" ? "Character" : "Motion";
-          const key =
-            change.group === "costume" ? "live2dKey" : change.group === "motion" ? "motionName" : "expressionName";
-          const existing = nodes(root).find((node) => node.type.name === type && keyOf(node) === change.castId);
-          if (existing)
-            edits.set(existing.id, { ...existing, arguments: { ...existing.arguments, [key]: change.optionId } });
-          else {
-            const cue: AltairAuthoredNode = {
-              id: crypto.randomUUID(),
-              type: { plugin: "haneoka.altair-adv", name: type },
-              schemaVersion: 1,
-              arguments: { targetName: change.castId, [key]: change.optionId },
-              extensions: {},
-            };
-            if (root.type.name === "timeline") {
-              const current = edits.get(root.id) ?? root;
-              edits.set(root.id, {
-                ...current,
-                arguments: {
-                  ...current.arguments,
-                  tracks: [
-                    ...(Array.isArray(current.arguments.tracks) ? current.arguments.tracks : []),
-                    { nodeId: cue.id, atSeconds: 0, role: "event" },
-                  ],
-                },
-                children: [...(current.children ?? []), cue],
-              });
-            } else additions.set(root.id, [...(additions.get(root.id) ?? []), cue]);
-          }
-        }
-      }
-      const next = entry.scene.nodes.flatMap((root) => {
-        const node = replaceTree(root, edits);
-        return node ? [...(additions.get(root.id) ?? []), node] : [];
-      });
-      storeScene(session, { ...entry.scene, nodes: next });
-      return { skippedLocked };
+    edit(transaction) {
+      const plan = planStudioChange(session, transaction);
+      storeScene(session, plan.scene);
+      return { skippedLocked: plan.skippedLocked };
     },
     insertAfter(sceneId, after, line) {
       const ctx = context(session),
@@ -773,6 +814,12 @@ export function AuthoringSession({
           if (session.getSnapshot().active !== current.doc.path)
             void session.activate(current.doc.path, line).catch((error) => notify(String(error)));
         }}
+        toolRequest={state.toolRequest}
+        assistant={
+          <Suspense fallback={null}>
+            <AiAssistant session={session} model={model} bridge={bridge} />
+          </Suspense>
+        }
         timeline={
           <Suspense fallback={null}>
             <TimelineEditor session={session} scope={scope} />
@@ -780,7 +827,13 @@ export function AuthoringSession({
         }
         storyboard={
           <Suspense fallback={null}>
-            <StoryboardEditor session={session} scope={scope.length > 1 ? scope : undefined} />
+            <StoryboardEditor
+              session={session}
+              scope={scope.length > 1 ? scope : undefined}
+              autoPlanRequest={
+                state.toolRequest?.key === "storyboard" && state.toolRequest.generate ? state.toolRequest.id : undefined
+              }
+            />
           </Suspense>
         }
         onImport={onImport}

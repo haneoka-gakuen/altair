@@ -225,9 +225,24 @@ export function Workspace({ session, onHome }: { session: EditorSession; onHome:
     };
   };
   const [gameExport, setGameExport] = useState(false);
+  const showAuthoringTool = async (key: "assistant" | "storyboard", generate = false) => {
+    const snapshot = session.getSnapshot();
+    if (!nativeScenePath(snapshot.active)) {
+      const manifest = parseAltairProjectDocument(session.document(NATIVE_PROJECT_PATH)!.text);
+      const ref = manifest.scenes.find((ref) => ref.id === snapshot.authoringSelection?.sceneId) ?? manifest.scenes[0];
+      if (ref) await session.activate(ref.path);
+    }
+    session.requestTool(key, generate);
+  };
   useEffect(
     () =>
       registerStudioActions({
+        assistant: () => showAuthoringTool("assistant"),
+        cinematic: async () => {
+          await showAuthoringTool("storyboard");
+          const { cinematicProjectProposal } = await import("./cinematic");
+          await session.stageProposal(await cinematicProjectProposal(session));
+        },
         save: () => session.save(),
         undo: () => session.undo(),
         redo: () => session.redo(),

@@ -1,3 +1,5 @@
+import { DocumentHistory } from "./document-history";
+import type { DocumentChange, EditorProposal, EditorAiDraft } from "./proposal";
 import { tr } from "./i18n";
 import { downloadStudioFile } from "./studio-host";
 import type { AnimationAudition, AnimationAuditionState } from "./animation-audition";
@@ -119,6 +121,10 @@ export interface EditorSnapshot {
   readonly animationAudition?: AnimationAuditionState;
   readonly previewReveal?: number;
   readonly preview?: { ready: boolean; playing: boolean; commandIndex: number; status: string };
+  readonly aiDraft?: EditorAiDraft;
+  readonly proposals?: readonly EditorProposal[];
+  readonly previewProposalId?: string;
+  readonly toolRequest?: { id: string; key: "assistant" | "storyboard"; generate?: boolean };
   readonly authoringSelection?: { sceneId: string; lines: readonly string[]; cursor: string | null };
 }
 const isScene = nativeScenePath;
@@ -126,6 +132,58 @@ const isText = (path: string) =>
   /\.(?:txt|wg|webgal|json|jsonl|ndjson|wgcp|css|html|js|yaml|yml|atlas|mtn|exp)$/iu.test(path);
 export class EditorSession {
   private compilationError = "";
+  private readonly documentHistory = new DocumentHistory();
+  setAiDraft(draft: EditorAiDraft) {
+    this.publish({ aiDraft: draft });
+    this.scheduleDraft();
+  }
+  consumeToolRequest(id: string) {
+    if (this.state.toolRequest?.id === id)
+      this.publish({ toolRequest: { ...this.state.toolRequest, generate: false } });
+  }
+  requestTool(key: "assistant" | "storyboard", generate = false) {
+    this.publish({ view: "visual", toolRequest: { id: crypto.randomUUID(), key, generate } });
+  }
+  proposalCurrent(proposal: EditorProposal): boolean {
+    return (
+      proposal.changes.every((change) => this.document(change.path)?.text === change.before) &&
+      (proposal.baselines ?? []).every((doc) => this.document(doc.path)?.text === doc.text)
+    );
+  }
+  async stageProposal(proposal: EditorProposal) {
+    this.publish({
+      proposals: [proposal, ...(this.state.proposals ?? []).filter((item) => item.id !== proposal.id)].slice(0, 20),
+    });
+    await this.flushDraft();
+    this.previewProposal(proposal.issues?.length ? undefined : proposal.id);
+  }
+  selectProposal(id: string) {
+    const proposal = this.state.proposals?.find((item) => item.id === id);
+    if (!proposal) return;
+    this.publish({ proposals: [proposal, ...(this.state.proposals ?? []).filter((item) => item.id !== id)] });
+    this.scheduleDraft();
+    this.previewProposal(id);
+  }
+  previewProposal(id?: string) {
+    this.publish({ previewProposalId: id });
+    void this.compile();
+  }
+  async discardProposal(id: string) {
+    this.publish({
+      proposals: (this.state.proposals ?? []).filter((proposal) => proposal.id !== id),
+      ...(this.state.previewProposalId === id ? { previewProposalId: undefined } : {}),
+    });
+    await this.flushDraft();
+    void this.compile();
+  }
+  async acceptProposal(id: string) {
+    const proposal = this.state.proposals?.find((item) => item.id === id);
+    if (proposal?.issues?.length) throw new Error(tr("ai.invalidPlan"));
+    if (!proposal || !this.proposalCurrent(proposal)) throw new Error(tr("ai.proposalExpired"));
+    this.updateDocuments(proposal.changes);
+    await this.discardProposal(id);
+  }
+
   private scenePreview: { sceneId: string; source: EditorDocument; extensions: JsonObject } | undefined;
   previewSceneExtensions(sceneId: string, source: EditorDocument, extensions: JsonObject): () => void {
     const preview = { sceneId, source, extensions };
@@ -383,6 +441,8 @@ export class EditorSession {
     }
     if (!this.options.ephemeral) this.libraryRevision ??= (await projectLibrary.get(this.state.id))?.revision;
     const draft = this.options.ephemeral ? undefined : await projectLibrary.draft(this.state.id);
+    if (draft?.aiDraft) this.publish({ aiDraft: draft.aiDraft });
+    if (draft?.proposals) this.publish({ proposals: draft.proposals });
     const initialPaths = new Set([
       NATIVE_PROJECT_PATH,
       COMMAND_LIBRARY_PATH,
@@ -572,10 +632,9 @@ export class EditorSession {
     this.syncHistory();
   }
   private syncHistory() {
-    const history = this.history.get(this.state.active);
     this.publish({
-      canUndo: !this.state.nativeImportRecovery && (history?.canUndo ?? false),
-      canRedo: !this.state.nativeImportRecovery && (history?.canRedo ?? false),
+      canUndo: !this.state.nativeImportRecovery && this.documentHistory.canUndo,
+      canRedo: !this.state.nativeImportRecovery && this.documentHistory.canRedo,
     });
   }
   update(path: string, text: string, merge = false) {
@@ -585,6 +644,16 @@ export class EditorSession {
     }
     const doc = this.document(path);
     if (!doc || doc.text === text) return;
+    text = this.prepareDocumentText(path, text);
+    const history = this.history.get(path)!;
+    const edit = this.documentHistory.prepare(history, merge);
+    history.replace(text, merge ? { mergeKey: "typing" } : {});
+    this.documentHistory.record([edit]);
+    this.applyText(path, text);
+    this.syncHistory();
+  }
+  private prepareDocumentText(path: string, text: string): string {
+    const doc = this.document(path)!;
     if (isScene(path)) {
       let before: ReturnType<typeof parseAltairSceneDocument> | undefined,
         next: ReturnType<typeof parseAltairSceneDocument> | undefined;
@@ -626,44 +695,58 @@ export class EditorSession {
         }
       }
     }
-    const history = this.history.get(path)!;
-    history.replace(text, merge ? { mergeKey: "typing" } : {});
-    this.applyText(path, text);
+    return text;
+  }
+  updateDocuments(changes: readonly DocumentChange[]): void {
+    if (this.state.nativeImportRecovery)
+      throw new Error(tr("Review the unfinished native import before saving this project."));
+    const prepared = changes
+      .filter((change) => change.before !== change.after)
+      .map((change) => {
+        if (this.document(change.path)?.text !== change.before) throw new Error(tr("ai.proposalExpired"));
+        return { ...change, after: this.prepareDocumentText(change.path, change.after) };
+      });
+    if (!prepared.length) return;
+    const parts = prepared.map((change) => this.documentHistory.prepare(this.history.get(change.path)!, false));
+    for (let index = 0; index < prepared.length; index++) parts[index]!.history.replace(prepared[index]!.after);
+    this.documentHistory.record(parts);
+    this.applyTexts(new Map(prepared.map((change) => [change.path, change.after])));
     this.syncHistory();
   }
   endGesture() {
+    this.documentHistory.endMerge();
     this.history.get(this.state.active)?.endMerge();
   }
   private applyText(path: string, text: string) {
+    this.applyTexts(new Map([[path, text]]));
+  }
+  private applyTexts(texts: ReadonlyMap<string, string>) {
     this.importOperation?.abort(new DOMException("Project edited during import", "AbortError"));
-    const line =
-      path === this.state.active
-        ? nativeStatements(text).find((node) => node.id === this.state.selectedNodeId)?.line
-        : undefined;
+    const active = texts.get(this.state.active);
+    const line = active
+      ? nativeStatements(active).find((node) => node.id === this.state.selectedNodeId)?.line
+      : undefined;
     this.publish({
       ...(line ? { line } : {}),
       documents: this.state.documents.map((doc) =>
-        doc.path === path ? { ...doc, text, revision: doc.revision + 1 } : doc,
+        texts.has(doc.path) ? { ...doc, text: texts.get(doc.path)!, revision: doc.revision + 1 } : doc,
       ),
       error: "",
     });
     this.scheduleDraft();
   }
-  undo() {
+  private travelHistory(redo: boolean) {
     if (this.state.nativeImportRecovery) return;
-    const history = this.history.get(this.state.active);
-    if (history?.canUndo) {
-      this.applyText(this.state.active, history.undo());
-      this.syncHistory();
-    }
+    const edits = redo ? this.documentHistory.redo() : this.documentHistory.undo();
+    const paths = new Map([...this.history].map(([path, history]) => [history, path]));
+    if (edits.size) this.applyTexts(new Map([...edits].map(([history, text]) => [paths.get(history)!, text])));
+    this.syncHistory();
+  }
+  undo() {
+    this.travelHistory(false);
   }
   redo() {
-    if (this.state.nativeImportRecovery) return;
-    const history = this.history.get(this.state.active);
-    if (history?.canRedo) {
-      this.applyText(this.state.active, history.redo());
-      this.syncHistory();
-    }
+    this.travelHistory(true);
   }
   editArgument(id: string, key: string, value: JsonValue, path = this.state.active) {
     const document = this.document(path);
@@ -1560,6 +1643,8 @@ export class EditorSession {
     const draft = {
       projectId: this.state.id,
       contentVersion: this.state.contentVersion,
+      ...(this.state.aiDraft ? { aiDraft: this.state.aiDraft } : {}),
+      ...(this.state.proposals?.length ? { proposals: this.state.proposals } : {}),
       documents: this.state.documents
         .filter((doc) => doc.text !== doc.baseline)
         .map(({ path, text, baseline }) => ({ path, text, baseline })),
@@ -1654,6 +1739,17 @@ export class EditorSession {
       const result = { project: authoring.host.compileDocuments(authored) };
       const { compileAltairVegaPreviewStory } = await import("@haneoka/altair-plugin-vega-preview");
       let previewProject = result.project;
+      const proposal = this.state.proposals?.find((item) => item.id === this.state.previewProposalId);
+      if (proposal && !proposal.issues?.length && this.proposalCurrent(proposal)) {
+        const changes = new Map(proposal.changes.map((change) => [change.path, change.after]));
+        const documents = this.state.documents.map((doc) =>
+          changes.has(doc.path) ? { ...doc, text: changes.get(doc.path)! } : doc,
+        );
+        previewProject = authoring.host.compileDocuments(readNativeWorkspace(documents));
+        if (proposal.previewLocale)
+          previewProject = { ...previewProject, meta: { ...previewProject.meta, locale: proposal.previewLocale } };
+      }
+
       if (this.scenePreview) {
         const { source, sceneId: previewSceneId, extensions } = this.scenePreview;
         if (this.document(source.path)?.text !== source.text) this.scenePreview = undefined;
