@@ -62,12 +62,14 @@ export function NativeInspector({
   session,
   onOpenTimeline,
   embedded = false,
+  hideHeader = false,
   hideTimedAdvance = false,
 }: {
   statement: EditorStatement | undefined;
   session: EditorSession;
   onOpenTimeline?: () => void;
   embedded?: boolean;
+  hideHeader?: boolean;
   hideTimedAdvance?: boolean;
 }) {
   const [editingLocale, setEditingLocale] = useState<string>();
@@ -424,9 +426,11 @@ export function NativeInspector({
   const Panel = embedded ? "section" : "aside";
   return (
     <Panel className={embedded ? "nested-dialogue-inspector" : "statement-inspector"}>
-      <div className="panel-heading">
-        <span>{statement.name}</span>
-      </div>
+      {!hideHeader && (
+        <div className="panel-heading">
+          <span>{statement.name}</span>
+        </div>
+      )}
       <div className="inspector-body">
         {audioClip && <AudioClipWaveform node={node} session={session} />}
         {locales.length > 1 && fields.some((field) => field.kind.startsWith("localized-")) && (
@@ -477,6 +481,7 @@ export function NativeInspector({
                 <summary>{nativeNodeLabel(child)}</summary>
                 <NativeInspector
                   embedded
+                  hideHeader
                   session={session}
                   statement={{ ...statement, id: child.id, node: child, name: nativeNodeLabel(child) }}
                 />

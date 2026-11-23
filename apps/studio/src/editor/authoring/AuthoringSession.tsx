@@ -4,6 +4,7 @@ import {
   parseAltairSceneDocument,
   serializeAltairDocument,
   cloneAltairNodeGroup,
+  createTimelineTimingContext,
   type AltairAuthoredNode,
   type AltairSceneDocument,
   type JsonObject,
@@ -32,7 +33,7 @@ import {
 } from "./Manuscript";
 import { ResourceRecovery } from "./ResourceRecovery";
 import "./integration.css";
-import { Preview } from "../Preview";
+import { Preview, type PreviewSurfaceActions } from "../Preview";
 import { ArrowUp, ArrowDown, Copy, Trash2 } from "@haneoka/altair-ui-react";
 import { NativeInspector } from "../NativeInspector";
 import { NativeCommandPalette } from "../NativeCommandPalette";
@@ -49,6 +50,7 @@ import {
   NATIVE_PROJECT_PATH,
 } from "../native-project";
 import { readLocalizedText, editLocalizedText } from "../localized-text";
+import { appendTimelineCue, createTimeline, isTimeline } from "../timeline-model";
 import { tr, useStudioI18n } from "../i18n";
 const AiAssistant = lazy(() => import("../ai/AiAssistant").then((module) => ({ default: module.AiAssistant })));
 const TimelineEditor = lazy(() => import("../TimelineEditor").then((module) => ({ default: module.TimelineEditor })));
@@ -488,12 +490,26 @@ function createBridge(session: EditorSession, notify: (message: string) => void)
         },
         extensions: { fields: { targets: line.speakers.map((target) => ({ target })), lipSyncTargets: line.speakers } },
       };
-      const index = after
-        ? entry.scene.nodes.findIndex((root) => nodes(root).some((node) => node.id === after)) + 1
-        : 0;
+      const index = after ? entry.scene.nodes.findIndex((root) => nodes(root).some((node) => node.id === after)) : -1;
+      const root = entry.scene.nodes[index];
+      if (root && isTimeline(root)) {
+        const timing = createTimelineTimingContext({
+          project: ctx.project,
+          scenes: ctx.scenes.map((entry) => entry.scene),
+        });
+        const afterCue = root.children?.find((child) => nodes(child).some((node) => node.id === after));
+        const timeline = appendTimelineCue(root, node, timing, afterCue?.id);
+        storeScene(session, {
+          ...entry.scene,
+          nodes: entry.scene.nodes.map((entry) => entry === root ? timeline : entry),
+        });
+        return id;
+      }
       storeScene(session, {
         ...entry.scene,
-        nodes: [...entry.scene.nodes.slice(0, index), node, ...entry.scene.nodes.slice(index)],
+        nodes: entry.scene.nodes.length
+          ? [...entry.scene.nodes.slice(0, index + 1), node, ...entry.scene.nodes.slice(index + 1)]
+          : [createTimeline([node], true)],
       });
       return id;
     },
@@ -538,6 +554,7 @@ export function AuthoringSession({
   const state = useSyncExternalStore(session.subscribe, session.getSnapshot);
   const { i18n } = useStudioI18n();
   const [previewTools, setPreviewTools] = useState<HTMLDivElement | null>(null);
+  const [previewActions, setPreviewActions] = useState<PreviewSurfaceActions | null>(null);
   const [insertTarget, setInsertTarget] = useState<{ after: string | null }>();
   const [inserted, setInserted] = useState<string>();
   const bridge = useMemo(() => createBridge(session, notify), [session, notify]);
@@ -618,7 +635,7 @@ export function AuthoringSession({
     const statement =
       root && nativeStatements(manuscript.active.doc.text).find((statement) => statement.id === root.id);
     if (statement) session.select(statement.line);
-    session.setAuthoringSelection(manuscript.active.scene.id, [initialLine.id], initialLine.id);
+    session.setAuthoringSelection(manuscript.active.scene.id, [initialLine.id], initialLine.id, null);
   }, [session, state.id, state.active, manuscript, initialLine, state.authoringSelection?.cursor]);
   if (!model || !manuscript) return <div role="status">{tr("Loading")}</div>;
   const { ctx, active, draft } = manuscript;
@@ -683,55 +700,98 @@ export function AuthoringSession({
           ?.lines.filter((line) => state.authoringSelection!.lines.includes(line.id))
           .flatMap((line) => [line.id, ...line.notes.map((note) => note.id)])
       : undefined;
+  const selectCue = (sceneId: string, nodeId: string | null) => {
+    const previous = session.getSnapshot().authoringSelection;
+    if (nodeId === null) {
+      if (previous?.sceneId === sceneId && previous.nodeId)
+        session.setAuthoringSelection(sceneId, previous.lines, previous.cursor, null);
+      return;
+    }
+    const rows = manuscript.scenes.find((scene) => scene.id === sceneId)?.lines ?? [];
+    const containsCue = (line: StudioLine) => line.notes.some((note) => note.id === nodeId);
+    const row = rows.find((line) => line.id === nodeId)
+      ?? rows.find((line) => line.id === previous?.cursor && containsCue(line))
+      ?? rows.find(containsCue);
+    const lineId = row?.id ?? null;
+    session.setAuthoringSelection(sceneId, lineId ? [lineId] : [], lineId, nodeId);
+  };
   const renderInspector = (sceneId: string, ids: string[]) => {
     const entry = context(session).scenes.find((entry) => entry.scene.id === sceneId)!;
+    const statements = nativeStatements(entry.doc.text);
+    if (ids.length === 1) {
+      for (const statement of statements) {
+        const node = nodes(statement.node).find((node) => node.id === ids[0]);
+        if (!node || node === statement.node) continue;
+        return <NativeInspector
+          statement={{ ...statement, node, id: node.id, name: nativeNodeLabel(node), dialogue: nativeDialogueNodes(node)[0] }}
+          session={session}
+          embedded
+        />;
+      }
+    }
     const selectedLines =
       manuscript.scenes.find((scene) => scene.id === sceneId)?.lines.filter((line) => ids.includes(line.id)) ?? [];
-    const requested = [...new Set([...ids, ...selectedLines.flatMap((line) => line.notes.map((note) => note.id))])];
+    const requested = ids.length === 1
+      ? ids
+      : [...new Set([...ids, ...selectedLines.flatMap((line) => line.notes.map((note) => note.id))])];
     const roots = new Set(
       requested.map((id) => entry.scene.nodes.find((root) => nodes(root).some((node) => node.id === id))?.id),
     );
-    return nativeStatements(entry.doc.text)
-      .filter((statement) => roots.has(statement.id))
-      .map((statement) => (
-        <details
-          className="argument-section"
-          key={statement.id}
-          open={roots.size === 1 || ids.some((id) => nodes(statement.node).some((node) => node.id === id))}
-        >
-          <summary>{nativeNodeLabel(statement.node)}</summary>
-          <div className="author-file-actions" role="group" aria-label={tr("Properties")}>
-            {[
-              { label: "Move statement up", icon: <ArrowUp aria-hidden />, run: () => session.move(statement, -1) },
-              { label: "Move statement down", icon: <ArrowDown aria-hidden />, run: () => session.move(statement, 1) },
-              {
-                label: "Duplicate statement",
-                icon: <Copy aria-hidden />,
-                run: () => session.insert(statement.node, statement.line),
-              },
-              { label: "Delete statement", icon: <Trash2 aria-hidden />, run: () => session.remove(statement) },
-            ].map((action) => (
-              <button
-                key={action.label}
-                type="button"
-                className="author-icon-button"
-                aria-label={tr(action.label)}
-                title={tr(action.label)}
-                onClick={() => {
-                  try {
-                    action.run();
-                  } catch (error) {
-                    notify(tr(error instanceof Error ? error.message : String(error)));
-                  }
-                }}
-              >
-                {action.icon}
-              </button>
-            ))}
+    const matched = statements.filter((statement) => roots.has(statement.id));
+    const renderActions = (statement: (typeof matched)[number]) => (
+      <div className="author-inspector-actions" role="group" aria-label={tr("Properties")}>
+        {[
+          { label: "Move statement up", icon: <ArrowUp aria-hidden />, run: () => session.move(statement, -1) },
+          { label: "Move statement down", icon: <ArrowDown aria-hidden />, run: () => session.move(statement, 1) },
+          {
+            label: "Duplicate statement",
+            icon: <Copy aria-hidden />,
+            run: () => session.insert(statement.node, statement.line),
+          },
+          { label: "Delete statement", icon: <Trash2 aria-hidden />, run: () => session.remove(statement) },
+        ].map((action) => (
+          <button
+            key={action.label}
+            type="button"
+            className="author-icon-button"
+            aria-label={tr(action.label)}
+            title={tr(action.label)}
+            onClick={() => {
+              try {
+                action.run();
+              } catch (error) {
+                notify(tr(error instanceof Error ? error.message : String(error)));
+              }
+            }}
+          >
+            {action.icon}
+          </button>
+        ))}
+      </div>
+    );
+    if (matched.length === 1) {
+      const statement = matched[0]!;
+      return (
+        <div className="author-inspector-statement" key={statement.id}>
+          <div className="author-inspector-subject">
+            <strong>{nativeNodeLabel(statement.node)}</strong>
+            {renderActions(statement)}
           </div>
-          <NativeInspector statement={statement} session={session} embedded />
-        </details>
-      ));
+          <NativeInspector statement={statement} session={session} embedded hideHeader />
+        </div>
+      );
+    }
+    return matched.map((statement) => (
+      <details
+        className="argument-section"
+        key={statement.id}
+        open={ids.some((id) => nodes(statement.node).some((node) => node.id === id))}
+      >
+        <summary>{nativeNodeLabel(statement.node)}</summary>
+        {renderActions(statement)}
+        <NativeInspector statement={statement} session={session} embedded hideHeader />
+      </details>
+    ));
   };
   const insert = (sceneId: string, after: string | null) => {
     const entry = context(session).scenes.find((entry) => entry.scene.id === sceneId)!;
@@ -775,7 +835,8 @@ export function AuthoringSession({
       <AuthoringWorkspace
         model={model}
         bridge={bridge}
-        stage={<Preview session={session} surfaceOnly toolsMount={previewTools} />}
+        stage={<Preview session={session} surfaceOnly toolsMount={previewTools} onActionsChange={setPreviewActions} />}
+        previewActions={previewActions}
         stageAspect={Number.isFinite(aspect) && aspect > 0 ? aspect : 16 / 9}
         source={{ text: draft.text, onChange: onSourceChange }}
         scriptView={state.view === "native-source" ? "source" : state.view === "visual" ? "script" : undefined}
@@ -803,8 +864,9 @@ export function AuthoringSession({
           sceneId: state.authoringSelection?.sceneId ?? active.scene.id,
           lines: [...(state.authoringSelection?.lines ?? [])],
           cursor: state.authoringSelection?.cursor ?? null,
+          nodeId: state.authoringSelection?.nodeId ?? null,
         }}
-        onSelectionChange={(scene, lines, cursor) => session.setAuthoringSelection(scene, lines, cursor)}
+        onSelectionChange={(scene, lines, cursor, node) => session.setAuthoringSelection(scene, lines, cursor, node)}
         onInsert={insert}
         renderInspector={renderInspector}
         destinations={destinations}
@@ -829,12 +891,12 @@ export function AuthoringSession({
         }
         timeline={
           <Suspense fallback={null}>
-            <TimelineEditor session={session} scope={scope} groupSelection={groupedSelection} />
+            <TimelineEditor session={session} scope={scope} groupSelection={groupedSelection} onSelectCue={selectCue} />
           </Suspense>
         }
         sceneTimeline={
           <Suspense fallback={<div role="status">{tr("Opening timeline…")}</div>}>
-            <TimelineEditor session={session} groupSelection={groupedSelection} />
+            <TimelineEditor session={session} groupSelection={groupedSelection} onSelectCue={selectCue} />
           </Suspense>
         }
         storyboard={

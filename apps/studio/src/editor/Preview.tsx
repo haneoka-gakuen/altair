@@ -21,16 +21,32 @@ import { VEGA_ADV_OPCODE, VEGA_SYSTEM_OPCODE } from "@haneoka/vega-protocol";
 import { createPortal } from "react-dom";
 import { Bug } from "@haneoka/altair-ui-react";
 import { TaskSheet } from "./authoring/TaskSheet";
+export interface PreviewSurfaceActions {
+  canExportVideo: boolean;
+  videoRecording: boolean;
+  videoReplaying: boolean;
+  openVideoExport(): void;
+  canRefresh: boolean;
+  refresh(): void;
+  canDetach: boolean;
+  detached: boolean;
+  detach(): void;
+  fullscreen(): void;
+  openDebugger(): void;
+}
+
 export function Preview({
   session,
   compact = false,
   surfaceOnly = false,
   toolsMount,
+  onActionsChange,
 }: {
   session: EditorSession;
   compact?: boolean;
   surfaceOnly?: boolean;
   toolsMount?: HTMLElement | null;
+  onActionsChange?: (actions: PreviewSurfaceActions | null) => void;
 }) {
   const state = useSyncExternalStore(session.subscribe, session.getSnapshot);
   const pluginSignature = JSON.stringify(state.project?.plugins ?? DEFAULT_STUDIO_PROJECT_PLUGINS);
@@ -384,9 +400,52 @@ export function Preview({
     preview.addEventListener("pagehide", restore, { once: true });
     setDetached(true);
   };
+  const videoExportOpenRef = useRef<(() => void) | null>(null);
+  const [videoState, setVideoState] = useState({ recording: false, replaying: false, disabled: true });
   useEffect(() => {
     if (editingTransform || auditionOwned) restoreWindow.current?.();
   }, [editingTransform, auditionOwned]);
+  const hasActionsCallback = Boolean(onActionsChange);
+  const actionCallbacksRef = useRef({
+    onActionsChange,
+    detach,
+    fail,
+  });
+  actionCallbacksRef.current = { onActionsChange, detach, fail };
+  useEffect(() => {
+    const notifyActions = actionCallbacksRef.current.onActionsChange;
+    if (!surfaceOnly || !notifyActions) return;
+    notifyActions({
+      canExportVideo: !videoState.disabled,
+      videoRecording: videoState.recording,
+      videoReplaying: videoState.replaying,
+      openVideoExport: () => videoExportOpenRef.current?.(),
+      canRefresh: !(editingTransform || auditionOwned),
+      refresh: () => setRevision((value) => value + 1),
+      canDetach: Boolean(ready && !editingTransform && !auditionOwned),
+      detached,
+      detach: () => actionCallbacksRef.current.detach(),
+      fullscreen: () =>
+        void mount.current?.requestFullscreen().catch((error) => actionCallbacksRef.current.fail(error)),
+      openDebugger: () => setDebuggerOpen(true),
+    });
+  }, [
+    surfaceOnly,
+    hasActionsCallback,
+    ready,
+    synchronized,
+    state.compiling,
+    auditionOwned,
+    editingTransform,
+    detached,
+    videoState.recording,
+    videoState.replaying,
+    videoState.disabled,
+  ]);
+  useEffect(() => {
+    if (!surfaceOnly || !hasActionsCallback) return;
+    return () => actionCallbacksRef.current.onActionsChange?.(null);
+  }, [surfaceOnly, hasActionsCallback]);
   const run = (operation: (bridge: StudioPreviewBridge) => Promise<void>) => void operation(bridge.current).catch(fail);
   if (surfaceOnly)
     return (
@@ -405,46 +464,53 @@ export function Preview({
           createPortal(
             <>
               <VideoExport
+                hideIdleTrigger={hasActionsCallback}
+                openRef={videoExportOpenRef}
+                onStateChange={setVideoState}
                 bridge={bridge.current}
                 session={session}
                 restorePreview={restoreExportPreview}
                 ready={ready && synchronized && !state.compiling && !auditionOwned}
                 onError={fail}
               />
-              <button
-                className="author-icon-button"
-                aria-label={tr("Refresh preview")}
-                title={tr("Refresh preview")}
-                disabled={editingTransform || auditionOwned}
-                onClick={() => setRevision((value) => value + 1)}
-              >
-                <RotateCcw aria-hidden />
-              </button>
-              <button
-                className="author-icon-button"
-                aria-label={tr(detached ? "Dock preview" : "Detach preview")}
-                title={tr(detached ? "Dock preview" : "Detach preview")}
-                disabled={!ready || editingTransform || auditionOwned}
-                onClick={detach}
-              >
-                <ExternalLink aria-hidden />
-              </button>
-              <button
-                className="author-icon-button"
-                aria-label={tr("Fullscreen preview")}
-                title={tr("Fullscreen preview")}
-                onClick={() => void mount.current?.requestFullscreen().catch(fail)}
-              >
-                <Maximize2 aria-hidden />
-              </button>
-              <button
-                className="author-icon-button"
-                aria-label={tr("Preview debugger")}
-                title={tr("Preview debugger")}
-                onClick={() => setDebuggerOpen(true)}
-              >
-                <Bug aria-hidden />
-              </button>
+              {!hasActionsCallback && (
+                <>
+                  <button
+                    className="author-icon-button"
+                    aria-label={tr("Refresh preview")}
+                    title={tr("Refresh preview")}
+                    disabled={editingTransform || auditionOwned}
+                    onClick={() => setRevision((value) => value + 1)}
+                  >
+                    <RotateCcw aria-hidden />
+                  </button>
+                  <button
+                    className="author-icon-button"
+                    aria-label={tr(detached ? "Dock preview" : "Detach preview")}
+                    title={tr(detached ? "Dock preview" : "Detach preview")}
+                    disabled={!ready || editingTransform || auditionOwned}
+                    onClick={detach}
+                  >
+                    <ExternalLink aria-hidden />
+                  </button>
+                  <button
+                    className="author-icon-button"
+                    aria-label={tr("Fullscreen preview")}
+                    title={tr("Fullscreen preview")}
+                    onClick={() => void mount.current?.requestFullscreen().catch(fail)}
+                  >
+                    <Maximize2 aria-hidden />
+                  </button>
+                  <button
+                    className="author-icon-button"
+                    aria-label={tr("Preview debugger")}
+                    title={tr("Preview debugger")}
+                    onClick={() => setDebuggerOpen(true)}
+                  >
+                    <Bug aria-hidden />
+                  </button>
+                </>
+              )}
               <StageTransformEditor
                 session={session}
                 bridge={bridge.current}

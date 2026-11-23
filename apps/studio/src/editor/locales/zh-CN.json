@@ -1942,5 +1942,16 @@
   "ai.request": "修改请求",
   "Damaged archive file: {{path}}": "压缩包文件损坏：{{path}}",
   "Unsupported archive compression": "不支持此压缩方式",
-  "No supported story source was found": "未找到可导入的故事源码"
+  "No supported story source was found": "未找到可导入的故事源码",
+  "Previous frame": "上一帧",
+  "Next frame": "下一帧",
+  "Jump to start": "跳到开头",
+  "Duplicate cue": "复制指令",
+  "Stage actions": "舞台操作",
+  "Timeline zoom": "时间轴缩放",
+  "Timeline actions": "时间轴操作",
+  "Workspace actions": "工作区操作",
+  "Toggle properties": "切换属性面板",
+  "More commands": "更多指令",
+  "Settings": "设置"
 }

@@ -1,5 +1,5 @@
 import { resizePropertyClip } from "./property-clip";
-import type { AltairAuthoredNode, AltairCommandGroup, JsonObject } from "@haneoka/altair";
+import type { AltairAuthoredNode, AltairCommandGroup, AltairSceneDocument, JsonObject } from "@haneoka/altair";
 import {
   isTimedDialogue,
   isTimelineReference,
@@ -63,7 +63,8 @@ export const automaticLane = (node: AltairAuthoredNode) =>
 
 export function cueLane(cue: TimelineCue, lanes: ReadonlyMap<string, string>) {
   const id = cue.track.laneId;
-  const name = (typeof id === "string" ? lanes.get(id) : undefined) ?? tr(cue.trackName);
+  const name = (typeof id === "string" ? lanes.get(id) : undefined) ??
+    (cue.trackActor ? `${cue.trackActor} · ${tr(cue.trackName)}` : tr(cue.trackName));
   return { id: cue.trackId, name };
 }
 
@@ -350,7 +351,11 @@ function linkedTrack(nodeId: string, targetId?: string): JsonObject {
   };
 }
 
-export function createTimeline(children: readonly AltairAuthoredNode[] = [], sequential = false): AltairAuthoredNode {
+export function createTimeline(
+  children: readonly AltairAuthoredNode[] = [],
+  sequential = false,
+  id: string = crypto.randomUUID(),
+): AltairAuthoredNode {
   let previous: string | undefined;
   const tracks = children.map((node) => {
     const track = linkedTrack(node.id, previous);
@@ -358,7 +363,7 @@ export function createTimeline(children: readonly AltairAuthoredNode[] = [], seq
     return sequential ? { ...track, followPrevious: true } : track;
   });
   return {
-    id: crypto.randomUUID(),
+    id,
     type: { plugin: "haneoka.altair", name: "timeline" },
     schemaVersion: 1,
     arguments: {
@@ -371,6 +376,41 @@ export function createTimeline(children: readonly AltairAuthoredNode[] = [], seq
     },
     children: [...children],
   };
+}
+
+export function timelineNavigationCommand(node: AltairAuthoredNode): boolean {
+  const { plugin, name } = node.type;
+  return (plugin === "haneoka.altair-adv" && ["GoTo", "ChoiceSet", "ChoiceShow"].includes(name)) ||
+    (plugin === "haneoka.altair" && ["branch", "jump", "call", "return", "end", "input"].includes(name));
+}
+
+export function inferredSceneTimeline(scene: AltairSceneDocument): AltairAuthoredNode | undefined {
+  const end = scene.nodes.at(-1);
+  const children = end?.type.plugin === "haneoka.altair" && end.type.name === "end"
+    ? scene.nodes.slice(0, -1)
+    : scene.nodes;
+  if (!children.length || (children.length === 1 && isTimeline(children[0]!)) ||
+    children.some((node) => node.arguments.libraryOnly === true || timelineNavigationCommand(node)))
+    return;
+  const id = `studio-timeline-${scene.id}`;
+  if (children.some((node) => node.id === id)) return;
+  return createTimeline(children, true, id);
+}
+
+export function sceneTrackCues(group: AltairAuthoredNode, context: TimelineTimingContext) {
+  const owners = new Map<string, { timeline: AltairAuthoredNode; start: number }>();
+  const roots = resolveTimelineCues(group, context);
+  const cues = roots.flatMap((root) => {
+    const node = root.node;
+    if (!isTimeline(node) || node.arguments.title ||
+      (node.extensions?.["haneoka.authoring.explicit"] && node.children?.length !== 1))
+      return [root];
+    return resolveTimelineCues(node, context).map((cue) => {
+      owners.set(cue.node.id, { timeline: node, start: root.atSeconds });
+      return { ...cue, atSeconds: cue.atSeconds + root.atSeconds };
+    });
+  });
+  return { roots, cues, owners };
 }
 
 export function appendTimelineCue(

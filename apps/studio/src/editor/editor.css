@@ -1892,13 +1892,13 @@ html[data-theme="light"] {
 }
 
 button:not(:where(.monaco-editor *, .vega-player *)) {
-  min-block-size: 48px;
+  min-block-size: var(--author-target, 48px);
   font-family: var(--app-font);
   font-size: var(--md-sys-typescale-label-large-size);
   line-height: var(--md-sys-typescale-label-large-line-height);
 }
 :is(input:not([type="checkbox"]):not([type="radio"]), select):not(:where(.monaco-editor *, .vega-player *)) {
-  min-block-size: 48px;
+  min-block-size: var(--author-target, 48px);
   font-family: var(--app-font);
   font-size: var(--md-sys-typescale-body-medium-size);
 }

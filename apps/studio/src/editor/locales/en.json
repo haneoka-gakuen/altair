@@ -1942,5 +1942,16 @@
   "ai.request": "Edit request",
   "Damaged archive file: {{path}}": "Damaged archive file: {{path}}",
   "Unsupported archive compression": "Unsupported archive compression",
-  "No supported story source was found": "No supported story source was found"
+  "No supported story source was found": "No supported story source was found",
+  "Previous frame": "Previous frame",
+  "Next frame": "Next frame",
+  "Jump to start": "Jump to start",
+  "Duplicate cue": "Duplicate cue",
+  "Stage actions": "Stage actions",
+  "Timeline zoom": "Timeline zoom",
+  "Timeline actions": "Timeline actions",
+  "Workspace actions": "Workspace actions",
+  "Toggle properties": "Toggle properties",
+  "More commands": "More commands",
+  "Settings": "Settings"
 }

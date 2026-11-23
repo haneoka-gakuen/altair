@@ -7,7 +7,7 @@ import {
 } from "./export-route";
 import { DocumentHistory } from "./document-history";
 import { createTimelineTimingContext } from "@haneoka/altair/documents";
-import { createTimeline } from "./timeline-model";
+import { createTimeline, inferredSceneTimeline, timelineNavigationCommand } from "./timeline-model";
 import type { DocumentChange, EditorProposal, EditorAiDraft } from "./proposal";
 import { tr } from "./i18n";
 import { downloadStudioFile } from "./studio-host";
@@ -134,7 +134,7 @@ export interface EditorSnapshot {
   readonly proposals?: readonly EditorProposal[];
   readonly previewProposalId?: string;
   readonly toolRequest?: { id: string; key: "assistant" | "storyboard" | "timeline"; generate?: boolean };
-  readonly authoringSelection?: { sceneId: string; lines: readonly string[]; cursor: string | null };
+  readonly authoringSelection?: { sceneId: string; lines: readonly string[]; cursor: string | null; nodeId: string | null };
 }
 const isScene = nativeScenePath;
 const isText = (path: string) =>
@@ -151,7 +151,7 @@ export class EditorSession {
       this.publish({ toolRequest: { ...this.state.toolRequest, generate: false } });
   }
   requestTool(key: NonNullable<EditorSnapshot["toolRequest"]>["key"], generate = false) {
-    this.publish({ view: "visual", toolRequest: { id: crypto.randomUUID(), key, generate } });
+    this.publish({ toolRequest: { id: crypto.randomUUID(), key, generate } });
   }
   proposalCurrent(proposal: EditorProposal): boolean {
     return (
@@ -204,8 +204,13 @@ export class EditorSession {
       void this.compile();
     };
   }
-  setAuthoringSelection(sceneId: string, lines: readonly string[], cursor: string | null = null): void {
-    const selection = { sceneId, lines: [...lines], cursor };
+  setAuthoringSelection(
+    sceneId: string,
+    lines: readonly string[],
+    cursor: string | null = null,
+    nodeId: string | null = cursor,
+  ): void {
+    const selection = { sceneId, lines: [...lines], cursor, nodeId };
     if (JSON.stringify(selection) !== JSON.stringify(this.state.authoringSelection))
       this.publish({ authoringSelection: selection });
   }
@@ -280,20 +285,16 @@ export class EditorSession {
   ): Promise<Pick<CompileVegaPreviewStoryResult, "story"> & { commandIndex: number }> {
     const workspace = readNativeWorkspace(this.state.documents);
     const scene = workspace.scenes.find((row) => row.id === sceneId);
-    if (!this.editorHost || !scene?.nodes.some((node) => node.id === nodeId && node.arguments.libraryOnly === true))
-      throw new Error(tr("Select a timeline to preview"));
+    if (!this.editorHost || !scene) throw new Error(tr("Select a timeline to preview"));
+    const inferred = inferredSceneTimeline(scene);
+    const definition = scene.nodes.find((node) => node.id === nodeId && node.arguments.libraryOnly === true);
+    if (!definition && inferred?.id !== nodeId) throw new Error(tr("Select a timeline to preview"));
+    const nodes = definition
+      ? scene.nodes.map((node) => node === definition ? { ...node, arguments: { ...node.arguments, libraryOnly: false } } : node)
+      : [inferred!, ...scene.nodes.slice(inferred!.children!.length)];
     const project = this.editorHost.compileDocuments({
       ...workspace,
-      scenes: workspace.scenes.map((row) =>
-        row.id === sceneId
-          ? {
-              ...row,
-              nodes: row.nodes.map((node) =>
-                node.id === nodeId ? { ...node, arguments: { ...node.arguments, libraryOnly: false } } : node,
-              ),
-            }
-          : row,
-      ),
+      scenes: workspace.scenes.map((row) => row === scene ? { ...row, nodes } : row),
     });
     const { compileAltairVegaPreviewStory } = await import("@haneoka/altair-plugin-vega-preview");
     const preview = await compileAltairVegaPreviewStory({ project, sceneId });
@@ -644,7 +645,7 @@ export class EditorSession {
               .reverse()
               .find((statement) => statement.line <= line)?.id,
             ...(this.state.authoringSelection?.sceneId !== sceneId
-              ? { authoringSelection: { sceneId, lines: [], cursor: null } }
+              ? { authoringSelection: { sceneId, lines: [], cursor: null, nodeId: null } }
               : {}),
           }
         : {}),
@@ -681,7 +682,7 @@ export class EditorSession {
               : (following ?? previous ?? statements[0]!);
             const speech = nativeDialogueNodes(row.node);
             const cursor = (row === previous ? speech.at(-1) : speech[0])?.id ?? row.id;
-            return { sceneId: statement.sceneId, lines: [cursor], cursor };
+            return { sceneId: statement.sceneId, lines: [cursor], cursor, nodeId: cursor };
           })()
         : undefined;
     this.publish({
@@ -872,7 +873,7 @@ export class EditorSession {
     this.update(doc.path, text);
     this.select(nativeStatements(text).find((node) => node.id === inserted.id)!.line);
   }
-  groupTimelineCommands(ids: readonly string[]): void {
+  groupTimelineCommands(ids: readonly string[], edit?: (timeline: AltairAuthoredNode) => AltairAuthoredNode): void {
     const page = this.document();
     if (!page || !isScene(page.path)) throw Error(tr("Open a target scene first"));
     const scene = parseAltairSceneDocument(page.text);
@@ -883,14 +884,7 @@ export class EditorSession {
       throw Error(tr("Select consecutive scene commands"));
     if (children.some((node) => node.arguments.libraryOnly === true))
       throw Error(tr("Selection contains a reusable timeline definition"));
-    if (
-      children.some(
-        (node) =>
-          (node.type.plugin === "haneoka.altair-adv" && ["GoTo", "ChoiceSet", "ChoiceShow"].includes(node.type.name)) ||
-          (node.type.plugin === "haneoka.altair" &&
-            ["branch", "jump", "call", "return", "end", "input"].includes(node.type.name)),
-      )
-    )
+    if (children.some(timelineNavigationCommand))
       throw Error(tr("Selection contains a scene navigation command"));
     const workspace = readNativeWorkspace(this.state.documents);
     const isDestination = (target: unknown) => {
@@ -923,15 +917,21 @@ export class EditorSession {
     };
     if (isDestination(workspace.project.entry) || workspace.scenes.some((entry) => entry.nodes.some(targetsSelection)))
       throw Error(tr("Selection contains a branch destination or a referenced timeline"));
-    const group = createTimeline(children, true);
+    const inferred = createTimeline(children, true);
+    const group = edit ? edit(inferred) : inferred;
+    const selection = this.state.authoringSelection;
     const nodes = [...scene.nodes];
     nodes.splice(index, children.length, { ...group, extensions: { "haneoka.authoring.explicit": true } });
     const text = serializeAltairDocument({ ...scene, nodes }, page.text);
     this.updateDocuments([{ path: page.path, before: page.text, after: text }]);
     const statement = this.statements().find((item) => item.id === group.id);
     if (statement) this.select(statement.line);
-    const cursor = children.flatMap(nativeDialogueNodes)[0]?.id ?? group.id;
-    this.setAuthoringSelection(scene.id, [cursor], cursor);
+    if (edit && selection?.sceneId === scene.id) {
+      this.setAuthoringSelection(scene.id, selection.lines, selection.cursor, selection.nodeId);
+    } else {
+      const cursor = children.flatMap(nativeDialogueNodes)[0]?.id ?? group.id;
+      this.setAuthoringSelection(scene.id, [cursor], cursor);
+    }
   }
   insertGroup(group: AltairCommandGroup, afterLine = this.state.line): void {
     const doc = this.document(),

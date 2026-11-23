@@ -7,26 +7,24 @@ import {
   type KeyboardEvent as ReactKeyboardEvent,
   type ReactNode,
 } from "react";
+import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
 import {
   AlertCircle,
-  Clapperboard,
+  Check,
   ClipboardPaste,
   ChevronLeft,
   ChevronRight,
   Clock,
-  Film,
   FolderOpen,
   Image,
   ListPlus,
-  Library,
   Lock,
+  MoreVertical,
   Music,
   PersonStanding,
   Plus,
   Puzzle,
   ScrollText,
-  Settings2,
-  Sparkles,
   Shirt,
   SlidersHorizontal,
   Smile,
@@ -38,9 +36,16 @@ import { useStudioI18n } from "../i18n";
 import { CastPicker, type CastPickerTab } from "./CastPicker";
 import { StageDock } from "./StageDock";
 import { TaskSheet } from "./TaskSheet";
-import { DockPanel, TimelineDivider, TimelineInspectorHost } from "./DockPanel";
-import "./workbench.css";
+import {
+  DockPanel,
+  TimelineDivider,
+  TimelineInspectorHost,
+  TimelineWorkspaceContext,
+  type TimelineTransportState,
+} from "./DockPanel";
+import type { PreviewSurfaceActions } from "../Preview";
 import "./studio.css";
+import "./workbench.css";
 
 export type LineId = string;
 export type LockField = "text" | "cast" | "motion" | "face" | "camera" | "audio" | "stage" | "timing";
@@ -153,6 +158,7 @@ export interface StudioSelection {
   sceneId: string;
   lines: LineId[];
   cursor: LineId | null;
+  nodeId?: string | null;
 }
 
 /** A work surface that replaces the manuscript column; the stage stays mounted. */
@@ -184,11 +190,12 @@ export interface AuthoringWorkspaceProps {
   toolRequest?: { id: string; key: "assistant" | "storyboard" | "timeline" };
   diagnostics?: ReactNode;
   previewTools?: ReactNode;
+  previewActions?: PreviewSurfaceActions | null;
   destinations?: StudioDestination[];
   onDestinationChange?(id: string): void;
   /** Controlled selection. When present it is the only selection the workspace shows. */
   selection?: StudioSelection;
-  onSelectionChange?(sceneId: string, lines: LineId[], cursor?: LineId | null): void;
+  onSelectionChange?(sceneId: string, lines: LineId[], cursor?: LineId | null, nodeId?: string | null): void;
   /** Opens the full command palette (schemas, favourites, statement groups) inserting after `after`. */
   onInsert?(sceneId: string, after: LineId | null): void;
   /** Native property editor for one or more lines. */
@@ -260,6 +267,7 @@ export function AuthoringWorkspace(props: AuthoringWorkspaceProps) {
     assistant,
     diagnostics,
     previewTools,
+    previewActions,
     destinations = [],
     onInsert,
     renderInspector,
@@ -272,7 +280,7 @@ export function AuthoringWorkspace(props: AuthoringWorkspaceProps) {
     onSelectionChange,
     notify,
   } = props;
-  const { t } = useStudioI18n();
+  const { t, i18n } = useStudioI18n();
   const scene = model.scenes.find((candidate) => candidate.id === model.activeSceneId)!;
   const [localView, setLocalView] = useState<"script" | "source">("script");
   const view = props.scriptView ?? localView;
@@ -290,19 +298,42 @@ export function AuthoringWorkspace(props: AuthoringWorkspaceProps) {
   const [director, setDirector] = useState(true);
   const [stageCollapsed, setStageCollapsed] = useState(false);
   const [sheet, setSheet] = useState<Sheet | null>(null);
-  const [panelCollapsed, setPanelCollapsed] = useState(false);
+  const [panelCollapsed, setPanelCollapsed] = useState(true);
+  const [narrowViewport, setNarrowViewport] = useState(() => window.matchMedia("(max-width: 839px)").matches);
+  useEffect(() => {
+    const query = window.matchMedia("(max-width: 839px)");
+    const update = () => setNarrowViewport(query.matches);
+    query.addEventListener("change", update);
+    return () => query.removeEventListener("change", update);
+  }, []);
   const [timelineScope, setTimelineScope] = useState<"scene" | "selection" | null>(() =>
     props.sceneTimeline && window.matchMedia("(min-width: 840px)").matches ? "scene" : null,
   );
+  const [timelineTransport, setTimelineTransport] = useState<TimelineTransportState | null>(null);
+  const [cueInspecting, setCueInspecting] = useState(false);
   const [inspectorHost, setInspectorHost] = useState<HTMLDivElement | null>(null);
-  const [timelineHeight, setTimelineHeight] = useState(40);
+  const [timelineHeight, setTimelineHeight] = useState(36);
+  const timelineWorkspace = useMemo(
+    () => ({
+      setTransport: setTimelineTransport,
+      setCueInspecting,
+      openInspector: () => {
+        setSheet(null);
+        setPanelCollapsed(false);
+      },
+      closeInspector: () => setPanelCollapsed(true),
+    }),
+    [],
+  );
   useEffect(() => {
     if (!props.toolRequest) return;
     if (props.toolRequest.key === "timeline") {
       setTimelineScope("scene");
       setSheet(null);
-    } else setSheet({ kind: props.toolRequest.key });
-    setPanelCollapsed(false);
+    } else {
+      setSheet({ kind: props.toolRequest.key });
+      setPanelCollapsed(false);
+    }
     setStageCollapsed(false);
   }, [props.toolRequest?.id]);
   const [localSelection, setLocalSelection] = useState(NO_SELECTION);
@@ -331,16 +362,17 @@ export function AuthoringWorkspace(props: AuthoringWorkspaceProps) {
     : localSelection;
   const selected = selectionSource.lines.filter((id) => byId.has(id));
   const current = selectionSource.cursor && byId.has(selectionSource.cursor) ? selectionSource.cursor : null;
+  const selectedNode = props.selection?.sceneId === scene.id ? props.selection.nodeId : undefined;
   const hasSource = Boolean(sourceEditor || source);
   const issueCount = model.issues.length;
   const activeDestination =
     destination === SCRIPT || destinations.some((item) => item.id === destination) ? destination : SCRIPT;
   const lastLine = scene.lines[scene.lines.length - 1];
 
-  const select = (lines: LineId[], cursor: LineId | null) => {
+  const select = (lines: LineId[], cursor: LineId | null, nodeId = cursor) => {
     setSheet((open) => (open?.kind === "inspect" && open.nodeIds ? { ...open, nodeIds: undefined } : open));
     if (!props.selection) setLocalSelection({ lines, cursor });
-    onSelectionChange?.(scene.id, lines, cursor);
+    onSelectionChange?.(scene.id, lines, cursor, nodeId);
   };
 
   useEffect(() => {
@@ -406,22 +438,28 @@ export function AuthoringWorkspace(props: AuthoringWorkspaceProps) {
     flush();
     if ((next.kind === "storyboard" || next.kind === "timeline") && destination !== SCRIPT) {
       bridge.openScene(scene.id);
-      setDestination(SCRIPT);
     }
-    setPanelCollapsed(false);
     if (next.kind === "timeline") setTimelineScope(next.allCues ? "scene" : "selection");
-    else setSheet(next);
+    else {
+      setSheet(next);
+      setPanelCollapsed(false);
+    }
   };
   const closePanel = () => {
     setSheet(null);
     setPanelCollapsed(true);
+  };
+  const closeTimeline = () => {
+    setTimelineScope(null);
+    setTimelineTransport(null);
+    setCueInspecting(false);
   };
 
   const goTo = (id: string) => {
     flush();
     setSheet(null);
     setDestination(id);
-    if (window.matchMedia("(max-width: 839px)").matches) setTimelineScope(null);
+    if (window.matchMedia("(max-width: 839px)").matches) closeTimeline();
     if (id !== SCRIPT && !visited.includes(id)) setVisited((list) => [...list, id]);
   };
 
@@ -459,8 +497,13 @@ export function AuthoringWorkspace(props: AuthoringWorkspaceProps) {
 
   const inspect = (line: StudioLine, nodeId?: string) => {
     if (renderInspector) {
-      if (!selected.includes(line.id) || (nodeId && selected.length > 1)) select([line.id], line.id);
-      openSheet({ kind: "inspect", lines: targets(line.id), ...(nodeId ? { nodeIds: [nodeId] } : {}) });
+      if (nodeId) {
+        select([line.id], line.id, nodeId);
+        openSheet({ kind: "inspect", lines: [line.id], nodeIds: [nodeId] });
+        return;
+      }
+      if (!selected.includes(line.id)) select([line.id], line.id);
+      openSheet({ kind: "inspect", lines: targets(line.id) });
     }
   };
 
@@ -493,9 +536,9 @@ export function AuthoringWorkspace(props: AuthoringWorkspaceProps) {
     press.current = null;
   };
 
-  const openCast = (line: StudioLine, castId: string | null, tab: CastPickerTab) => {
-    if (!selected.includes(line.id)) select([line.id], line.id);
-    openSheet({ kind: "cast", castId, lines: targets(line.id), tab });
+  const openCast = (line: StudioLine, castId: string | null, tab: CastPickerTab, nodeId?: string) => {
+    if (nodeId || !selected.includes(line.id)) select([line.id], line.id, nodeId ?? line.id);
+    openSheet({ kind: "cast", castId, lines: nodeId ? [line.id] : targets(line.id), tab });
   };
 
   const onWorkbenchKey = (event: ReactKeyboardEvent<HTMLDivElement>) => {
@@ -513,7 +556,10 @@ export function AuthoringWorkspace(props: AuthoringWorkspaceProps) {
     if (event.key === " " && !target.closest("button, a, summary")) {
       event.preventDefault();
       if (model.playback.playing) bridge.stop();
-      else bridge.resume();
+      else {
+        timelineTransport?.clearSample();
+        bridge.resume();
+      }
     } else if (mod && event.key.toLowerCase() === "z") {
       event.preventDefault();
       if (event.shiftKey) bridge.redo();
@@ -546,116 +592,105 @@ export function AuthoringWorkspace(props: AuthoringWorkspaceProps) {
     }
   };
 
-  const projectTools = (
-    <div className="author-project-actions">
-      {onAssets && (
-        <button
-          type="button"
-          data-host-action="assets"
-          className="author-icon-button"
-          aria-label={t("Assets")}
-          title={t("Assets")}
-          onClick={() => {
-            flush();
-            onAssets();
-          }}
-        >
-          <FolderOpen aria-hidden />
-        </button>
-      )}
-      {onTools && (
-        <button
-          type="button"
-          className="author-icon-button"
-          aria-label={t("Properties")}
-          title={t("Properties")}
-          onClick={() => {
-            flush();
-            onTools();
-          }}
-        >
-          <Settings2 aria-hidden />
-        </button>
-      )}
-      {onLibrary && (
+  const rowFocus = current ?? scene.lines[0]?.id;
+  const activePanel = !panelCollapsed && sheet && sheet.kind !== "paste" && sheet.kind !== "timeline";
+  const propertiesChecked = narrowViewport
+    ? Boolean(activePanel && sheet?.kind === "inspect")
+    : !panelCollapsed;
+  const toggleProperties = () => {
+    if (!narrowViewport) {
+      if (panelCollapsed) setPanelCollapsed(false);
+      else closePanel();
+      return;
+    }
+    if (sheet?.kind === "inspect") {
+      closePanel();
+      return;
+    }
+    const targetLines = selected.length ? selected : rowFocus ? [rowFocus] : [];
+    if (targetLines.length > 0) openSheet({ kind: "inspect", lines: targetLines });
+  };
+  const canPlayStage = scene.lines.length > 0 && model.playback.ready;
+  const hasWorkspaceMenu = Boolean(onLibrary || onHistory || onPasteText || onTools || onAssets || onImport);
+  const workspaceMenu = hasWorkspaceMenu ? (
+    <DropdownMenu.Root dir={i18n.dir()}>
+      <DropdownMenu.Trigger asChild>
         <button
           type="button"
           className="author-icon-button"
-          title={t("Command library")}
-          aria-label={t("Command library")}
-          onClick={() => {
-            flush();
-            onLibrary();
-          }}
+          aria-label={t("Workspace actions")}
+          title={t("Workspace actions")}
         >
-          <Library aria-hidden />
+          <MoreVertical aria-hidden />
         </button>
-      )}
-      {onHistory && (
-        <button
-          type="button"
-          className="author-icon-button"
-          title={t("Version history")}
-          aria-label={t("Version history")}
-          onClick={() => {
-            flush();
-            onHistory();
-          }}
-        >
-          <Clock aria-hidden />
-        </button>
-      )}
-    </div>
-  );
-  const tools = (
+      </DropdownMenu.Trigger>
+      <DropdownMenu.Portal>
+        <DropdownMenu.Content className="editor-file-menu" align="end" sideOffset={6}>
+          {onLibrary && (
+            <DropdownMenu.Item
+              onSelect={() => {
+                flush();
+                onLibrary();
+              }}
+            >
+              {t("Command library")}
+            </DropdownMenu.Item>
+          )}
+          {onHistory && (
+            <DropdownMenu.Item
+              onSelect={() => {
+                flush();
+                onHistory();
+              }}
+            >
+              {t("Version history")}
+            </DropdownMenu.Item>
+          )}
+          {onPasteText && (
+            <DropdownMenu.Item onSelect={() => openSheet({ kind: "paste" })}>
+              {t("authoring.pasteText")}
+            </DropdownMenu.Item>
+          )}
+          {onTools && (
+            <DropdownMenu.Item
+              onSelect={() => {
+                flush();
+                onTools();
+              }}
+            >
+              {t("Project files")}
+            </DropdownMenu.Item>
+          )}
+          {onAssets && (
+            <DropdownMenu.Item
+              data-host-action="assets"
+              onSelect={() => {
+                flush();
+                onAssets();
+              }}
+            >
+              {t("Assets")}
+            </DropdownMenu.Item>
+          )}
+          {onImport && (
+            <DropdownMenu.Item
+              data-host-action="import"
+              onSelect={() => {
+                flush();
+                onImport();
+              }}
+            >
+              {t("Import")}
+            </DropdownMenu.Item>
+          )}
+        </DropdownMenu.Content>
+      </DropdownMenu.Portal>
+    </DropdownMenu.Root>
+  ) : null;
+
+  const activeTools = (
     <>
       {previewTools}
-      <button
-        type="button"
-        className="author-icon-button"
-        aria-pressed={director}
-        aria-label={t("authoring.director")}
-        title={t("authoring.director")}
-        onClick={() => setDirector((value) => !value)}
-      >
-        <Clapperboard aria-hidden />
-      </button>
-      {timeline && (
-        <button
-          type="button"
-          className="author-icon-button"
-          data-host-action="timeline"
-          aria-label={t("Timeline")}
-          title={t("Timeline")}
-          aria-pressed={Boolean(timelineScope)}
-          onClick={() => (timelineScope ? setTimelineScope(null) : openSheet({ kind: "timeline", allCues: true }))}
-        >
-          <Clock aria-hidden />
-        </button>
-      )}
-      {assistant && (
-        <button
-          type="button"
-          className="author-button"
-          data-host-action="assistant"
-          onClick={() => openSheet({ kind: "assistant" })}
-        >
-          <Sparkles aria-hidden />
-          {t("ai.assistant")}
-        </button>
-      )}
-      {storyboard && (
-        <button
-          type="button"
-          className="author-icon-button"
-          data-host-action="storyboard"
-          aria-label={t("Storyboard")}
-          title={t("Storyboard")}
-          onClick={() => openSheet({ kind: "storyboard" })}
-        >
-          <Film aria-hidden />
-        </button>
-      )}
       {(issueCount > 0 || diagnostics) && (
         <button
           type="button"
@@ -671,6 +706,108 @@ export function AuthoringWorkspace(props: AuthoringWorkspaceProps) {
     </>
   );
 
+  const stageMenu = (
+    <DropdownMenu.Root dir={i18n.dir()}>
+      <DropdownMenu.Trigger asChild>
+        <button
+          type="button"
+          className="author-icon-button"
+          aria-label={t("Stage actions")}
+          title={t("Stage actions")}
+        >
+          <MoreVertical aria-hidden />
+        </button>
+      </DropdownMenu.Trigger>
+      <DropdownMenu.Portal>
+        <DropdownMenu.Content className="editor-file-menu" align="end" sideOffset={6}>
+          <DropdownMenu.CheckboxItem checked={director} onSelect={() => setDirector((value) => !value)}>
+            <span>{t("authoring.director")}</span>
+            <DropdownMenu.ItemIndicator className="editor-menu-indicator">
+              <Check size={14} aria-hidden />
+            </DropdownMenu.ItemIndicator>
+          </DropdownMenu.CheckboxItem>
+          <DropdownMenu.CheckboxItem checked={propertiesChecked} onSelect={toggleProperties}>
+            <span>{t("Properties")}</span>
+            <DropdownMenu.ItemIndicator className="editor-menu-indicator">
+              <Check size={14} aria-hidden />
+            </DropdownMenu.ItemIndicator>
+          </DropdownMenu.CheckboxItem>
+          <DropdownMenu.Separator />
+          <DropdownMenu.Item
+            disabled={!canPlayStage && !timelineTransport?.ready}
+            onSelect={() => {
+              if (timelineTransport) timelineTransport.seekStart();
+              else bridge.restart();
+            }}
+          >
+            {t("Run from the beginning")}
+          </DropdownMenu.Item>
+          <DropdownMenu.Item
+            disabled={!canPlayStage}
+            onSelect={() => {
+              timelineTransport?.clearSample();
+              play();
+            }}
+          >
+            {t("Run from current statement")}
+          </DropdownMenu.Item>
+          {previewActions && (
+            <>
+              <DropdownMenu.Separator />
+              <DropdownMenu.Item
+                disabled={!previewActions.canExportVideo}
+                onSelect={() => previewActions.openVideoExport()}
+              >
+                {t(
+                  previewActions.videoReplaying
+                    ? "Stop route preview"
+                    : previewActions.videoRecording
+                      ? "Export progress"
+                      : "Export stage video",
+                )}
+              </DropdownMenu.Item>
+              <DropdownMenu.Item disabled={!previewActions.canRefresh} onSelect={() => previewActions.refresh()}>
+                {t("Refresh preview")}
+              </DropdownMenu.Item>
+              <DropdownMenu.Item disabled={!previewActions.canDetach} onSelect={() => previewActions.detach()}>
+                {t(previewActions.detached ? "Dock preview" : "Detach preview")}
+              </DropdownMenu.Item>
+              <DropdownMenu.Item onSelect={() => previewActions.fullscreen()}>
+                {t("Fullscreen preview")}
+              </DropdownMenu.Item>
+              <DropdownMenu.Item onSelect={() => previewActions.openDebugger()}>
+                {t("Preview debugger")}
+              </DropdownMenu.Item>
+            </>
+          )}
+          {(timeline || assistant || storyboard) && <DropdownMenu.Separator data-host-action="tools" />}
+          {timeline && (
+            <DropdownMenu.CheckboxItem
+              data-host-action="timeline"
+              checked={Boolean(timelineScope)}
+              onSelect={() => (timelineScope ? closeTimeline() : openSheet({ kind: "timeline", allCues: true }))}
+            >
+              <span>{t("Timeline")}</span>
+              <DropdownMenu.ItemIndicator className="editor-menu-indicator">
+                <Check size={14} aria-hidden />
+              </DropdownMenu.ItemIndicator>
+            </DropdownMenu.CheckboxItem>
+          )}
+          {assistant && (
+            <DropdownMenu.Item data-host-action="assistant" onSelect={() => openSheet({ kind: "assistant" })}>
+              {t("ai.assistant")}
+            </DropdownMenu.Item>
+          )}
+          {storyboard && (
+            <DropdownMenu.Item data-host-action="storyboard" onSelect={() => openSheet({ kind: "storyboard" })}>
+              {t("Storyboard")}
+            </DropdownMenu.Item>
+          )}
+        </DropdownMenu.Content>
+      </DropdownMenu.Portal>
+    </DropdownMenu.Root>
+  );
+
   const sheetLines =
     sheet?.kind === "cast" || sheet?.kind === "inspect"
       ? (selected.length ? selected : sheet.lines)
@@ -680,9 +817,7 @@ export function AuthoringWorkspace(props: AuthoringWorkspaceProps) {
   const playingId = model.playback.playing ? model.playback.lineId : null;
   const monitorLine = playingId && byId.has(playingId) ? playingId : (current ?? model.playback.lineId);
   const inspectorIds = sheet?.kind === "inspect" ? (sheet.nodeIds ?? sheetLines.map((line) => line.id)) : [];
-  const rowFocus = current ?? scene.lines[0]?.id;
   const selecting = view === "script" && (selected.length > 1 || touchSelecting);
-  const activePanel = !panelCollapsed && sheet && sheet.kind !== "paste" && sheet.kind !== "timeline";
   const inspectorNavigation = (
     <>
       {([-1, 1] as const).map((step) => {
@@ -705,30 +840,49 @@ export function AuthoringWorkspace(props: AuthoringWorkspaceProps) {
     </>
   );
 
+  const inspectorCollapsed = panelCollapsed && !activePanel;
+  const workbenchClasses = [
+    destinations.length > 0 || workspaceMenu ? "author-workbench has-destinations" : "author-workbench",
+    timelineScope ? "has-timeline" : "",
+    activePanel ? "has-active-panel" : "",
+    cueInspecting && !panelCollapsed && !sheet ? "has-cue-inspector" : "",
+    inspectorCollapsed ? "is-inspector-collapsed" : "",
+  ]
+    .filter(Boolean)
+    .join(" ");
+
   return (
-    <div
-      className={`${destinations.length > 0 ? "author-workbench has-destinations" : "author-workbench"}${timelineScope ? " has-timeline" : ""}${activePanel ? " has-active-panel" : ""}`}
-      style={{ "--author-timeline-height": timelineHeight + "%" } as CSSProperties}
-      onKeyDown={onWorkbenchKey}
-    >
-      {destinations.length > 0 && (
-        <nav className="author-destinations" aria-label={t("authoring.destinations")}>
-          {[{ id: SCRIPT, label: t("authoring.script"), icon: <ScrollText /> }, ...destinations].map((item) => (
-            <button
-              key={item.id}
-              type="button"
-              className="author-destination-button"
-              aria-current={activeDestination === item.id ? "page" : undefined}
-              onClick={() => goTo(item.id)}
-            >
-              <span className="author-destination-icon" aria-hidden>
-                {item.icon}
-              </span>
-              <span className="author-destination-label">{item.label}</span>
-            </button>
-          ))}
-        </nav>
-      )}
+    <TimelineWorkspaceContext.Provider value={timelineWorkspace}>
+      <div
+        className={workbenchClasses}
+        style={{ "--author-timeline-height": timelineHeight + "%" } as CSSProperties}
+        onKeyDown={onWorkbenchKey}
+      >
+        {(destinations.length > 0 || workspaceMenu) && (
+          <div className="author-destinations-bar">
+            {destinations.length > 0 && (
+              <nav className="author-destinations" aria-label={t("authoring.destinations")}>
+                {[{ id: SCRIPT, label: t("authoring.script"), icon: <ScrollText /> }, ...destinations].map((item) => (
+                  <button
+                    key={item.id}
+                    type="button"
+                    className="author-destination-button"
+                    aria-label={item.label}
+                    title={item.label}
+                    aria-current={activeDestination === item.id ? "page" : undefined}
+                    onClick={() => goTo(item.id)}
+                  >
+                    <span className="author-destination-icon" aria-hidden>
+                      {item.icon}
+                    </span>
+                    <span className="author-destination-label">{item.label}</span>
+                  </button>
+                ))}
+              </nav>
+            )}
+            {workspaceMenu}
+          </div>
+        )}
 
       <div className="author-work">
         <section className="author-manuscript" aria-label={t("authoring.script")} hidden={activeDestination !== SCRIPT}>
@@ -968,10 +1122,11 @@ export function AuthoringWorkspace(props: AuthoringWorkspaceProps) {
                                     <button
                                       type="button"
                                       className="author-note-main"
+                                      aria-current={selectedNode === note.id || undefined}
                                       data-nav
                                       tabIndex={-1}
                                       onClick={() => {
-                                        if (pickable) openCast(line, note.castId!, note.kind as CastOptionGroup);
+                                        if (pickable) openCast(line, note.castId!, note.kind as CastOptionGroup, note.id);
                                         else if (renderInspector) inspect(line, note.id);
                                         else {
                                           choose(line.id, "replace");
@@ -1153,12 +1308,11 @@ export function AuthoringWorkspace(props: AuthoringWorkspaceProps) {
               {item.content}
             </section>
           ))}
-        {projectTools}
       </div>
 
       <div
         className="author-companion"
-        data-has-panel={!panelCollapsed && (Boolean(sheet && sheet.kind !== "paste") || selected.length > 0)}
+        data-has-panel={!panelCollapsed && (Boolean(sheet && sheet.kind !== "paste") || selected.length > 0 || cueInspecting)}
       >
         <StageDock
           key="stage"
@@ -1171,13 +1325,27 @@ export function AuthoringWorkspace(props: AuthoringWorkspaceProps) {
             scene.lines.findIndex((line) => line.id === monitorLine),
           )}
           length={scene.lines.length}
-          canPlay={scene.lines.length > 0 && model.playback.ready}
+          canPlay={canPlayStage}
           speakers={current ? byId.get(current)!.speakers : []}
-          tools={tools}
+          activeTools={activeTools}
+          stageMenu={stageMenu}
+          panelOpen={!panelCollapsed}
+          timelineTransport={timelineTransport}
           onToggleCollapsed={() => setStageCollapsed((value) => !value)}
+          onTogglePanel={() => {
+            if (panelCollapsed) setPanelCollapsed(false);
+            else closePanel();
+          }}
+          onFullscreen={previewActions ? () => previewActions.fullscreen() : undefined}
           onPlay={play}
-          onResume={() => bridge.resume()}
-          onRestart={() => bridge.restart()}
+          onResume={() => {
+            timelineTransport?.clearSample();
+            bridge.resume();
+          }}
+          onRestart={() => {
+            if (timelineTransport) timelineTransport.seekStart();
+            else bridge.restart();
+          }}
           onSeek={(index) => {
             const line = scene.lines[index];
             if (line) bridge.seek(scene.id, line.id);
@@ -1185,11 +1353,11 @@ export function AuthoringWorkspace(props: AuthoringWorkspaceProps) {
           onStop={() => bridge.stop()}
         />
 
-        <div className="author-inspector" data-panel={sheet?.kind ?? "inspect"}>
-          {!sheet && <div className="author-cue-dock" ref={setInspectorHost} />}
-          {!panelCollapsed && !sheet && renderInspector && (selected.length > 0 || rowFocus) && (
+        <div className="author-inspector" data-panel={cueInspecting && !sheet ? "cue" : (sheet?.kind ?? "inspect")}>
+          <div className="author-cue-dock" ref={setInspectorHost} hidden={panelCollapsed || Boolean(sheet)} />
+          {!panelCollapsed && !sheet && !cueInspecting && renderInspector && (selected.length > 0 || rowFocus || selectedNode) && (
             <DockPanel title={t("Properties")} actions={inspectorNavigation} onClose={closePanel}>
-              {renderInspector(scene.id, selected.length ? selected : [rowFocus!])}
+              {renderInspector(scene.id, selectedNode && selected.length < 2 ? [selectedNode] : selected.length ? selected : [rowFocus!])}
             </DockPanel>
           )}
           {!panelCollapsed && sheet?.kind === "cast" && sheetLines.length > 0 && (
@@ -1313,7 +1481,7 @@ export function AuthoringWorkspace(props: AuthoringWorkspaceProps) {
         <DockPanel
           timeline
           title={t("Timeline")}
-          onClose={() => setTimelineScope(null)}
+          onClose={closeTimeline}
           resizeHandle={<TimelineDivider height={timelineHeight} onResize={setTimelineHeight} />}
         >
           <TimelineInspectorHost.Provider value={inspectorHost}>
@@ -1343,7 +1511,8 @@ export function AuthoringWorkspace(props: AuthoringWorkspaceProps) {
           </form>
         </TaskSheet>
       )}
-    </div>
+      </div>
+    </TimelineWorkspaceContext.Provider>
   );
 }
 

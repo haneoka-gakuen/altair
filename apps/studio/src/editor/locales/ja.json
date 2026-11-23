@@ -1942,5 +1942,16 @@
   "ai.request": "編集リクエスト",
   "Damaged archive file: {{path}}": "アーカイブ内のファイルが破損しています：{{path}}",
   "Unsupported archive compression": "未対応の圧縮方式です",
-  "No supported story source was found": "読み込めるストーリーのソースがありません"
+  "No supported story source was found": "読み込めるストーリーのソースがありません",
+  "Previous frame": "前のフレーム",
+  "Next frame": "次のフレーム",
+  "Jump to start": "先頭へ移動",
+  "Duplicate cue": "キューを複製",
+  "Stage actions": "ステージ操作",
+  "Timeline zoom": "タイムラインのズーム",
+  "Timeline actions": "タイムライン操作",
+  "Workspace actions": "ワークスペース操作",
+  "Toggle properties": "プロパティを切り替え",
+  "More commands": "その他のコマンド",
+  "Settings": "設定"
 }

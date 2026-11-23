@@ -26,12 +26,18 @@ export function VideoExport({
   restorePreview,
   ready,
   onError,
+  hideIdleTrigger = false,
+  openRef,
+  onStateChange,
 }: {
   bridge: StudioPreviewBridge;
   session: EditorSession;
   restorePreview(breakpoints?: readonly VegaPreviewBreakpoint[]): void;
   ready: boolean;
   onError(error: unknown): void;
+  hideIdleTrigger?: boolean;
+  openRef?: { current: (() => void) | null };
+  onStateChange?: (state: { recording: boolean; replaying: boolean; disabled: boolean }) => void;
 }) {
   const [open, setOpen] = useState(false),
     [recording, setRecording] = useState(false),
@@ -240,16 +246,31 @@ export function VideoExport({
     },
     [bridge],
   );
+  const triggerDisabled = (!recording && busy) || (!ready && !recording && !replaying);
+  const triggerRef = useRef<() => void>(() => {});
+  triggerRef.current = () => (replaying ? void finish() : setOpen(true));
+  useEffect(() => {
+    if (!openRef) return;
+    openRef.current = () => triggerRef.current();
+    return () => {
+      openRef.current = null;
+    };
+  }, [openRef]);
+  useEffect(() => {
+    onStateChange?.({ recording, replaying, disabled: triggerDisabled });
+  }, [onStateChange, recording, replaying, triggerDisabled]);
   return (
     <>
-      <button
-        disabled={(!recording && busy) || (!ready && !recording && !replaying)}
-        title={tr(replaying ? "Stop route preview" : recording ? "Export progress" : "Export stage video")}
-        aria-label={tr(replaying ? "Stop route preview" : recording ? "Export progress" : "Export stage video")}
-        onClick={() => (replaying ? void finish() : setOpen(true))}
-      >
-        {recording || replaying ? <Square size={14} /> : <Video size={14} />}
-      </button>
+      {(!hideIdleTrigger || recording || replaying) && (
+        <button
+          disabled={triggerDisabled}
+          title={tr(replaying ? "Stop route preview" : recording ? "Export progress" : "Export stage video")}
+          aria-label={tr(replaying ? "Stop route preview" : recording ? "Export progress" : "Export stage video")}
+          onClick={() => (replaying ? void finish() : setOpen(true))}
+        >
+          {recording || replaying ? <Square size={14} /> : <Video size={14} />}
+        </button>
+      )}
       {output && (
         <button
           type="button"

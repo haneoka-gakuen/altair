@@ -10,11 +10,13 @@ import {
   type ReactNode,
 } from "react";
 import { createPortal } from "react-dom";
-import { DockPanel, TimelineInspectorHost, TimelineToolbarHost } from "./authoring/DockPanel";
+import * as DropdownMenu from "@radix-ui/react-dropdown-menu";
+import { DockPanel, TimelineInspectorHost, TimelineToolbarHost, TimelineWorkspaceContext } from "./authoring/DockPanel";
 import { presentationTargets } from "@haneoka/altair-plugin-vega-preview/projection";
 import * as Dialog from "@radix-ui/react-dialog";
 import {
   createTimelineTimingContext,
+  cloneAltairNodeGroup,
   isTimelineReference,
   listReusableTimelines,
   resolveTimelineReference,
@@ -25,14 +27,19 @@ import {
 import {
   ArrowDown,
   ArrowUp,
+  Copy,
   Plus,
   Import,
+  Layers,
   Maximize,
   Settings2,
+  Star,
   NumberInput,
   StructuredTextInput,
   Trash2,
   X,
+  ZoomIn,
+  ZoomOut,
 } from "@haneoka/altair-ui-react";
 import { DataSet } from "vis-data";
 import { Timeline, type DataItem, type TimelineOptions } from "vis-timeline/peer";
@@ -81,6 +88,8 @@ import {
   createTimeline,
   durationField,
   importTimelineScript,
+  inferredSceneTimeline,
+  sceneTrackCues,
   isTimeline,
   linkTimelineCue,
   moveTimelineLane,
@@ -543,6 +552,8 @@ function CueChart({
   onMarkerMove,
   playhead,
   onScrub,
+  onZoomApi,
+  onCueContextMenu,
 }: {
   cues: readonly TimelineCue[];
   nameOf(node: AltairAuthoredNode): string;
@@ -558,6 +569,8 @@ function CueChart({
   onMarkerMove(id: string, seconds: number): void;
   playhead?: number;
   onScrub(seconds: number): void;
+  onZoomApi?: (api: { zoomIn(): void; zoomOut(): void } | null) => void;
+  onCueContextMenu?: (id: string, point: { x: number; y: number }) => void;
 }) {
   const [waveforms, setWaveforms] = useState<ReadonlyMap<string, string>>(new Map());
   const waveformContent = useRef<ReadonlyMap<string, string>>(new Map());
@@ -607,12 +620,13 @@ function CueChart({
   const mount = useRef<HTMLDivElement>(null),
     timeline = useRef<Timeline>(undefined),
     items = useRef(new DataSet<DataItem>());
-  const callbacks = useRef({ onSelect, onMove, onMarkerMove, onScrub });
+  const callbacks = useRef({ onSelect, onMove, onMarkerMove, onScrub, onZoomApi, onCueContextMenu });
   useEffect(() => {
-    callbacks.current = { onSelect, onMove, onMarkerMove, onScrub };
-  }, [onSelect, onMove, onMarkerMove, onScrub]);
+    callbacks.current = { onSelect, onMove, onMarkerMove, onScrub, onZoomApi, onCueContextMenu };
+  }, [onSelect, onMove, onMarkerMove, onScrub, onZoomApi, onCueContextMenu]);
   useEffect(() => {
-    if (!mount.current) return;
+    const container = mount.current;
+    if (!container) return;
     const options: TimelineOptions = {
       height: "100%",
       min: 0,
@@ -655,8 +669,12 @@ function CueChart({
         );
       },
     };
-    const view = new Timeline(mount.current, items.current, [], options);
+    const view = new Timeline(container, items.current, [], options);
     timeline.current = view;
+    callbacks.current.onZoomApi?.({
+      zoomIn: () => view.zoomIn(0.4, { animation: false }),
+      zoomOut: () => view.zoomOut(0.4, { animation: false }),
+    });
     view.on("select", (event) =>
       callbacks.current.onSelect(event.items[0] === undefined ? "" : String(event.items[0])),
     );
@@ -666,7 +684,68 @@ function CueChart({
     view.on("timechange", ({ id, time }: { id: string; time: Date }) => {
       if (id === "timeline-playhead") callbacks.current.onScrub(Number(time) / 1000);
     });
+    view.on("click", (event: { what?: string | null; time?: Date }) => {
+      if ((event.what === "axis" || event.what === "background") && event.time)
+        callbacks.current.onScrub(Math.max(0, Number(event.time) / 1000));
+    });
+    view.on("contextmenu", (event: { item?: unknown; event?: MouseEvent }) => {
+      if (event.item == null || !event.event) return;
+      event.event.preventDefault();
+      const id = String(event.item);
+      callbacks.current.onSelect(id);
+      callbacks.current.onCueContextMenu?.(id, { x: event.event.clientX, y: event.event.clientY });
+    });
+    let scrubbing = false;
+    const timeAtClientX = (clientX: number) => {
+      const axis = container.querySelector(".vis-panel.vis-center") ?? container.querySelector(".vis-panel.vis-top");
+      if (!axis) return;
+      const rect = axis.getBoundingClientRect();
+      if (rect.width <= 0) return;
+      const win = view.getWindow();
+      const ratio = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
+      const ms = win.start.getTime() + ratio * (win.end.getTime() - win.start.getTime());
+      callbacks.current.onScrub(Math.max(0, ms / 1000));
+    };
+    const onPointerDown = (event: PointerEvent) => {
+      if (event.button !== 0) return;
+      container.focus({ preventScroll: true });
+      const target = event.target as Element | null;
+      if (!target || target.closest(".vis-custom-time") || !target.closest(".vis-panel.vis-top")) return;
+      scrubbing = true;
+      event.preventDefault();
+      event.stopPropagation();
+      try {
+        container.setPointerCapture(event.pointerId);
+      } catch {}
+      timeAtClientX(event.clientX);
+    };
+    const onPointerMove = (event: PointerEvent) => {
+      if (!scrubbing) return;
+      event.stopPropagation();
+      timeAtClientX(event.clientX);
+    };
+    const onPointerEnd = (event: PointerEvent) => {
+      if (!scrubbing) return;
+      scrubbing = false;
+      try {
+        if (container.hasPointerCapture(event.pointerId)) container.releasePointerCapture(event.pointerId);
+      } catch {}
+    };
+    container.addEventListener("pointerdown", onPointerDown, true);
+    container.addEventListener("pointermove", onPointerMove, true);
+    container.addEventListener("pointerup", onPointerEnd, true);
+    container.addEventListener("pointercancel", onPointerEnd, true);
+    const observer = new ResizeObserver(() => {
+      if (container.clientWidth > 0 && container.clientHeight > 0) view.redraw();
+    });
+    observer.observe(container);
     return () => {
+      callbacks.current.onZoomApi?.(null);
+      observer.disconnect();
+      container.removeEventListener("pointerdown", onPointerDown, true);
+      container.removeEventListener("pointermove", onPointerMove, true);
+      container.removeEventListener("pointerup", onPointerEnd, true);
+      container.removeEventListener("pointercancel", onPointerEnd, true);
       timeline.current = undefined;
       view.destroy();
     };
@@ -739,7 +818,7 @@ function CueChart({
     );
     timeline.current?.setWindow(0, seconds * 1100, { animation: false });
   }, [fit]);
-  return <div ref={mount} className="timeline-canvas" aria-label={tr("Cue timeline")} />;
+  return <div ref={mount} className="timeline-canvas" role="region" aria-label={tr("Cue timeline")} tabIndex={0} />;
 }
 
 function useTimelinePlayhead(
@@ -836,17 +915,27 @@ function CueInspectorDock({
   children: ReactNode;
 }) {
   const inspectorHost = useContext(TimelineInspectorHost);
-  const [wide, setWide] = useState(() => window.matchMedia("(min-width: 840px)").matches);
+  const workspace = useContext(TimelineWorkspaceContext);
+  const inspecting = Boolean(title);
   useEffect(() => {
-    const query = window.matchMedia("(min-width: 840px)");
-    const update = () => setWide(query.matches);
-    query.addEventListener("change", update);
-    return () => query.removeEventListener("change", update);
-  }, []);
+    workspace?.setCueInspecting(inspecting);
+  }, [workspace, inspecting]);
+  useEffect(() => () => workspace?.setCueInspecting(false), [workspace]);
   if (!title) return null;
-  if (!inspectorHost || !wide) return <div className="timeline-cue-inspector">{children}</div>;
+  if (!inspectorHost)
+    return (
+      <div className="timeline-cue-inspector">
+        <header className="author-panel-header">
+          <h2>{title}</h2>
+          <button type="button" className="author-icon-button" aria-label={tr("Close")} title={tr("Close")} onClick={onClose}>
+            <X aria-hidden />
+          </button>
+        </header>
+        {children}
+      </div>
+    );
   return createPortal(
-    <DockPanel title={title} onClose={onClose}>
+    <DockPanel title={title} onClose={onClose} className="author-cue-panel">
       <div className="timeline-cue-inspector">{children}</div>
     </DockPanel>,
     inspectorHost,
@@ -857,24 +946,30 @@ export function TimelineEditor({
   session,
   scope,
   groupSelection,
+  onSelectCue,
 }: {
   session: EditorSession;
   scope?: readonly string[];
   groupSelection?: readonly string[] | undefined;
+  onSelectCue?(sceneId: string, nodeId: string | null): void;
 }) {
   const state = useSyncExternalStore(session.subscribe, session.getSnapshot),
     { i18n } = useStudioI18n();
   const doc = session.document();
-  const [selected, setSelected] = useState(""),
-    [fit, setFit] = useState(0),
+  const workspaceContext = useContext(TimelineWorkspaceContext);
+  const workspaceContextRef = useRef(workspaceContext);
+  workspaceContextRef.current = workspaceContext;
+  const [fit, setFit] = useState(0),
     [command, setCommand] = useState("Talk"),
     [sourceChoice, setSourceChoice] = useState(""),
     [showImport, setShowImport] = useState(false),
     [source, setSource] = useState(""),
     [issue, setIssue] = useState(""),
     [scrubIssue, setScrubIssue] = useState(""),
-    [busy, setBusy] = useState(false);
-  useEffect(() => setSelected(""), [state.authoringSelection?.cursor, state.active]);
+    [busy, setBusy] = useState(false),
+    [zoomApi, setZoomApi] = useState<{ zoomIn(): void; zoomOut(): void } | null>(null),
+    [contextMenu, setContextMenu] = useState<{ cueId: string; x: number; y: number } | null>(null);
+  useEffect(() => setContextMenu(null), [state.active]);
   const toolbarHost = useContext(TimelineToolbarHost);
   const [showOptions, setShowOptions] = useState(false);
   const optionsId = useId();
@@ -896,6 +991,19 @@ export function TimelineEditor({
       return undefined;
     }
   }, [doc?.text]);
+  const sceneId = scene?.id;
+  const selectionId = state.authoringSelection?.sceneId === sceneId ? state.authoringSelection?.nodeId : null;
+  const selectCue = useCallback((id: string) => {
+    if (!sceneId) return;
+    if (onSelectCue) onSelectCue(sceneId, id || null);
+    else if (id) session.setAuthoringSelection(sceneId, [id], id);
+    else {
+      const previous = session.getSnapshot().authoringSelection;
+      if (previous?.sceneId === sceneId && previous.nodeId)
+        session.setAuthoringSelection(sceneId, previous.lines, previous.cursor, null);
+    }
+    if (id) workspaceContextRef.current?.openInspector();
+  }, [onSelectCue, sceneId, session]);
   const groupIds = useMemo(() => {
     if (!scene) return [];
     const ids = new Set(
@@ -913,16 +1021,22 @@ export function TimelineEditor({
     return scene.nodes.filter(containsSelection).map((node) => node.id);
   }, [scene, scope, groupSelection, state.authoringSelection]);
   const allTimelines = scene?.nodes.filter(isTimeline) ?? [];
+  const inferred = useMemo(() => scene && inferredSceneTimeline(scene), [scene]);
   const scoped = scope?.length ? allTimelines.filter((node) => scope.includes(node.id)) : [];
   const timelines = scoped.length ? scoped : allTimelines;
   const preferred =
     activeTimeline && activeTimeline.sceneId === scene?.id && activeTimeline.statement === state.selectedNodeId
       ? timelines.find((node) => node.id === activeTimeline.id)
       : undefined;
-  const current = preferred ?? timelines.find((node) => node.id === state.selectedNodeId) ?? timelines[0];
+  const overview = !preferred && !scoped.length ? inferred : undefined;
+  const ownsSelection = (node: AltairAuthoredNode): boolean =>
+    node.id === selectionId || Boolean(node.children?.some(ownsSelection));
+  const current = preferred ?? (selectionId ? timelines.find(ownsSelection) : undefined)
+    ?? overview ?? timelines.find((node) => node.id === state.selectedNodeId) ?? timelines[0] ?? inferred;
+  const viewTimeline = overview ?? current;
   const playhead = useTimelinePlayhead(
     session,
-    current?.id,
+    viewTimeline?.id,
     state.compilation,
     Boolean(!state.compiling && state.preview?.ready),
     setScrubIssue,
@@ -970,20 +1084,81 @@ export function TimelineEditor({
       return [];
     }
   }, [current, timing]);
-  const cue = cues.find((cue) => cue.node.id === selected);
+  const sceneView = useMemo(() => {
+    if (!overview) return;
+    try {
+      return sceneTrackCues(overview, timing);
+    } catch {
+      return;
+    }
+  }, [overview, timing]);
+  const displayCues = sceneView?.cues ?? cues;
+  const chartSelection = displayCues.find((cue) => cue.node.id === selectionId)?.node.id ?? "";
+  const scopeStart = sceneView?.roots.find((cue) => cue.node.id === current?.id)?.atSeconds ?? 0;
+  const cue = cues.find((cue) => cue.node.id === selectionId);
+  const selected = cue?.node.id ?? "";
   const scrubDuration = Math.min(
     1800,
     Math.max(
       0,
-      Number(current?.arguments.durationSeconds) || 0,
-      ...cues.map((entry) => entry.atSeconds + entry.durationSeconds),
+      Number(viewTimeline?.arguments.durationSeconds) || 0,
+      ...displayCues.map((entry) => entry.atSeconds + entry.durationSeconds),
     ),
   );
-  const scrub = (seconds: number) => {
-    if (!state.preview?.ready) return;
-    playhead.request(Math.max(0, Math.min(scrubDuration, Math.round(seconds * 30) / 30)));
+  const frameRate = Math.max(1, Number(timing.runtime?.targetFrameRate) || 30);
+  const scrub = useCallback(
+    (seconds: number) => {
+      if (!state.preview?.ready) return;
+      const snapped = Math.round(seconds * frameRate) / frameRate;
+      playhead.request(Math.max(0, Math.min(scrubDuration, snapped)));
+    },
+    [state.preview?.ready, frameRate, scrubDuration, playhead.request],
+  );
+  const playheadSeconds = current && scrubDuration > 0 ? Math.min(playhead.seconds, scrubDuration) : 0;
+  const transportActionsRef = useRef({
+    scrub: (_seconds: number) => {},
+    stepFrame: (_delta: -1 | 1, _secondsStep?: number) => {},
+    seekStart: () => {},
+    seekEnd: () => {},
+    clearSample: () => {},
+  });
+  transportActionsRef.current = {
+    scrub,
+    stepFrame: (delta, secondsStep) => {
+      const increment = secondsStep ?? 1 / frameRate;
+      scrub(playheadSeconds + delta * increment);
+    },
+    seekStart: () => scrub(0),
+    seekEnd: () => scrub(scrubDuration),
+    clearSample: () => session.clearTimelineSample(),
   };
+  const setWorkspaceTransport = workspaceContext?.setTransport;
+  useEffect(() => {
+    if (!setWorkspaceTransport) return;
+    if (!viewTimeline || scrubDuration <= 0) {
+      setWorkspaceTransport(null);
+      return;
+    }
+    setWorkspaceTransport({
+      timelineId: viewTimeline.id,
+      seconds: playheadSeconds,
+      duration: scrubDuration,
+      frameRate,
+      ready: Boolean(state.preview?.ready),
+      scrub: (seconds) => transportActionsRef.current.scrub(seconds),
+      stepFrame: (delta, secondsStep) => transportActionsRef.current.stepFrame(delta, secondsStep),
+      seekStart: () => transportActionsRef.current.seekStart(),
+      seekEnd: () => transportActionsRef.current.seekEnd(),
+      clearSample: () => transportActionsRef.current.clearSample(),
+    });
+  }, [setWorkspaceTransport, viewTimeline?.id, playheadSeconds, scrubDuration, frameRate, state.preview?.ready]);
+  useEffect(() => () => setWorkspaceTransport?.(null), [setWorkspaceTransport]);
   const markers = useMemo(() => timelineMarkers(current), [current]);
+  const chartMarkers = useMemo(() => scopeStart
+    ? markers.map((marker) => ({ ...marker, timeSeconds: marker.timeSeconds + scopeStart }))
+    : markers, [markers, scopeStart]);
+  const chartMarkerFocus = useMemo(() => markerFocus &&
+    ({ timeSeconds: markerFocus.timeSeconds + scopeStart }), [markerFocus, scopeStart]);
   const activeMarker = markers.find((marker) => marker.id === markerId) ?? markers[0];
   const reference = cue && isTimelineReference(cue.node) ? cue.node : undefined;
   const referencedSource = reference && sourceByKey.get(referenceKey(reference));
@@ -1013,7 +1188,6 @@ export function TimelineEditor({
     session.setAuthoringSelection(source.sceneId, [source.nodeId], source.nodeId);
     setActiveTimeline({ sceneId: source.sceneId, id: source.nodeId, statement: session.getSnapshot().selectedNodeId });
     if (scope?.length) session.requestTool("timeline");
-    setSelected("");
     setFit((value) => value + 1);
   };
   const subtitleLane = typeof cue?.track.laneId === "string" ? cue.track.laneId : undefined;
@@ -1099,7 +1273,8 @@ export function TimelineEditor({
   const change = (update: (node: AltairAuthoredNode) => AltairAuthoredNode) => {
     if (current)
       try {
-        session.editNode(current.id, update);
+        if (current === inferred) session.groupTimelineCommands(current.children!.map((node) => node.id), update);
+        else session.editNode(current.id, update);
         setIssue("");
         return true;
       } catch (error) {
@@ -1107,7 +1282,6 @@ export function TimelineEditor({
       }
     return false;
   };
-  const frameRate = Math.max(1, Number(timing.runtime?.targetFrameRate) || 30);
   const snapMarkerTime = (seconds: number) => Math.round(Math.max(0, seconds) * frameRate) / frameRate;
   const saveMarkers = (update: (previous: TimelineMarker[]) => TimelineMarker[]) =>
     change((node) => ({
@@ -1116,12 +1290,29 @@ export function TimelineEditor({
     }));
   const move = (id: string, start: number, duration?: number) =>
     change((node) => updateCue(node, id, start, duration, undefined, timing));
+  const moveChartCue = (id: string, start: number, duration?: number) => {
+    const owner = sceneView?.owners.get(id);
+    if (!owner && (!sceneView || !allTimelines.length)) {
+      move(id, start, duration);
+      return;
+    }
+    try {
+      const offset = owner?.start ?? sceneView?.roots.find((cue) => cue.node.id === id)?.atSeconds ?? 0;
+      const update = (group: AltairAuthoredNode) =>
+        updateCue(group, id, Math.max(0, start - offset), duration, undefined, timing);
+      if (owner) session.editNode(owner.timeline.id, update);
+      else session.groupTimelineCommands([id], update);
+      setIssue("");
+    } catch (error) {
+      setIssue(error instanceof Error ? tr(error.message) : String(error));
+    }
+  };
   const link = (next: TimelineCue["anchor"]) => change((node) => linkTimelineCue(node, selected, next, timing));
   const insertCue = (child: AltairAuthoredNode) => {
     if (!current) {
       session.insert(appendTimelineCue(createTimeline(), child, timing));
       const inserted = session.statements().find((statement) => statement.id === session.getSnapshot().selectedNodeId);
-      setSelected(inserted?.node.children?.[0]?.id ?? "");
+      selectCue(inserted?.node.children?.[0]?.id ?? "");
     } else {
       const added = change((node) => {
         const next = appendTimelineCue(node, child, timing, selected || undefined);
@@ -1129,13 +1320,17 @@ export function TimelineEditor({
         return next;
       });
       if (!added) return;
-      setSelected(child.id);
+      selectCue(child.id);
     }
     setFit((value) => value + 1);
   };
-  const add = () => {
-    if (command === "mediaClip") {
-      if (!mediaToInsert) return;
+  const quickInsert = (kind: string) => {
+    if (kind === "mediaClip") {
+      if (!mediaToInsert) {
+        setCommand("mediaClip");
+        setShowOptions(true);
+        return;
+      }
       insertCue({
         id: crypto.randomUUID(),
         type: { plugin: "haneoka.altair", name: "mediaClip" },
@@ -1158,7 +1353,7 @@ export function TimelineEditor({
       });
       return;
     }
-    if (command === "propertyClip") {
+    if (kind === "propertyClip") {
       insertCue({
         id: crypto.randomUUID(),
         type: { plugin: "haneoka.altair", name: "propertyClip" },
@@ -1182,21 +1377,21 @@ export function TimelineEditor({
       });
       return;
     }
-    if (command === "adjustment" || command === "mask") {
+    if (kind === "adjustment" || kind === "mask") {
       insertCue({
         id: crypto.randomUUID(),
         type: { plugin: "haneoka.altair", name: "adjustment" },
         schemaVersion: 1,
         arguments: {
           ...adjustmentDefaults,
-          mode: command,
-          shape: command === "mask" ? "ellipse" : "full",
-          ...(command === "adjustment" ? { scope: "below" } : {}),
+          mode: kind,
+          shape: kind === "mask" ? "ellipse" : "full",
+          ...(kind === "adjustment" ? { scope: "below" } : {}),
         },
       });
       return;
     }
-    if (command === "timelineRef") {
+    if (kind === "timelineRef") {
       if (insertSource)
         insertCue({
           id: crypto.randomUUID(),
@@ -1206,10 +1401,10 @@ export function TimelineEditor({
         });
       return;
     }
-    const definition = nativeCommands.find((item) => item.name === command);
-    if (!definition && command !== "audioClip") return;
+    const definition = nativeCommands.find((item) => item.name === kind);
+    if (!definition && kind !== "audioClip") return;
     const child: AltairAuthoredNode =
-      command === "audioClip"
+      kind === "audioClip"
         ? {
             id: crypto.randomUUID(),
             type: { plugin: "haneoka.altair", name: "audioClip" },
@@ -1232,6 +1427,38 @@ export function TimelineEditor({
         : definition!.initial();
     insertCue(child);
   };
+  const add = () => quickInsert(command);
+  const duplicateCue = (targetCue: TimelineCue) => {
+    if (!current || !sceneId || targetCue.trackLocked) return;
+    let clonedId = "";
+    const added = change((node) => {
+      const clone = cloneAltairNodeGroup([targetCue.node], sceneId, sceneId)[0]!;
+      clonedId = clone.id;
+      const appended = appendTimelineCue(node, clone, timing, targetCue.node.id);
+      const laneId = typeof targetCue.track.laneId === "string" ? targetCue.track.laneId : undefined;
+      const next = laneId ? assignCueLane(appended, clone.id, laneId, timing) : appended;
+      if (isTimelineReference(clone)) validateReferences(next);
+      return next;
+    });
+    if (!added) return;
+    selectCue(clonedId);
+    setFit((value) => value + 1);
+  };
+  const addMarkerAtPlayhead = () => {
+    if (!current) return;
+    const seconds = snapMarkerTime(playheadSeconds - scopeStart);
+    const existing = markers.find((marker) => snapMarkerTime(marker.timeSeconds) === seconds);
+    if (existing) {
+      setMarkerId(existing.id);
+      return;
+    }
+    const marker = {
+      id: crypto.randomUUID(),
+      timeSeconds: seconds,
+      note: "",
+    };
+    if (saveMarkers((previous) => [...previous, marker])) setMarkerId(marker.id);
+  };
   const selectedStatement: EditorStatement | undefined = cue
     ? {
         id: cue.node.id,
@@ -1249,7 +1476,7 @@ export function TimelineEditor({
     try {
       const group = await importTimelineScript(source);
       session.insertGroup(group);
-      setSelected("");
+      selectCue("");
       setShowImport(false);
       setSource("");
       setFit((value) => value + 1);
@@ -1260,72 +1487,310 @@ export function TimelineEditor({
       setBusy(false);
     }
   };
+  const createNewTimeline = () => {
+    if (!scene) return;
+    session.insert(createTimeline());
+    setActiveTimeline(undefined);
+    selectCue("");
+    setFit((value) => value + 1);
+  };
+  const contextCue = contextMenu ? cues.find((entry) => entry.node.id === contextMenu.cueId) : undefined;
+  const contextReference = contextCue && isTimelineReference(contextCue.node) ? contextCue.node : undefined;
+  const contextReferencedSource = contextReference && sourceByKey.get(referenceKey(contextReference));
+  const contextIsVideo = Boolean(
+    contextCue && isMediaClip(contextCue.node) && contextCue.node.arguments.mediaKind === "video",
+  );
+  const contextLinked = Boolean(
+    contextCue &&
+    contextIsVideo &&
+    current?.children?.some((child) => isAudioClip(child) && child.arguments.linkedMediaId === contextCue.node.id),
+  );
+  const contextAudioDisabled = Boolean(
+    contextCue && contextIsVideo && !contextLinked && contextCue.node.arguments.audioEnabled === false,
+  );
+  const onTimelineKey = (event: React.KeyboardEvent<HTMLElement>) => {
+    if (event.nativeEvent.isComposing || event.ctrlKey || event.metaKey || event.altKey) return;
+    const target = event.target as Element | null;
+    if (target?.closest("input, textarea, select, [contenteditable='true']")) return;
+    if (event.key === "Escape") {
+      if (contextMenu) {
+        event.preventDefault();
+        setContextMenu(null);
+      } else if (showOptions) {
+        event.preventDefault();
+        setShowOptions(false);
+      } else if (selected) {
+        event.preventDefault();
+        selectCue("");
+      }
+      return;
+    }
+    if ((event.key === "ArrowLeft" || event.key === "ArrowRight") && current && scrubDuration > 0 && state.preview?.ready) {
+      event.preventDefault();
+      event.stopPropagation();
+      const delta = event.key === "ArrowLeft" ? -1 : 1;
+      scrub(playheadSeconds + delta * (event.shiftKey ? 1 : 1 / frameRate));
+      return;
+    }
+    if ((event.key === "Home" || event.key === "End") && current && scrubDuration > 0 && state.preview?.ready) {
+      event.preventDefault();
+      scrub(event.key === "Home" ? 0 : scrubDuration);
+      return;
+    }
+    if ((event.key === "Delete" || event.key === "Backspace") && cue && !cue.trackLocked) {
+      event.preventDefault();
+      if (
+        change((node) =>
+          event.shiftKey ? rippleDeleteCue(node, cue.node.id, timing) : removeCue(node, cue.node.id, timing),
+        )
+      )
+        selectCue("");
+      return;
+    }
+    if ((event.key === "+" || event.key === "=") && zoomApi) {
+      event.preventDefault();
+      zoomApi.zoomIn();
+      return;
+    }
+    if (event.key === "-" && zoomApi) {
+      event.preventDefault();
+      zoomApi.zoomOut();
+      return;
+    }
+    if (!event.repeat && event.key.toLowerCase() === "m" && current) {
+      event.preventDefault();
+      addMarkerAtPlayhead();
+    }
+  };
   const toolbar = (
-    <div className="timeline-primary-tools" role="group" aria-label={tr("Timeline")}>
-      <select
-        aria-label={tr("Active timeline")}
-        value={current?.id ?? ""}
-        onChange={(event) => {
-          const statement = session.statements().find((item) => item.id === event.target.value);
-          if (statement) session.select(statement.line);
-          if (scene)
-            setActiveTimeline({
-              sceneId: scene.id,
-              id: event.currentTarget.value,
-              statement: session.getSnapshot().selectedNodeId,
-            });
-          setSelected("");
-          setFit((value) => value + 1);
-        }}
-      >
-        {!timelines.length && <option value="">{tr("No timeline yet")}</option>}
-        {timelines.map((node, index) => (
-          <option key={node.id} value={node.id}>
-            {(typeof node.arguments.title === "string" && node.arguments.title) || `${tr("Timeline")} ${index + 1}`}
-          </option>
-        ))}
-      </select>
-      <button
-        className="secondary-button"
-        aria-label={tr("New timeline")}
-        title={tr("New timeline")}
-        disabled={!scene}
-        onClick={() => {
-          session.insert(createTimeline());
-          setActiveTimeline(undefined);
-          setSelected("");
-          setFit((value) => value + 1);
-        }}
-      >
-        <Plus size={14} />
-        <span>{tr("New timeline")}</span>
-      </button>
-      <button className="icon-button" aria-label={tr("Fit to view")} onClick={() => setFit((value) => value + 1)}>
-        <Maximize size={16} />
-      </button>
-      <button
-        type="button"
-        className="secondary-button"
-        aria-label={tr("Settings")}
-        title={tr("Settings")}
-        aria-expanded={showOptions}
-        aria-controls={optionsId}
-        onClick={() => setShowOptions((open) => !open)}
-      >
-        <Settings2 size={16} />
-        <span>{tr("Settings")}</span>
-      </button>
+    <div className="timeline-primary-tools" role="group" aria-label={tr("Timeline actions")}>
+      <div className="timeline-scope-group">
+        <select
+          aria-label={tr("Active timeline")}
+          value={viewTimeline?.id ?? ""}
+          onChange={(event) => {
+            if (event.currentTarget.value === inferred?.id) {
+              setActiveTimeline(undefined);
+              setFit((value) => value + 1);
+              return;
+            }
+            const statement = session.statements().find((item) => item.id === event.target.value);
+            if (statement) session.select(statement.line);
+            if (scene)
+              setActiveTimeline({
+                sceneId: scene.id,
+                id: event.currentTarget.value,
+                statement: session.getSnapshot().selectedNodeId,
+              });
+            selectCue(event.currentTarget.value);
+            setFit((value) => value + 1);
+          }}
+        >
+          {inferred && <option value={inferred.id}>{tr("Scene")}</option>}
+          {!timelines.length && !inferred && <option value="">{tr("No timeline yet")}</option>}
+          {timelines.map((node, index) => (
+            <option key={node.id} value={node.id}>
+              {(typeof node.arguments.title === "string" && node.arguments.title) || `${tr("Timeline")} ${index + 1}`}
+            </option>
+          ))}
+        </select>
+      </div>
+      <div className="timeline-edit-group" role="toolbar" aria-label={tr("Timeline")}>
+        <DropdownMenu.Root dir={i18n.dir()}>
+          <DropdownMenu.Trigger asChild>
+            <button
+              type="button"
+              className="author-icon-button"
+              aria-label={tr("Add cue")}
+              title={tr("Add cue")}
+              disabled={!scene}
+            >
+              <Plus aria-hidden />
+            </button>
+          </DropdownMenu.Trigger>
+          <DropdownMenu.Portal>
+            <DropdownMenu.Content className="editor-file-menu" align="start" sideOffset={6}>
+              <DropdownMenu.Item onSelect={() => quickInsert("mediaClip")}>{tr("Media clip")}</DropdownMenu.Item>
+              <DropdownMenu.Item onSelect={() => quickInsert("audioClip")}>{tr("Audio clip")}</DropdownMenu.Item>
+              <DropdownMenu.Item onSelect={() => quickInsert("propertyClip")}>
+                {tr("Camera keyframes")}
+              </DropdownMenu.Item>
+              <DropdownMenu.Item onSelect={() => quickInsert("adjustment")}>
+                {tr("Adjustment layer")}
+              </DropdownMenu.Item>
+              <DropdownMenu.Item onSelect={() => quickInsert("mask")}>{tr("Layer mask")}</DropdownMenu.Item>
+              <DropdownMenu.Item disabled={!choices.length} onSelect={() => quickInsert("timelineRef")}>
+                {tr("Timeline reference")}
+              </DropdownMenu.Item>
+              <DropdownMenu.Item onSelect={() => quickInsert("Talk")}>{tr("command.Talk")}</DropdownMenu.Item>
+              <DropdownMenu.Item onSelect={() => quickInsert("Wait")}>{tr("command.Wait")}</DropdownMenu.Item>
+              <DropdownMenu.Separator />
+              <DropdownMenu.Item onSelect={createNewTimeline}>{tr("New timeline")}</DropdownMenu.Item>
+              <DropdownMenu.Item onSelect={() => setShowOptions(true)}>{tr("More commands")}</DropdownMenu.Item>
+            </DropdownMenu.Content>
+          </DropdownMenu.Portal>
+        </DropdownMenu.Root>
+        <button
+          type="button"
+          className="author-icon-button"
+          aria-label={tr("Duplicate cue")}
+          title={tr("Duplicate cue")}
+          disabled={!cue || cue.trackLocked}
+          onClick={() => cue && duplicateCue(cue)}
+        >
+          <Copy aria-hidden />
+        </button>
+        <button
+          type="button"
+          className="author-icon-button"
+          aria-label={tr("Remove cue")}
+          title={tr("Remove cue")}
+          disabled={!cue || cue.trackLocked}
+          onClick={() => {
+            if (cue && change((node) => removeCue(node, cue.node.id, timing))) selectCue("");
+          }}
+        >
+          <Trash2 aria-hidden />
+        </button>
+        <button
+          type="button"
+          className="author-icon-button"
+          aria-label={tr("Add marker")}
+          title={tr("Add marker")}
+          disabled={!current}
+          onClick={addMarkerAtPlayhead}
+        >
+          <Star aria-hidden />
+        </button>
+        <DropdownMenu.Root dir={i18n.dir()}>
+          <DropdownMenu.Trigger asChild>
+            <button
+              type="button"
+              className="author-button author-cue-menu-trigger"
+              aria-label={tr("Timeline commands")}
+              title={tr("Timeline commands")}
+              disabled={!displayCues.length}
+            >
+              <Layers aria-hidden />
+              <span>{displayCues.length}</span>
+            </button>
+          </DropdownMenu.Trigger>
+          <DropdownMenu.Portal>
+            <DropdownMenu.Content className="editor-file-menu timeline-cues-menu" align="start" sideOffset={6}>
+              {displayCues.map((entry) => (
+                <DropdownMenu.Item key={entry.node.id} onSelect={() => selectCue(entry.node.id)}>
+                  <span>
+                    {entry.atSeconds.toFixed(2)} s · {nameOf(entry.node)}
+                  </span>
+                  <span>
+                    {[
+                      cueLane(entry, laneNames).name,
+                      entry.trackLocked && tr("authoring.locked"),
+                      entry.playbackMuted && tr("Muted"),
+                    ]
+                      .filter(Boolean)
+                      .join(" · ")}
+                  </span>
+                </DropdownMenu.Item>
+              ))}
+            </DropdownMenu.Content>
+          </DropdownMenu.Portal>
+        </DropdownMenu.Root>
+        <button
+          type="button"
+          className="author-icon-button timeline-zoom-direct"
+          aria-label={tr("Zoom out")}
+          title={tr("Zoom out")}
+          disabled={!current || !zoomApi}
+          onClick={() => zoomApi?.zoomOut()}
+        >
+          <ZoomOut aria-hidden />
+        </button>
+        <button
+          type="button"
+          className="author-icon-button timeline-zoom-direct"
+          aria-label={tr("Zoom in")}
+          title={tr("Zoom in")}
+          disabled={!current || !zoomApi}
+          onClick={() => zoomApi?.zoomIn()}
+        >
+          <ZoomIn aria-hidden />
+        </button>
+        <button
+          type="button"
+          className="author-icon-button timeline-zoom-direct"
+          aria-label={tr("Fit to view")}
+          title={tr("Fit to view")}
+          disabled={!current}
+          onClick={() => setFit((value) => value + 1)}
+        >
+          <Maximize aria-hidden />
+        </button>
+        <DropdownMenu.Root dir={i18n.dir()}>
+          <DropdownMenu.Trigger asChild>
+            <button
+              type="button"
+              className="author-icon-button timeline-zoom-menu"
+              aria-label={tr("Timeline zoom")}
+              title={tr("Timeline zoom")}
+              disabled={!current}
+            >
+              <ZoomIn aria-hidden />
+            </button>
+          </DropdownMenu.Trigger>
+          <DropdownMenu.Portal>
+            <DropdownMenu.Content className="editor-file-menu" align="end" sideOffset={6}>
+              <DropdownMenu.Item disabled={!zoomApi} onSelect={() => zoomApi?.zoomOut()}>
+                {tr("Zoom out")}
+              </DropdownMenu.Item>
+              <DropdownMenu.Item disabled={!zoomApi} onSelect={() => zoomApi?.zoomIn()}>
+                {tr("Zoom in")}
+              </DropdownMenu.Item>
+              <DropdownMenu.Item onSelect={() => setFit((value) => value + 1)}>
+                {tr("Fit to view")}
+              </DropdownMenu.Item>
+            </DropdownMenu.Content>
+          </DropdownMenu.Portal>
+        </DropdownMenu.Root>
+        <button
+          type="button"
+          className="author-icon-button"
+          aria-label={tr("Settings")}
+          title={tr("Settings")}
+          aria-pressed={showOptions}
+          aria-expanded={showOptions}
+          aria-controls={optionsId}
+          onClick={() => setShowOptions((open) => !open)}
+        >
+          <Settings2 aria-hidden />
+        </button>
+      </div>
     </div>
   );
   return (
-    <section className="timeline-workbench">
+    <section className="timeline-workbench" onKeyDown={onTimelineKey}>
       {toolbarHost ? createPortal(toolbar, toolbarHost) : toolbar}
       {!scene ? (
         <div className="empty-panel">{tr("Open a target scene first")}</div>
       ) : (
         <>
           <div className="timeline-edit-options" id={optionsId} hidden={!showOptions}>
+            <div className="timeline-options-head">
+              <strong>{tr("Settings")}</strong>
+              <button
+                type="button"
+                className="icon-button"
+                aria-label={tr("Close")}
+                onClick={() => setShowOptions(false)}
+              >
+                <X size={16} />
+              </button>
+            </div>
             <div className="timeline-toolbar">
+              <button type="button" className="secondary-button" disabled={!scene} onClick={createNewTimeline}>
+                <Plus size={14} />
+                {tr("New timeline")}
+              </button>
               <button
                 className="secondary-button"
                 disabled={!groupIds.length}
@@ -1333,7 +1798,7 @@ export function TimelineEditor({
                   try {
                     await session.groupTimelineCommands(groupIds);
                     setActiveTimeline(undefined);
-                    setSelected("");
+                    selectCue("");
                     setFit((value) => value + 1);
                     setIssue("");
                   } catch (error) {
@@ -1365,18 +1830,7 @@ export function TimelineEditor({
               <details className="audio-mix-settings">
                 <summary>{tr("Timeline markers")}</summary>
                 <div className="timeline-toolbar">
-                  <button
-                    type="button"
-                    className="secondary-button"
-                    onClick={() => {
-                      const marker = {
-                        id: crypto.randomUUID(),
-                        timeSeconds: snapMarkerTime(cue?.atSeconds ?? markerFocus?.timeSeconds ?? 0),
-                        note: "",
-                      };
-                      if (saveMarkers((previous) => [...previous, marker])) setMarkerId(marker.id);
-                    }}
-                  >
+                  <button type="button" className="secondary-button" onClick={addMarkerAtPlayhead}>
                     {tr("Add marker")}
                   </button>
                   {activeMarker && (
@@ -1757,19 +2211,17 @@ export function TimelineEditor({
           <div className="timeline-body">
             <div className="timeline-track-area">
               {current && scrubDuration > 0 && (
-                <label className="timeline-playhead-control">
-                  <span>{tr("Timeline playhead")}</span>
-                  <input
-                    type="range"
-                    min={0}
-                    max={scrubDuration}
-                    step={1 / 30}
-                    value={Math.min(playhead.seconds, scrubDuration)}
-                    disabled={!state.preview?.ready}
-                    onChange={(event) => scrub(event.currentTarget.valueAsNumber)}
-                  />
-                  <output>{playhead.seconds.toFixed(2)} s</output>
-                </label>
+                <input
+                  type="range"
+                  className="timeline-playhead-sr"
+                  aria-label={tr("Timeline playhead")}
+                  min={0}
+                  max={scrubDuration}
+                  step={1 / frameRate}
+                  value={playheadSeconds}
+                  disabled={!state.preview?.ready}
+                  onChange={(event) => scrub(event.currentTarget.valueAsNumber)}
+                />
               )}
               {!current && doc ? (
                 <SceneSequence
@@ -1780,52 +2232,131 @@ export function TimelineEditor({
                 />
               ) : (
                 <CueChart
-                  markers={markers}
-                  markerFocus={markerFocus}
+                  markers={chartMarkers}
+                  markerFocus={chartMarkerFocus}
                   onMarkerMove={(id, seconds) =>
                     saveMarkers((previous) =>
                       previous.map((marker) =>
-                        marker.id === id ? { ...marker, timeSeconds: snapMarkerTime(seconds) } : marker,
+                        marker.id === id ? { ...marker, timeSeconds: snapMarkerTime(seconds - scopeStart) } : marker,
                       ),
                     )
                   }
-                  key={current?.id ?? "empty"}
-                  cues={cues}
+                  key={viewTimeline?.id ?? "empty"}
+                  cues={displayCues}
                   nameOf={nameOf}
                   lanes={laneNames}
-                  selected={selected}
-                  onSelect={setSelected}
-                  onMove={move}
+                  selected={chartSelection}
+                  onSelect={selectCue}
+                  onMove={moveChartCue}
                   fit={fit}
                   locale={i18n.resolvedLanguage ?? "en"}
                   files={state.files}
-                  playhead={current && scrubDuration > 0 ? Math.min(playhead.seconds, scrubDuration) : undefined}
+                  playhead={current && scrubDuration > 0 ? playheadSeconds : undefined}
                   onScrub={scrub}
+                  onZoomApi={setZoomApi}
+                  onCueContextMenu={(cueId, point) => setContextMenu({ cueId, ...point })}
                 />
               )}
-              <div className="timeline-cue-list" aria-label={tr("Timeline commands")}>
-                {cues.map((cue) => (
-                  <button
-                    key={cue.node.id}
-                    className={selected === cue.node.id ? "selected" : ""}
-                    onClick={() => setSelected(cue.node.id)}
-                  >
-                    <span>{cue.atSeconds.toFixed(2)} s</span>
-                    {nameOf(cue.node)}
-                    <small>
-                      {[
-                        cueLane(cue, laneNames).name,
-                        cue.trackLocked && tr("authoring.locked"),
-                        cue.playbackMuted && tr("Muted"),
-                      ]
-                        .filter(Boolean)
-                        .join(" · ")}
-                    </small>
-                  </button>
-                ))}
-              </div>
             </div>
-            <CueInspectorDock title={cue && nameOf(cue.node)} onClose={() => setSelected("")}>
+            <DropdownMenu.Root
+              dir={i18n.dir()}
+              open={Boolean(contextMenu && contextCue)}
+              onOpenChange={(open) => {
+                if (!open) setContextMenu(null);
+              }}
+            >
+              <DropdownMenu.Trigger asChild>
+                <span
+                  aria-hidden
+                  style={{
+                    position: "fixed",
+                    left: contextMenu?.x ?? 0,
+                    top: contextMenu?.y ?? 0,
+                    width: 1,
+                    height: 1,
+                    pointerEvents: "none",
+                    opacity: 0,
+                  }}
+                />
+              </DropdownMenu.Trigger>
+              {contextCue && (
+                <DropdownMenu.Portal>
+                  <DropdownMenu.Content className="editor-file-menu" align="start" sideOffset={4}>
+                    <DropdownMenu.Item onSelect={() => selectCue(contextCue.node.id)}>
+                      {tr("Properties")}
+                    </DropdownMenu.Item>
+                    {contextReference && (
+                      <DropdownMenu.Item
+                        disabled={!contextReferencedSource}
+                        onSelect={() =>
+                          contextReferencedSource &&
+                          void openSource(contextReferencedSource).catch((error) => setIssue(String(error)))
+                        }
+                      >
+                        {tr("Edit source timeline")}
+                      </DropdownMenu.Item>
+                    )}
+                    <DropdownMenu.Item
+                      disabled={contextCue.trackLocked}
+                      onSelect={() => duplicateCue(contextCue)}
+                    >
+                      {tr("Duplicate cue")}
+                    </DropdownMenu.Item>
+                    {contextIsVideo && (
+                      <DropdownMenu.Item
+                        disabled={contextCue.trackLocked || contextAudioDisabled}
+                        onSelect={() =>
+                          change((node) =>
+                            contextLinked
+                              ? linkTimelineMediaAudio(node, contextCue.node.id, timing)
+                              : splitTimelineMediaAudio(node, contextCue.node.id, timing),
+                          )
+                        }
+                      >
+                        {tr(contextLinked ? "Reconnect video audio" : "Separate video audio")}
+                      </DropdownMenu.Item>
+                    )}
+                    <DropdownMenu.Item
+                      disabled={
+                        contextCue.trackLocked || !current || gapBeforeCue(current, cues, contextCue) <= 0.000001
+                      }
+                      onSelect={() => change((node) => closeCueGap(node, contextCue.node.id, timing))}
+                    >
+                      {tr("Close preceding gap")}
+                    </DropdownMenu.Item>
+                    <DropdownMenu.Separator />
+                    <DropdownMenu.Item
+                      disabled={contextCue.trackLocked}
+                      onSelect={() => {
+                        if (
+                          change((node) => rippleDeleteCue(node, contextCue.node.id, timing)) &&
+                          selected === contextCue.node.id
+                        )
+                          selectCue("");
+                      }}
+                    >
+                      {tr("Ripple delete")}
+                    </DropdownMenu.Item>
+                    <DropdownMenu.Item
+                      disabled={contextCue.trackLocked}
+                      onSelect={() => {
+                        if (
+                          change((node) => removeCue(node, contextCue.node.id, timing)) &&
+                          selected === contextCue.node.id
+                        )
+                          selectCue("");
+                      }}
+                    >
+                      {tr("Remove cue")}
+                    </DropdownMenu.Item>
+                  </DropdownMenu.Content>
+                </DropdownMenu.Portal>
+              )}
+            </DropdownMenu.Root>
+            <CueInspectorDock title={cue && nameOf(cue.node)} onClose={() => {
+              selectCue("");
+              workspaceContext?.closeInspector();
+            }}>
               {reference && (
                 <button
                   className="secondary-button"
@@ -2098,10 +2629,10 @@ export function TimelineEditor({
                     <label>
                       {tr("Start (s)")}
                       <NumberInput
-                        min="0"
+                        min={scopeStart}
                         step="0.01"
-                        value={cue.atSeconds}
-                        onCommit={(value) => value >= 0 && move(cue.node.id, value)}
+                        value={cue.atSeconds + scopeStart}
+                        onCommit={(value) => value >= scopeStart && move(cue.node.id, value - scopeStart)}
                       />
                     </label>
                     <label>
@@ -2138,7 +2669,7 @@ export function TimelineEditor({
                       >
                         <option value="">
                           {tr("Automatic")}
-                          {cue.trackId.startsWith("lane:") ? "" : " · " + tr(cue.trackName)}
+                          {cue.trackId.startsWith("lane:") ? "" : " · " + cueLane(cue, laneNames).name}
                         </option>
                         {lanes.map((lane) => (
                           <option
@@ -2227,7 +2758,7 @@ export function TimelineEditor({
                       className="secondary-button"
                       onClick={() => {
                         change((node) => removeCue(node, cue.node.id, timing));
-                        setSelected("");
+                        selectCue("");
                       }}
                     >
                       <Trash2 size={14} />
@@ -2243,7 +2774,7 @@ export function TimelineEditor({
                     <button
                       className="secondary-button"
                       onClick={() => {
-                        if (change((node) => rippleDeleteCue(node, cue.node.id, timing))) setSelected("");
+                        if (change((node) => rippleDeleteCue(node, cue.node.id, timing))) selectCue("");
                       }}
                     >
                       {tr("Ripple delete")}
@@ -2283,7 +2814,7 @@ export function TimelineEditor({
                     }}
                   />
                 ) : (
-                  !reference && <NativeInspector session={session} statement={selectedStatement} hideTimedAdvance />
+                  !reference && <NativeInspector session={session} statement={selectedStatement} hideHeader hideTimedAdvance />
                 )}
                 {cue && isAudioClip(cue.node) && (
                   <div className="timeline-timing">

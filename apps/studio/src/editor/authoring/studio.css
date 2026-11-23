@@ -42,6 +42,11 @@
     --author-fast: var(--md-sys-motion-duration-short4);
     --author-target: 48px;
   }
+  @media (min-width: 840px) and (pointer: fine) {
+    .author-workbench {
+      --author-target: 32px;
+    }
+  }
 
   .author-workbench {
     display: grid;
@@ -928,47 +933,23 @@
     .author-workbench.has-destinations {
       grid-template-columns: minmax(0, 1fr);
       grid-template-rows: auto auto minmax(0, 1fr);
-      grid-template-areas: "stage" "nav" "work";
+      grid-template-areas: "nav" "stage" "work";
     }
     .author-stage {
-      --author-stage-max-block: 34dvh;
+      --author-stage-max-block: 30dvh;
     }
     .author-manuscript,
     .author-destination {
       border-radius: var(--md-sys-shape-corner-large);
-    }
-    .author-destinations {
-      flex-direction: row;
-      gap: var(--md-sys-spacing-1);
-      padding-block: 0;
-      overflow-x: auto;
-      overflow-y: hidden;
-      overscroll-behavior-x: contain;
-      scrollbar-width: none;
-    }
-    .author-workbench .author-destination-button {
-      flex: none;
-      flex-direction: row;
-      inline-size: auto;
-      min-block-size: var(--author-target);
-      padding-inline: var(--md-sys-spacing-3) var(--md-sys-spacing-4);
-      border-radius: var(--md-sys-shape-corner-full);
-    }
-    .author-destination-icon {
-      inline-size: 24px;
-      block-size: 24px;
-      background: transparent;
-    }
-    .author-destination-button[aria-current="page"],
-    .author-destination-button[aria-current="page"] .author-destination-icon {
-      background: var(--md-sys-color-secondary-container);
-      color: var(--md-sys-color-on-secondary-container);
     }
     .author-destination-label {
       white-space: nowrap;
     }
     .author-workbench .author-stage-collapse {
       display: inline-grid;
+    }
+    .author-stage.is-collapsed .author-monitor {
+      display: none;
     }
     .author-stage.is-collapsed .author-stage-frame {
       aspect-ratio: auto;

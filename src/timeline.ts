@@ -74,6 +74,7 @@ export interface ResolvedTimelineCue {
   node: AltairAuthoredNode;
   trackId: string;
   trackName: string;
+  trackActor?: string;
   trackLocked: boolean;
   playbackMuted: boolean;
   playbackAudioMuted: boolean;
@@ -105,7 +106,23 @@ export function timelineTrackState(node: AltairAuthoredNode, id: string): Timeli
   };
 }
 
-function trackIdentity(node: AltairAuthoredNode, track: JsonObject, lanes: ReadonlyMap<string, string>) {
+const actorTrackNames: Readonly<Record<string, string>> = {
+  Character: "Character",
+  LoadCharacter: "Character",
+  In: "Character",
+  Out: "Character",
+  Move: "Motion",
+  MoveToDirection: "Motion",
+  Motion: "Motion",
+  Expression: "Expression",
+};
+
+function trackIdentity(
+  node: AltairAuthoredNode,
+  track: JsonObject,
+  lanes: ReadonlyMap<string, string>,
+  trackStates: JsonObject | undefined,
+): Pick<ResolvedTimelineCue, "trackId" | "trackName" | "trackActor" | "audioOnly"> {
   const { plugin, name } = node.type;
   const args = node.arguments;
   const audioOnly =
@@ -133,7 +150,21 @@ function trackIdentity(node: AltairAuthoredNode, track: JsonObject, lanes: Reado
               : name === "Stage"
                 ? "Background"
                 : "Stage");
-  return { trackId: `${audioOnly ? "audio" : "auto"}:${trackName}`, trackName, audioOnly };
+  const trackId = `${audioOnly ? "audio" : "auto"}:${trackName}`;
+  const namedTrack = typeof args.trackName === "string" && Boolean(args.trackName.trim());
+  if (namedTrack || (trackStates && Object.hasOwn(trackStates, trackId))) return { trackId, trackName, audioOnly };
+  if (isTimedDialogue(node)) return { trackId: "auto:Dialogue", trackName: "Dialogue", audioOnly };
+  const actorTrackName = plugin === "haneoka.altair-adv" && Object.hasOwn(actorTrackNames, name)
+    ? name === "Motion" && args.expressionName && !args.motionName ? "Expression" : actorTrackNames[name]
+    : undefined;
+  if (named && actorTrackName)
+    return {
+      trackId: `auto:actor:${encodeURIComponent(named)}:${actorTrackName}`,
+      trackName: actorTrackName,
+      trackActor: named,
+      audioOnly,
+    };
+  return { trackId, trackName, audioOnly };
 }
 
 const record = (value: JsonValue | undefined): JsonObject | undefined =>
@@ -1300,6 +1331,7 @@ export function resolveTimelineCues(
   const byId = new Map<string, ResolvedTimelineCue>();
   const byGroup = new Map<string, ResolvedTimelineCue[]>();
   const lanes = new Map<string, string>();
+  const trackStates = record(node.arguments.trackStates);
   if (Array.isArray(node.arguments.lanes))
     for (const entry of node.arguments.lanes) {
       const lane = record(entry);
@@ -1323,7 +1355,7 @@ export function resolveTimelineCues(
         : undefined;
     const atSeconds = Number(track.atSeconds ?? 0);
     if (!Number.isFinite(atSeconds) || atSeconds < 0) throw new TypeError("Invalid cue start time");
-    const identity = trackIdentity(child, track, lanes);
+    const identity = trackIdentity(child, track, lanes, trackStates);
     const mix = timelineTrackState(node, identity.trackId);
     const cue: ResolvedTimelineCue = {
       node: child,

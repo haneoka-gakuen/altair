@@ -1942,5 +1942,16 @@
   "ai.request": "편집 요청",
   "Damaged archive file: {{path}}": "압축 파일이 손상되었습니다: {{path}}",
   "Unsupported archive compression": "지원하지 않는 압축 방식입니다",
-  "No supported story source was found": "가져올 수 있는 스토리 소스가 없습니다"
+  "No supported story source was found": "가져올 수 있는 스토리 소스가 없습니다",
+  "Previous frame": "이전 프레임",
+  "Next frame": "다음 프레임",
+  "Jump to start": "처음으로 이동",
+  "Duplicate cue": "큐 복제",
+  "Stage actions": "스테이지 작업",
+  "Timeline zoom": "타임라인 확대 및 축소",
+  "Timeline actions": "타임라인 작업",
+  "Workspace actions": "작업 공간 작업",
+  "Toggle properties": "속성 전환",
+  "More commands": "더 많은 명령",
+  "Settings": "설정"
 }
