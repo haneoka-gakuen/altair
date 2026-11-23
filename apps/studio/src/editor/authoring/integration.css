@@ -25,7 +25,7 @@
     flex-wrap: wrap;
   }
   .author-file-workspace :is(button, input:not([type="checkbox"]):not([type="radio"]), select) {
-    min-block-size: 48px;
+    min-block-size: var(--author-target, 48px);
   }
   .author-file-workspace :is(.plugin-document-panel, .asset-preview) {
     flex: 1;
@@ -122,12 +122,12 @@
   }
   .author-workbench .property-curve-point {
     display: grid;
-    grid-template-columns: repeat(3, minmax(0, 1fr)) 48px;
+    grid-template-columns: repeat(3, minmax(0, 1fr)) var(--author-target, 48px);
     gap: var(--md-sys-spacing-2);
     align-items: end;
   }
   .author-workbench .property-curve-track summary {
-    min-block-size: 48px;
+    min-block-size: var(--author-target, 48px);
     align-content: center;
   }
   @media (max-width: 600px) {

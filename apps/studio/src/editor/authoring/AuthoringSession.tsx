@@ -1,10 +1,10 @@
-import { lazy, Suspense, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import {
+  createTimelineTimingContext,
   parseAltairProjectDocument,
   parseAltairSceneDocument,
   serializeAltairDocument,
   cloneAltairNodeGroup,
-  createTimelineTimingContext,
   type AltairAuthoredNode,
   type AltairSceneDocument,
   type JsonObject,
@@ -32,6 +32,16 @@ import {
   type CastOptionsRequest,
 } from "./Manuscript";
 import { ResourceRecovery } from "./ResourceRecovery";
+import { ProjectMediaDock, ProjectMediaInspector } from "./ProjectMediaDock";
+import {
+  buildMediaAuthoredNode,
+  collectProjectMedia,
+  selectedNodeReferencedAssets,
+  uniqueMediaImportPath,
+  type MediaInsertOverride,
+  type ProjectMediaItem,
+} from "./project-media";
+import { appendTimelineCue, createTimeline, isTimeline } from "../timeline-model";
 import "./integration.css";
 import { Preview, type PreviewSurfaceActions } from "../Preview";
 import { ArrowUp, ArrowDown, Copy, Trash2 } from "@haneoka/altair-ui-react";
@@ -50,7 +60,6 @@ import {
   NATIVE_PROJECT_PATH,
 } from "../native-project";
 import { readLocalizedText, editLocalizedText } from "../localized-text";
-import { appendTimelineCue, createTimeline, isTimeline } from "../timeline-model";
 import { tr, useStudioI18n } from "../i18n";
 const AiAssistant = lazy(() => import("../ai/AiAssistant").then((module) => ({ default: module.AiAssistant })));
 const TimelineEditor = lazy(() => import("../TimelineEditor").then((module) => ({ default: module.TimelineEditor })));
@@ -535,19 +544,23 @@ function createBridge(session: EditorSession, notify: (message: string) => void)
 export function AuthoringSession({
   session,
   onImport,
+  onImportAssetPack,
   onAssets,
   onTools,
   onLibrary,
   onHistory,
+  onRevealFile,
   destinations,
   notify,
 }: {
   session: EditorSession;
   onImport(): void;
+  onImportAssetPack(): void;
   onAssets(): void;
   onTools(): void;
   onLibrary(): void;
   onHistory(): void;
+  onRevealFile(path: string): void;
   destinations?: { id: string; label: string; icon: ReactNode; content: ReactNode }[];
   notify(message: string): void;
 }) {
@@ -557,6 +570,17 @@ export function AuthoringSession({
   const [previewActions, setPreviewActions] = useState<PreviewSurfaceActions | null>(null);
   const [insertTarget, setInsertTarget] = useState<{ after: string | null }>();
   const [inserted, setInserted] = useState<string>();
+  const [selectedAssetId, setSelectedAssetId] = useState<string | null>(null);
+  const clearAssetSelection = useCallback(() => setSelectedAssetId(null), []);
+  const [importingMedia, setImportingMedia] = useState(false);
+  const [timelineOpenRequest, setTimelineOpenRequest] = useState(0);
+  const [pendingMediaCue, setPendingMediaCue] = useState<{ sceneId: string; node: AltairAuthoredNode }>();
+  const consumeMediaCue = useCallback((id: string) =>
+    setPendingMediaCue((pending) => pending?.node.id === id ? undefined : pending), []);
+  const timelineMediaInputRef = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    setSelectedAssetId(null);
+  }, [state.id]);
   const bridge = useMemo(() => createBridge(session, notify), [session, notify]);
   const manuscript = useMemo(() => {
     const ctx = context(session),
@@ -637,6 +661,39 @@ export function AuthoringSession({
     if (statement) session.select(statement.line);
     session.setAuthoringSelection(manuscript.active.scene.id, [initialLine.id], initialLine.id, null);
   }, [session, state.id, state.active, manuscript, initialLine, state.authoringSelection?.cursor]);
+  const manifestText = session.document(NATIVE_PROJECT_PATH)?.text ?? "";
+  const projectMedia = useMemo(
+    () => collectProjectMedia(session, state.files, manifestText, manuscript?.ctx.locale ?? "und"),
+    [session, state.files, manifestText, manuscript?.ctx.locale],
+  );
+  const selectedAsset = useMemo(
+    () => (selectedAssetId ? (projectMedia.find((item) => item.id === selectedAssetId) ?? null) : null),
+    [projectMedia, selectedAssetId],
+  );
+  const usedAssets = useMemo(() => {
+    if (!manuscript) return new Set<string>();
+    const targetId =
+      state.authoringSelection?.sceneId === manuscript.active.scene.id
+        ? (state.authoringSelection.nodeId ?? state.authoringSelection.cursor)
+        : state.selectedNodeId;
+    let matched: AltairAuthoredNode | undefined;
+    if (targetId) {
+      for (const root of manuscript.active.scene.nodes) {
+        const hit = nodes(root).find((node) => node.id === targetId);
+        if (hit) {
+          matched = hit;
+          break;
+        }
+      }
+    }
+    return selectedNodeReferencedAssets(matched);
+  }, [
+    manuscript,
+    state.authoringSelection?.sceneId,
+    state.authoringSelection?.nodeId,
+    state.authoringSelection?.cursor,
+    state.selectedNodeId,
+  ]);
   if (!model || !manuscript) return <div role="status">{tr("Loading")}</div>;
   const { ctx, active, draft } = manuscript;
   const onSourceChange = (text: string) => {
@@ -701,11 +758,18 @@ export function AuthoringSession({
           .flatMap((line) => [line.id, ...line.notes.map((note) => note.id)])
       : undefined;
   const selectCue = (sceneId: string, nodeId: string | null) => {
+    if (nodeId !== null) setSelectedAssetId(null);
     const previous = session.getSnapshot().authoringSelection;
     if (nodeId === null) {
       if (previous?.sceneId === sceneId && previous.nodeId)
         session.setAuthoringSelection(sceneId, previous.lines, previous.cursor, null);
       return;
+    }
+    const entry = context(session).scenes.find((candidate) => candidate.scene.id === sceneId);
+    const root = entry?.scene.nodes.find((candidate) => nodes(candidate).some((node) => node.id === nodeId));
+    const statement = root && entry ? nativeStatements(entry.doc.text).find((item) => item.id === root.id) : undefined;
+    if (statement && session.getSnapshot().selectedNodeId !== statement.id) {
+      session.select(statement.line);
     }
     const rows = manuscript.scenes.find((scene) => scene.id === sceneId)?.lines ?? [];
     const containsCue = (line: StudioLine) => line.notes.some((note) => note.id === nodeId);
@@ -714,6 +778,33 @@ export function AuthoringSession({
       ?? rows.find(containsCue);
     const lineId = row?.id ?? null;
     session.setAuthoringSelection(sceneId, lineId ? [lineId] : [], lineId, nodeId);
+  };
+  const insertMediaItem = (item: ProjectMediaItem, override?: MediaInsertOverride) => {
+    try {
+      setPendingMediaCue({ sceneId: active.scene.id, node: buildMediaAuthoredNode(item, override) });
+      setSelectedAssetId(null);
+      setTimelineOpenRequest((value) => value + 1);
+    } catch (error) {
+      notify(error instanceof Error ? tr(error.message) : String(error));
+    }
+  };
+  const importLocalMediaFiles = async (fileList: FileList) => {
+    const incoming = Array.from(fileList);
+    if (!incoming.length) return;
+    setImportingMedia(true);
+    let firstPath = "";
+    try {
+      for (const file of incoming) {
+        const targetPath = uniqueMediaImportPath(file, session.getSnapshot().files);
+        await session.addFile(targetPath, file, { open: false });
+        if (!firstPath) firstPath = targetPath;
+      }
+      if (firstPath) setSelectedAssetId(`file:${firstPath}`);
+    } catch (error) {
+      notify(error instanceof Error ? tr(error.message) : String(error));
+    } finally {
+      setImportingMedia(false);
+    }
   };
   const renderInspector = (sceneId: string, ids: string[]) => {
     const entry = context(session).scenes.find((entry) => entry.scene.id === sceneId)!;
@@ -832,6 +923,19 @@ export function AuthoringSession({
   };
   return (
     <>
+      <input
+        ref={timelineMediaInputRef}
+        hidden
+        type="file"
+        multiple
+        accept="image/*,video/*,audio/*"
+        aria-label={tr("Import files")}
+        onChange={(event) => {
+          const files = event.currentTarget.files;
+          if (files?.length) void importLocalMediaFiles(files);
+          event.currentTarget.value = "";
+        }}
+      />
       <AuthoringWorkspace
         model={model}
         bridge={bridge}
@@ -839,14 +943,16 @@ export function AuthoringSession({
         previewActions={previewActions}
         stageAspect={Number.isFinite(aspect) && aspect > 0 ? aspect : 16 / 9}
         source={{ text: draft.text, onChange: onSourceChange }}
-        scriptView={state.view === "native-source" ? "source" : state.view === "visual" ? "script" : undefined}
-        onScriptViewChange={(view) => session.setView(view === "source" ? "native-source" : "visual")}
+        scriptView={state.view === "native-source" ? "source" : state.view === "script" ? "script" : undefined}
+        onScriptViewChange={(view) => session.setView(view === "source" ? "native-source" : "script")}
         destination={
           state.view?.startsWith("panel:")
             ? state.view.slice(6)
             : state.view === "source" || state.view === "files" || !nativeScenePath(state.active)
               ? "files"
-              : "script"
+              : state.view === "script" || state.view === "native-source"
+                ? "script"
+                : "media"
         }
         sourceEditor={
           <Suspense fallback={<div role="status">{tr("Loading")}</div>}>
@@ -869,10 +975,46 @@ export function AuthoringSession({
         onSelectionChange={(scene, lines, cursor, node) => session.setAuthoringSelection(scene, lines, cursor, node)}
         onInsert={insert}
         renderInspector={renderInspector}
+        mediaDock={
+          <ProjectMediaDock
+            items={projectMedia}
+            selectedId={selectedAsset?.id ?? null}
+            usedAssets={usedAssets}
+            importing={importingMedia}
+            onSelect={(item) => {
+              selectCue(active.scene.id, null);
+              setSelectedAssetId(item.id);
+            }}
+            onInsert={(item) => insertMediaItem(item)}
+            onImportFiles={(files) => void importLocalMediaFiles(files)}
+            onServerAssets={onAssets}
+            onImportAssetPack={onImportAssetPack}
+            onOpenFiles={() => session.setView("files")}
+          />
+        }
+        assetInspector={
+          selectedAsset
+            ? {
+                title: selectedAsset.label,
+                content: (
+                  <ProjectMediaInspector
+                    session={session}
+                    item={selectedAsset}
+                    onInsert={(item, override) => insertMediaItem(item, override)}
+                    onRevealFile={onRevealFile}
+                  />
+                ),
+              }
+            : null
+        }
+        onClearAssetSelection={clearAssetSelection}
+        timelineOpenRequest={timelineOpenRequest}
         destinations={destinations}
         onDestinationChange={(id) => {
-          session.setView(id === "script" ? "visual" : id === "files" ? "files" : `panel:${id}`);
-          if (id !== "script") return;
+          session.setView(
+            id === "media" ? "media" : id === "script" ? "script" : id === "files" ? "files" : `panel:${id}`,
+          );
+          if (id !== "script" && id !== "media") return;
           const current = context(session).scenes.find((entry) => entry.scene.id === active.scene.id)!;
           const root = current.scene.nodes.find((node) =>
             nodes(node).some((node) => node.id === state.authoringSelection?.cursor),
@@ -891,12 +1033,31 @@ export function AuthoringSession({
         }
         timeline={
           <Suspense fallback={null}>
-            <TimelineEditor session={session} scope={scope} groupSelection={groupedSelection} onSelectCue={selectCue} />
+            <TimelineEditor
+              session={session}
+              scope={scope}
+              groupSelection={groupedSelection}
+              onSelectCue={selectCue}
+              pendingMediaCue={pendingMediaCue}
+              onMediaCueConsumed={consumeMediaCue}
+              onImportFiles={() => timelineMediaInputRef.current?.click()}
+              onServerAssets={onAssets}
+              onOpenCommandPalette={() => insert(active.scene.id, state.authoringSelection?.cursor ?? null)}
+            />
           </Suspense>
         }
         sceneTimeline={
           <Suspense fallback={<div role="status">{tr("Opening timeline…")}</div>}>
-            <TimelineEditor session={session} groupSelection={groupedSelection} onSelectCue={selectCue} />
+            <TimelineEditor
+              session={session}
+              groupSelection={groupedSelection}
+              onSelectCue={selectCue}
+              pendingMediaCue={pendingMediaCue}
+              onMediaCueConsumed={consumeMediaCue}
+              onImportFiles={() => timelineMediaInputRef.current?.click()}
+              onServerAssets={onAssets}
+              onOpenCommandPalette={() => insert(active.scene.id, state.authoringSelection?.cursor ?? null)}
+            />
           </Suspense>
         }
         storyboard={

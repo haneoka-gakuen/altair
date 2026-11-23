@@ -2,6 +2,7 @@ import {
   useCallback,
   useContext,
   useEffect,
+  useEffectEvent,
   useId,
   useMemo,
   useRef,
@@ -27,20 +28,32 @@ import {
 import {
   ArrowDown,
   ArrowUp,
+  Camera,
+  ChevronDown,
   Copy,
+  Download,
+  Image,
   Plus,
   Import,
   Layers,
+  Library,
   Maximize,
+  Music,
   Settings2,
+  Smile,
+  Sparkles,
   Star,
   NumberInput,
   StructuredTextInput,
   Trash2,
+  Type,
+  Upload,
+  UserRound,
   X,
   ZoomIn,
   ZoomOut,
 } from "@haneoka/altair-ui-react";
+import { buildMediaAuthoredNode, collectProjectMedia, type ProjectMediaItem } from "./authoring/project-media";
 import { DataSet } from "vis-data";
 import { Timeline, type DataItem, type TimelineOptions } from "vis-timeline/peer";
 import "./timeline-vendor.css";
@@ -880,11 +893,13 @@ function SceneSequence({
   text,
   selected,
   locale,
+  onSelectStatement,
 }: {
   session: EditorSession;
   text: string;
   selected: string | undefined;
   locale: string;
+  onSelectStatement?(statement: EditorStatement): void;
 }) {
   const statements = useMemo(
     () => nativeStatements(text).filter((entry) => nativeStatementIsVisible(entry.node)),
@@ -894,7 +909,11 @@ function SceneSequence({
     <ol className="timeline-scene-sequence" aria-label={tr("Scene")}>
       {statements.map((entry, index) => (
         <li key={entry.id}>
-          <button type="button" aria-pressed={entry.id === selected} onClick={() => session.select(entry.line)}>
+          <button
+            type="button"
+            aria-pressed={entry.id === selected}
+            onClick={() => (onSelectStatement ? onSelectStatement(entry) : session.select(entry.line))}
+          >
             <span>{index + 1}</span>
             <strong>{nativeNodeLabel(entry.node)}</strong>
             <small>{nativeNodeExcerpt(entry.node, locale)}</small>
@@ -942,16 +961,60 @@ function CueInspectorDock({
   );
 }
 
+type TrayCategory = "stage" | "characters" | "motion" | "dialogue" | "camera" | "effects" | "audio" | "media";
+
+const TRAY_CATEGORIES: ReadonlyArray<{ id: TrayCategory; label: string }> = [
+  { id: "stage", label: "Stage" },
+  { id: "characters", label: "Characters" },
+  { id: "motion", label: "Motion / Expression" },
+  { id: "dialogue", label: "Dialogue" },
+  { id: "camera", label: "Camera" },
+  { id: "effects", label: "Effects" },
+  { id: "audio", label: "Audio" },
+  { id: "media", label: "Project media" },
+];
+
+function TrayCategoryIcon({ category }: { category: TrayCategory }) {
+  switch (category) {
+    case "stage":
+      return <Image aria-hidden />;
+    case "characters":
+      return <UserRound aria-hidden />;
+    case "motion":
+      return <Smile aria-hidden />;
+    case "dialogue":
+      return <Type aria-hidden />;
+    case "camera":
+      return <Camera aria-hidden />;
+    case "effects":
+      return <Sparkles aria-hidden />;
+    case "audio":
+      return <Music aria-hidden />;
+    case "media":
+      return <Library aria-hidden />;
+  }
+}
+
 export function TimelineEditor({
   session,
   scope,
   groupSelection,
   onSelectCue,
+  pendingMediaCue,
+  onMediaCueConsumed,
+  onImportFiles,
+  onServerAssets,
+  onOpenCommandPalette,
 }: {
   session: EditorSession;
   scope?: readonly string[];
   groupSelection?: readonly string[] | undefined;
   onSelectCue?(sceneId: string, nodeId: string | null): void;
+  pendingMediaCue?: { sceneId: string; node: AltairAuthoredNode };
+  onMediaCueConsumed?(id: string): void;
+  onImportFiles?(): void;
+  onServerAssets?(): void;
+  onOpenCommandPalette?(): void;
 }) {
   const state = useSyncExternalStore(session.subscribe, session.getSnapshot),
     { i18n } = useStudioI18n();
@@ -960,7 +1023,8 @@ export function TimelineEditor({
   const workspaceContextRef = useRef(workspaceContext);
   workspaceContextRef.current = workspaceContext;
   const [fit, setFit] = useState(0),
-    [command, setCommand] = useState("Talk"),
+    [trayCategory, setTrayCategory] = useState<TrayCategory>("stage"),
+    [sourceSetup, setSourceSetup] = useState<"mediaClip" | "timelineRef" | null>(null),
     [sourceChoice, setSourceChoice] = useState(""),
     [showImport, setShowImport] = useState(false),
     [source, setSource] = useState(""),
@@ -1052,12 +1116,16 @@ export function TimelineEditor({
   const sourceByKey = useMemo(() => new Map(sources.map((source) => [sourceKey(source), source])), [sources]);
   const nameOf = useMemo(
     () => (node: AltairAuthoredNode) => {
+      if (node.type.plugin === "haneoka.altair-adv" && ["Talk", "ChatTalk"].includes(node.type.name)) {
+        const dialogue = nativeNodeExcerpt(node, state.project?.meta.locale ?? "und").replace(/\s+/gu, " ").trim();
+        return dialogue ? Array.from(dialogue).slice(0, 64).join("") : tr("Dialogue");
+      }
       if (isMediaClip(node)) return tr(node.arguments.mediaKind === "video" ? "Video clip" : "Image clip");
       if (isAdjustment(node)) return tr(node.arguments.mode === "mask" ? "Layer mask" : "Adjustment layer");
       if (!isTimelineReference(node)) return nativeNodeLabel(node);
       return sourceByKey.get(referenceKey(node))?.name ?? tr("Timeline reference");
     },
-    [sourceByKey],
+    [sourceByKey, state.project?.meta.locale, i18n.resolvedLanguage],
   );
   const choices = sources.filter((source) => source.sceneId !== scene?.id || source.nodeId !== current?.id);
   const insertSource = choices.find((source) => sourceKey(source) === sourceChoice) ?? choices[0];
@@ -1264,11 +1332,9 @@ export function TimelineEditor({
       return true;
     });
   }, [cues, selected]);
-  const available = nativeCommands.filter(
-    (command) =>
-      ["Talk", "ChatTalk", "Wait"].includes(command.name) ||
-      (["camera", "stage", "audio", "timing", "transition", "character", "media"].includes(command.category) &&
-        command.name !== "Timeline"),
+  const projectMedia = useMemo(
+    () => collectProjectMedia(session, state.files, manifest ?? "", timing.locale ?? "und").filter((item) => !item.builtin),
+    [session, state.files, manifest, timing.locale],
   );
   const change = (update: (node: AltairAuthoredNode) => AltairAuthoredNode) => {
     if (current)
@@ -1324,32 +1390,56 @@ export function TimelineEditor({
     }
     setFit((value) => value + 1);
   };
+  const insertRequestedMedia = useEffectEvent(insertCue);
+  const lastMediaCue = useRef<string | undefined>(undefined);
+  useEffect(() => {
+    if (!pendingMediaCue || pendingMediaCue.node.id === lastMediaCue.current || !sceneId) return;
+    lastMediaCue.current = pendingMediaCue.node.id;
+    try {
+      if (pendingMediaCue.sceneId === sceneId) insertRequestedMedia(pendingMediaCue.node);
+    } catch (error) {
+      setIssue(error instanceof Error ? tr(error.message) : String(error));
+    }
+    onMediaCueConsumed?.(pendingMediaCue.node.id);
+  }, [onMediaCueConsumed, pendingMediaCue, sceneId]);
+  const insertMediaClip = (kind: MediaKind, path: string) => {
+    insertCue({
+      id: crypto.randomUUID(),
+      type: { plugin: "haneoka.altair", name: "mediaClip" },
+      schemaVersion: 1,
+      arguments: {
+        source: path,
+        mediaKind: kind,
+        durationSeconds: 5,
+        offsetSeconds: 0,
+        playbackRate: 1,
+        x: 0,
+        y: 0,
+        width: 1,
+        height: 1,
+        opacity: 1,
+        fit: "contain",
+        audioEnabled: true,
+        volume: 1,
+      },
+    });
+    setSourceSetup(null);
+  };
   const quickInsert = (kind: string) => {
     if (kind === "mediaClip") {
       if (!mediaToInsert) {
-        setCommand("mediaClip");
-        setShowOptions(true);
+        setSourceSetup("mediaClip");
         return;
       }
+      insertMediaClip(mediaKind, mediaToInsert);
+      return;
+    }
+    if (kind === "dialogue") {
       insertCue({
         id: crypto.randomUUID(),
-        type: { plugin: "haneoka.altair", name: "mediaClip" },
+        type: { plugin: "haneoka.altair", name: "dialogue" },
         schemaVersion: 1,
-        arguments: {
-          source: mediaToInsert,
-          mediaKind,
-          durationSeconds: 5,
-          offsetSeconds: 0,
-          playbackRate: 1,
-          x: 0,
-          y: 0,
-          width: 1,
-          height: 1,
-          opacity: 1,
-          fit: "contain",
-          audioEnabled: true,
-          volume: 1,
-        },
+        arguments: { enabled: true },
       });
       return;
     }
@@ -1392,13 +1482,15 @@ export function TimelineEditor({
       return;
     }
     if (kind === "timelineRef") {
-      if (insertSource)
+      if (insertSource) {
         insertCue({
           id: crypto.randomUUID(),
           type: { plugin: "haneoka.altair", name: "timelineRef" },
           schemaVersion: 1,
           arguments: { timeline: { sceneId: insertSource.sceneId, nodeId: insertSource.nodeId } },
         });
+        setSourceSetup(null);
+      }
       return;
     }
     const definition = nativeCommands.find((item) => item.name === kind);
@@ -1427,7 +1519,7 @@ export function TimelineEditor({
         : definition!.initial();
     insertCue(child);
   };
-  const add = () => quickInsert(command);
+  const insertMediaAsset = (item: ProjectMediaItem) => insertCue(buildMediaAuthoredNode(item));
   const duplicateCue = (targetCue: TimelineCue) => {
     if (!current || !sceneId || targetCue.trackLocked) return;
     let clonedId = "";
@@ -1516,6 +1608,9 @@ export function TimelineEditor({
       if (contextMenu) {
         event.preventDefault();
         setContextMenu(null);
+      } else if (sourceSetup) {
+        event.preventDefault();
+        setSourceSetup(null);
       } else if (showOptions) {
         event.preventDefault();
         setShowOptions(false);
@@ -1562,74 +1657,61 @@ export function TimelineEditor({
       addMarkerAtPlayhead();
     }
   };
+  const scopes = [
+    ...(inferred ? [{ id: inferred.id, label: tr("Scene") }] : []),
+    ...timelines.flatMap((node, index) => {
+      const title = typeof node.arguments.title === "string" ? node.arguments.title.trim() : "";
+      if (inferred && !title && !node.extensions?.["haneoka.authoring.explicit"] && node.id !== preferred?.id)
+        return [];
+      return [{
+        id: node.id,
+        label: title || (timelines.length === 1 && !inferred ? tr("Scene") : `${tr("Timeline")} ${index + 1}`),
+      }];
+    }),
+  ];
+  const switchScope = (id: string) => {
+    if (id === inferred?.id) {
+      setActiveTimeline(undefined);
+    } else if (scene) {
+      const statement = session.statements().find((item) => item.id === id);
+      if (statement) session.select(statement.line);
+      setActiveTimeline({ sceneId: scene.id, id, statement: session.getSnapshot().selectedNodeId });
+      selectCue(id);
+    }
+    setFit((value) => value + 1);
+  };
+  const scopeLabel = scopes.find((option) => option.id === viewTimeline?.id)?.label ?? tr("Scene");
   const toolbar = (
     <div className="timeline-primary-tools" role="group" aria-label={tr("Timeline actions")}>
       <div className="timeline-scope-group">
-        <select
-          aria-label={tr("Active timeline")}
-          value={viewTimeline?.id ?? ""}
-          onChange={(event) => {
-            if (event.currentTarget.value === inferred?.id) {
-              setActiveTimeline(undefined);
-              setFit((value) => value + 1);
-              return;
-            }
-            const statement = session.statements().find((item) => item.id === event.target.value);
-            if (statement) session.select(statement.line);
-            if (scene)
-              setActiveTimeline({
-                sceneId: scene.id,
-                id: event.currentTarget.value,
-                statement: session.getSnapshot().selectedNodeId,
-              });
-            selectCue(event.currentTarget.value);
-            setFit((value) => value + 1);
-          }}
-        >
-          {inferred && <option value={inferred.id}>{tr("Scene")}</option>}
-          {!timelines.length && !inferred && <option value="">{tr("No timeline yet")}</option>}
-          {timelines.map((node, index) => (
-            <option key={node.id} value={node.id}>
-              {(typeof node.arguments.title === "string" && node.arguments.title) || `${tr("Timeline")} ${index + 1}`}
-            </option>
-          ))}
-        </select>
+        {scopes.length > 1 ? (
+          <DropdownMenu.Root dir={i18n.dir()}>
+            <DropdownMenu.Trigger asChild>
+              <button
+                type="button"
+                className="author-button timeline-scope-trigger"
+                aria-label={tr("Active timeline")}
+                title={scopeLabel}
+              >
+                <span>{scopeLabel}</span>
+                <ChevronDown aria-hidden />
+              </button>
+            </DropdownMenu.Trigger>
+            <DropdownMenu.Portal>
+              <DropdownMenu.Content className="editor-file-menu" align="start" sideOffset={4}>
+                <DropdownMenu.RadioGroup value={viewTimeline?.id ?? ""} onValueChange={switchScope}>
+                  {scopes.map((option) => (
+                    <DropdownMenu.RadioItem key={option.id} value={option.id}>{option.label}</DropdownMenu.RadioItem>
+                  ))}
+                </DropdownMenu.RadioGroup>
+              </DropdownMenu.Content>
+            </DropdownMenu.Portal>
+          </DropdownMenu.Root>
+        ) : (
+          <span className="timeline-scope-name">{scopeLabel}</span>
+        )}
       </div>
       <div className="timeline-edit-group" role="toolbar" aria-label={tr("Timeline")}>
-        <DropdownMenu.Root dir={i18n.dir()}>
-          <DropdownMenu.Trigger asChild>
-            <button
-              type="button"
-              className="author-icon-button"
-              aria-label={tr("Add cue")}
-              title={tr("Add cue")}
-              disabled={!scene}
-            >
-              <Plus aria-hidden />
-            </button>
-          </DropdownMenu.Trigger>
-          <DropdownMenu.Portal>
-            <DropdownMenu.Content className="editor-file-menu" align="start" sideOffset={6}>
-              <DropdownMenu.Item onSelect={() => quickInsert("mediaClip")}>{tr("Media clip")}</DropdownMenu.Item>
-              <DropdownMenu.Item onSelect={() => quickInsert("audioClip")}>{tr("Audio clip")}</DropdownMenu.Item>
-              <DropdownMenu.Item onSelect={() => quickInsert("propertyClip")}>
-                {tr("Camera keyframes")}
-              </DropdownMenu.Item>
-              <DropdownMenu.Item onSelect={() => quickInsert("adjustment")}>
-                {tr("Adjustment layer")}
-              </DropdownMenu.Item>
-              <DropdownMenu.Item onSelect={() => quickInsert("mask")}>{tr("Layer mask")}</DropdownMenu.Item>
-              <DropdownMenu.Item disabled={!choices.length} onSelect={() => quickInsert("timelineRef")}>
-                {tr("Timeline reference")}
-              </DropdownMenu.Item>
-              <DropdownMenu.Item onSelect={() => quickInsert("Talk")}>{tr("command.Talk")}</DropdownMenu.Item>
-              <DropdownMenu.Item onSelect={() => quickInsert("Wait")}>{tr("command.Wait")}</DropdownMenu.Item>
-              <DropdownMenu.Separator />
-              <DropdownMenu.Item onSelect={createNewTimeline}>{tr("New timeline")}</DropdownMenu.Item>
-              <DropdownMenu.Item onSelect={() => setShowOptions(true)}>{tr("More commands")}</DropdownMenu.Item>
-            </DropdownMenu.Content>
-          </DropdownMenu.Portal>
-        </DropdownMenu.Root>
         <button
           type="button"
           className="author-icon-button"
@@ -1824,6 +1906,18 @@ export function TimelineEditor({
                   SRT
                 </button>
               )}
+              {onOpenCommandPalette && (
+                <button
+                  type="button"
+                  className="secondary-button"
+                  onClick={() => {
+                    setShowOptions(false);
+                    onOpenCommandPalette();
+                  }}
+                >
+                  {tr("More commands")}
+                </button>
+              )}
             </div>
             {current && <AudioMixExport node={current} session={session} cues={cues} timing={timing} />}
             {current && (
@@ -1906,72 +2000,8 @@ export function TimelineEditor({
                 </div>
               </details>
             )}
-            <div className="timeline-settings">
-              <select aria-label={tr("Command")} value={command} onChange={(event) => setCommand(event.target.value)}>
-                <option value="mediaClip">{tr("Media clip")}</option>
-                <option value="audioClip">{tr("Audio clip")}</option>
-                <option value="propertyClip">{tr("Camera keyframes")}</option>
-                <option value="adjustment">{tr("Adjustment layer")}</option>
-                <option value="mask">{tr("Layer mask")}</option>
-                <option value="timelineRef" disabled={!choices.length}>
-                  {tr("Timeline reference")}
-                </option>
-                {available.map((command) => (
-                  <option key={command.name} value={command.name}>
-                    {command.label}
-                  </option>
-                ))}
-              </select>
-              {command === "mediaClip" && (
-                <>
-                  <label>
-                    {tr("Media kind")}
-                    <select
-                      value={mediaKind}
-                      onChange={(event) => {
-                        setMediaKind(event.target.value as MediaKind);
-                        setMediaSource(undefined);
-                      }}
-                    >
-                      <option value="image">{tr("Image clip")}</option>
-                      <option value="video">{tr("Video clip")}</option>
-                    </select>
-                  </label>
-                  <label>
-                    {tr("Media source")}
-                    <input
-                      list={mediaListId}
-                      value={mediaSource ?? availableMedia[0]?.path ?? ""}
-                      onChange={(event) => setMediaSource(event.target.value)}
-                    />
-                    <datalist id={mediaListId}>
-                      {availableMedia.map((file) => (
-                        <option key={file.path} value={file.path} />
-                      ))}
-                    </datalist>
-                  </label>
-                </>
-              )}
-              {command === "timelineRef" && (
-                <label>
-                  {tr("Timeline to insert")}
-                  <select
-                    value={insertSource ? sourceKey(insertSource) : ""}
-                    onChange={(event) => setSourceChoice(event.target.value)}
-                  >
-                    {sourceOptions}
-                  </select>
-                </label>
-              )}
-              <button
-                className="secondary-button"
-                disabled={(command === "timelineRef" && !insertSource) || (command === "mediaClip" && !mediaToInsert)}
-                onClick={add}
-              >
-                <Plus size={14} />
-                {tr("Add cue")}
-              </button>
-              {current && (
+            {current && (
+              <div className="timeline-settings">
                 <>
                   <label>
                     {tr("Timeline name")}
@@ -2082,8 +2112,8 @@ export function TimelineEditor({
                     {tr("Ripple across tracks")}
                   </label>
                 </>
-              )}
-            </div>
+              </div>
+            )}
             {current && (
               <details key={current.id} className="audio-mix-settings">
                 <summary>{tr("Timeline tracks")}</summary>
@@ -2229,6 +2259,10 @@ export function TimelineEditor({
                   text={doc.text}
                   selected={state.selectedNodeId}
                   locale={timing.locale ?? "und"}
+                  onSelectStatement={(entry) => {
+                    session.select(entry.line);
+                    selectCue(entry.id);
+                  }}
                 />
               ) : (
                 <CueChart
@@ -2830,6 +2864,298 @@ export function TimelineEditor({
               </fieldset>
             </CueInspectorDock>
           </div>
+          <section className="timeline-insert-tray" aria-label={tr("Timeline insert tray")}>
+            {sourceSetup === "mediaClip" && (
+              <div className="timeline-media-setup" role="region" aria-label={tr("Media clip")}>
+                <label>
+                  <span>{tr("Media kind")}</span>
+                  <select
+                    value={mediaKind}
+                    onChange={(event) => {
+                      setMediaKind(event.target.value as MediaKind);
+                      setMediaSource(undefined);
+                    }}
+                  >
+                    <option value="image">{tr("Image clip")}</option>
+                    <option value="video">{tr("Video clip")}</option>
+                  </select>
+                </label>
+                <label className="timeline-media-source-field">
+                  <span>{tr("Media source")}</span>
+                  <input
+                    list={mediaListId}
+                    value={mediaSource ?? availableMedia[0]?.path ?? ""}
+                    placeholder={tr("Select a resource")}
+                    onChange={(event) => setMediaSource(event.target.value)}
+                  />
+                  <datalist id={mediaListId}>
+                    {availableMedia.map((file) => (
+                      <option key={file.path} value={file.path} />
+                    ))}
+                  </datalist>
+                </label>
+                <button
+                  type="button"
+                  className="author-button author-button--tonal"
+                  disabled={!mediaToInsert}
+                  onClick={() => insertMediaClip(mediaKind, mediaToInsert)}
+                >
+                  <Plus aria-hidden />
+                  {tr("Add cue")}
+                </button>
+                {onImportFiles && (
+                  <button type="button" className="secondary-button" onClick={onImportFiles}>
+                    <Upload size={14} aria-hidden />
+                    {tr("Import files")}
+                  </button>
+                )}
+                {onServerAssets && (
+                  <button type="button" className="secondary-button" onClick={onServerAssets}>
+                    <Download size={14} aria-hidden />
+                    {tr("Import from server")}
+                  </button>
+                )}
+                <button
+                  type="button"
+                  className="author-icon-button"
+                  aria-label={tr("Close")}
+                  title={tr("Close")}
+                  onClick={() => setSourceSetup(null)}
+                >
+                  <X aria-hidden />
+                </button>
+              </div>
+            )}
+            {sourceSetup === "timelineRef" && (
+              <div className="timeline-media-setup" role="region" aria-label={tr("Timeline reference")}>
+                <label className="timeline-media-source-field">
+                  <span>{tr("Timeline to insert")}</span>
+                  <select
+                    value={insertSource ? sourceKey(insertSource) : ""}
+                    onChange={(event) => setSourceChoice(event.target.value)}
+                  >
+                    {sourceOptions}
+                  </select>
+                </label>
+                <button
+                  type="button"
+                  className="author-button author-button--tonal"
+                  disabled={!insertSource}
+                  onClick={() => quickInsert("timelineRef")}
+                >
+                  <Plus aria-hidden />
+                  {tr("Add cue")}
+                </button>
+                <button
+                  type="button"
+                  className="author-icon-button"
+                  aria-label={tr("Close")}
+                  title={tr("Close")}
+                  onClick={() => setSourceSetup(null)}
+                >
+                  <X aria-hidden />
+                </button>
+              </div>
+            )}
+            <div className="timeline-insert-categories" role="tablist" aria-label={tr("Command categories")}>
+              {TRAY_CATEGORIES.map((entry) => (
+                <button
+                  key={entry.id}
+                  type="button"
+                  role="tab"
+                  aria-selected={trayCategory === entry.id}
+                  className="timeline-tray-tab"
+                  onClick={() => setTrayCategory(entry.id)}
+                >
+                  <TrayCategoryIcon category={entry.id} />
+                  <span>{tr(entry.label)}</span>
+                </button>
+              ))}
+            </div>
+            <div
+              className="timeline-insert-items"
+              role="tabpanel"
+              aria-label={tr(TRAY_CATEGORIES.find((entry) => entry.id === trayCategory)!.label)}
+            >
+              {(() => {
+                const commandItems = (names: readonly string[]) =>
+                  names.flatMap((name) => {
+                    const def = nativeCommands.find((item) => item.name === name);
+                    return def ? [{ id: def.name, label: def.label, run: () => quickInsert(def.name) }] : [];
+                  });
+                if (trayCategory === "media") {
+                  return (
+                    <>
+                      {projectMedia.map((item) => (
+                        <button
+                          key={item.id}
+                          type="button"
+                          className="timeline-insert-chip"
+                          title={item.subtitle}
+                          onClick={() => insertMediaAsset(item)}
+                        >
+                          {item.thumbUrl ? (
+                            <img className="timeline-insert-thumb" src={item.thumbUrl} alt="" loading="lazy" />
+                          ) : (
+                            <Plus aria-hidden />
+                          )}
+                          <span>{item.label}</span>
+                        </button>
+                      ))}
+                      <button
+                        type="button"
+                        className="timeline-insert-chip"
+                        aria-expanded={sourceSetup === "mediaClip"}
+                        onClick={() => setSourceSetup((cur) => (cur === "mediaClip" ? null : "mediaClip"))}
+                      >
+                        <Plus aria-hidden />
+                        <span>{tr("Media clip")}</span>
+                      </button>
+                      <button
+                        type="button"
+                        className="timeline-insert-chip"
+                        onClick={() => quickInsert("audioClip")}
+                      >
+                        <Plus aria-hidden />
+                        <span>{tr("Audio clip")}</span>
+                      </button>
+                      {choices.length > 0 && (
+                        <button
+                          type="button"
+                          className="timeline-insert-chip"
+                          onClick={() =>
+                            choices.length > 1
+                              ? setSourceSetup((cur) => (cur === "timelineRef" ? null : "timelineRef"))
+                              : quickInsert("timelineRef")
+                          }
+                        >
+                          <Plus aria-hidden />
+                          <span>{tr("Timeline reference")}</span>
+                        </button>
+                      )}
+                      {onImportFiles && (
+                        <button type="button" className="timeline-insert-chip" onClick={onImportFiles}>
+                          <Upload aria-hidden />
+                          <span>{tr("Import files")}</span>
+                        </button>
+                      )}
+                      {onServerAssets && (
+                        <button type="button" className="timeline-insert-chip" onClick={onServerAssets}>
+                          <Download aria-hidden />
+                          <span>{tr("Import from server")}</span>
+                        </button>
+                      )}
+                    </>
+                  );
+                }
+                const entries =
+                  trayCategory === "stage"
+                    ? [
+                        ...commandItems(["Stage", "Still", "Frame", "StageEnv", "FadeIn", "FadeOut"]),
+                        { id: "mediaClip", label: tr("Media clip"), run: () => quickInsert("mediaClip") },
+                      ]
+                    : trayCategory === "characters"
+                      ? commandItems([
+                          "Character",
+                          "In",
+                          "Out",
+                          "Costume",
+                          "MoveToLeft",
+                          "MoveToRight",
+                          "MoveToUp",
+                          "MoveToDown",
+                          "MoveToForward",
+                          "MoveToBack",
+                          "MoveToDirection",
+                          "Forward",
+                          "Back",
+                          "Angle",
+                        ])
+                      : trayCategory === "motion"
+                        ? commandItems([
+                            "Motion",
+                            "Expression",
+                            "Look",
+                            "LookTarget",
+                            "MotionLoop",
+                            "EyeBlink",
+                            "Pause",
+                            "Resume",
+                          ])
+                        : trayCategory === "dialogue"
+                          ? [
+                              ...commandItems(["Talk"]),
+                              { id: "dialogue", label: tr("Dialogue visibility"), run: () => quickInsert("dialogue") },
+                              ...commandItems([
+                                "Wait",
+                                "Delay",
+                                "CancelDelay",
+                                "Location",
+                                "Subtitles",
+                                "TalkWindow",
+                                "ChatWindow",
+                                "ChatTalk",
+                                "ChatStamp",
+                                "ChatTyping",
+                                "ChatRead",
+                              ]),
+                            ]
+                          : trayCategory === "camera"
+                            ? [
+                                {
+                                  id: "propertyClip",
+                                  label: tr("Camera keyframes"),
+                                  run: () => quickInsert("propertyClip"),
+                                },
+                                ...commandItems([
+                                  "Focus",
+                                  "Zoom",
+                                  "Pan",
+                                  "PanV2",
+                                  "Tilt",
+                                  "Pedestal",
+                                  "Track",
+                                  "Role",
+                                  "DoF",
+                                  "CameraShake",
+                                ]),
+                              ]
+                            : trayCategory === "effects"
+                              ? [
+                                  {
+                                    id: "adjustment",
+                                    label: tr("Adjustment layer"),
+                                    run: () => quickInsert("adjustment"),
+                                  },
+                                  { id: "mask", label: tr("Layer mask"), run: () => quickInsert("mask") },
+                                  ...commandItems([
+                                    "Effect",
+                                    "PostEffect",
+                                    "Flash",
+                                    "Shake",
+                                    "Brightness",
+                                    "Alpha",
+                                    "RimLight",
+                                  ]),
+                                ]
+                              : [
+                                  { id: "audioClip", label: tr("Audio clip"), run: () => quickInsert("audioClip") },
+                                  ...commandItems(["Bgm", "Se", "Voice", "SoundVolume"]),
+                                ];
+                return entries.map((entry) => (
+                  <button
+                    key={entry.id}
+                    type="button"
+                    className="timeline-insert-chip"
+                    onClick={entry.run}
+                  >
+                    <Plus aria-hidden />
+                    <span>{entry.label}</span>
+                  </button>
+                ));
+              })()}
+            </div>
+          </section>
         </>
       )}
       {(issue || scrubIssue) && (

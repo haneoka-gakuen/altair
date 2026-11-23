@@ -26,6 +26,9 @@ export interface StageDockProps {
   speakers: CastRef[];
   activeTools?: ReactNode;
   stageMenu: ReactNode;
+  scenes?: readonly { id: string; title: string; chapter?: string }[];
+  activeSceneId?: string;
+  onSelectScene?(sceneId: string): void;
   panelOpen?: boolean;
   timelineTransport?: TimelineTransportState | null;
   onToggleCollapsed(): void;
@@ -49,6 +52,9 @@ export function StageDock({
   speakers,
   activeTools,
   stageMenu,
+  scenes,
+  activeSceneId,
+  onSelectScene,
   panelOpen,
   timelineTransport,
   onToggleCollapsed,
@@ -70,7 +76,22 @@ export function StageDock({
     >
       <header className="author-monitor-header">
         <div className="author-monitor-heading">
-          <h2 className="author-monitor-title">{t("Stage")}</h2>
+          {scenes && scenes.length > 1 && onSelectScene ? (
+            <select
+              className="author-stage-scene-select"
+              aria-label={t("Scene")}
+              value={activeSceneId ?? ""}
+              onChange={(event) => onSelectScene(event.target.value)}
+            >
+              {scenes.map((option) => (
+                <option key={option.id} value={option.id}>
+                  {option.chapter ? `${option.chapter} / ${option.title}` : option.title}
+                </option>
+              ))}
+            </select>
+          ) : scenes && scenes.length === 1 ? (
+            <h2 className="author-monitor-title">{scenes[0]!.title}</h2>
+          ) : null}
           {speakers.length > 0 && (
             <ul className="author-stage-cast" aria-label={t("authoring.speakers")}>
               {speakers.map((speaker) => (

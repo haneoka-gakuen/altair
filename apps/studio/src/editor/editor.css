@@ -1902,6 +1902,12 @@ button:not(:where(.monaco-editor *, .vega-player *)) {
   font-family: var(--app-font);
   font-size: var(--md-sys-typescale-body-medium-size);
 }
+.author-workbench .author-media-search input[type="search"] {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+}
 .field :is(input, textarea, select) {
   font-family: var(--app-font);
   font-size: var(--md-sys-typescale-body-medium-size);

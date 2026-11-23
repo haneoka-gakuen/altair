@@ -56,7 +56,9 @@ export function DockPanel({
     >
       {resizeHandle}
       <header className="author-panel-header">
-        <h2 id={id}>{title}</h2>
+        <h2 id={id} className={timeline ? "author-sr-only" : undefined}>
+          {title}
+        </h2>
         {timeline && <div className="author-timeline-toolbar" ref={setToolbar} />}
         {actions && <div className="author-panel-context-actions">{actions}</div>}
         <button type="button" className="author-icon-button" aria-label={closeText} title={closeText} onClick={onClose}>

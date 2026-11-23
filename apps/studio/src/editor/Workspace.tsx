@@ -24,7 +24,6 @@ import {
   Folder,
   GanttChart,
   LayoutList,
-  Library,
   MoreVertical,
   Star,
   Plus,
@@ -34,6 +33,7 @@ import {
   Settings2,
   Trash2,
   Undo2,
+  Workflow,
   X,
 } from "@haneoka/altair-ui-react";
 import { nativeStatements, nativeCommands, nativeScenePath, NATIVE_PROJECT_PATH } from "./native-project";
@@ -632,7 +632,7 @@ export function Workspace({ session, onHome, externalError, onClearError }: {
     <AnimationAuditionControls session={session} />
   </> : <NativeInspector statement={selected} session={session} embedded />;
   const destinations = [
-    ...workspacePanels.map((panel) => ({ id: panel.selector, label: panel.id === "flowchart" ? tr("Flow") : tr(panel.name ?? panel.id), icon: <GanttChart aria-hidden />, content: <div className="author-plugin-workspace"><PluginPanel session={session} panelId={panel.selector} path={state.active} /></div> })),
+    ...workspacePanels.map((panel) => ({ id: panel.selector, label: panel.id === "flowchart" ? tr("Flow") : tr(panel.name ?? panel.id), icon: <Workflow aria-hidden />, content: <div className="author-plugin-workspace"><PluginPanel session={session} panelId={panel.selector} path={state.active} /></div> })),
     { id: "files", label: tr("Project files"), icon: <Folder aria-hidden />, content: <div className="author-file-workspace"><aside>{projectFilePane}</aside><section>{fileEditor}</section></div> },
   ];
   const importProject = () => {
@@ -811,6 +811,9 @@ export function Workspace({ session, onHome, externalError, onClearError }: {
               >
                 {tr("Refresh local files")}
               </DropdownMenu.Item>
+              <DropdownMenu.Item onSelect={() => setShowLibrary(true)}>
+                {tr("Command library")}
+              </DropdownMenu.Item>
               <DropdownMenu.Separator />
               <DropdownMenu.Item disabled={state.saving} onSelect={importProject}>
                 {tr("Import project")}
@@ -844,10 +847,6 @@ export function Workspace({ session, onHome, externalError, onClearError }: {
           {tr("Export game")}
         </button>
         <GameExportDialog session={session} open={gameExport} onOpenChange={setGameExport} />
-        <button className="secondary-button" aria-label={tr("Command library")} onClick={() => setShowLibrary(true)}>
-          <Library size={15} />
-          <span className="workspace-action-label">{tr("Command library")}</span>
-        </button>
         <button disabled={!state.canUndo} title={tr("Undo")} aria-label={tr("Undo")} onClick={() => session.undo()}>
           <Undo2 size={16} />
         </button>
@@ -873,7 +872,24 @@ export function Workspace({ session, onHome, externalError, onClearError }: {
           <span className="workspace-action-label">{tr("Export project")}</span>
         </button>
       </header>
-      <AuthoringSession session={session} onImport={importProject} onAssets={() => { if (!studioIntent("assets")) void catalogueAction(); }} onTools={() => setAuthoringTools(true)} onLibrary={() => setShowLibrary(true)} onHistory={() => setHistoryPath(state.active)} destinations={destinations} notify={setIssue} />
+      <AuthoringSession
+        session={session}
+        onImport={importProject}
+        onImportAssetPack={() => setImportAssets(true)}
+        onAssets={() => {
+          if (!studioIntent("assets")) void catalogueAction();
+        }}
+        onTools={() => setAuthoringTools(true)}
+        onLibrary={() => setShowLibrary(true)}
+        onHistory={() => setHistoryPath(state.active)}
+        onRevealFile={(path) => {
+          setLeftTab("resources");
+          setAsset(path);
+          session.setView("files");
+        }}
+        destinations={destinations}
+        notify={setIssue}
+      />
       {authoringTools && <TaskSheet title={tr("Project files")} wide onClose={() => setAuthoringTools(false)}><div className="author-project-tools"><AnimationAuditionControls session={session} />
       <Group
         className="workspace-panels"

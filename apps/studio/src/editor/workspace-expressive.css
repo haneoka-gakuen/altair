@@ -207,6 +207,27 @@
 .workspace .resize-handle:is(:hover, [data-separator="active"]) {
   background: var(--editor-selected);
 }
+@media (min-width: 840px) and (pointer: fine) {
+  .workspace {
+    --editor-control: 30px;
+  }
+  .workspace .workspace-header {
+    min-block-size: 40px;
+    gap: 6px;
+    padding: 4px 10px;
+  }
+  .workspace .workspace-header > :is(button, .secondary-button, .primary-button) {
+    min-block-size: 30px;
+    padding-block: 2px;
+  }
+  .workspace .file-panel-controls {
+    min-block-size: 36px;
+  }
+  .workspace .file-panel-controls :is(.icon-button, [role="tab"]) {
+    min-block-size: 30px;
+    min-inline-size: 30px;
+  }
+}
 @media (pointer: coarse) {
   .workspace {
     --editor-control: max(48px, var(--md-comp-control-height-touch, 48px));

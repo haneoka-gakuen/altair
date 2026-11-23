@@ -114,3 +114,17 @@
 .file-tree .file-tree-toggle,.file-tree .file-item,.file-tree .icon-button{min-height:48px}
 .file-tree .icon-button{min-width:48px}
 .file-tree .file-tree-selection{min-width:48px;min-height:48px;align-items:center;justify-content:center}
+@media (min-width: 840px) and (pointer: fine) {
+  .file-tree .file-tree-row,
+  .file-tree .file-tree-folder-heading,
+  .file-tree .file-tree-toggle,
+  .file-tree .file-item,
+  .file-tree .icon-button,
+  .file-tree .file-tree-selection {
+    min-height: var(--author-target, 30px);
+  }
+  .file-tree .icon-button,
+  .file-tree .file-tree-selection {
+    min-width: var(--author-target, 30px);
+  }
+}

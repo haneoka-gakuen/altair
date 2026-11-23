@@ -16,8 +16,9 @@ import {
   ChevronRight,
   Clock,
   FolderOpen,
+  GanttChart,
   Image,
-  ListPlus,
+  Library,
   Lock,
   MoreVertical,
   Music,
@@ -207,6 +208,10 @@ export interface AuthoringWorkspaceProps {
   onTools?(): void;
   onPasteText?(text: string): void;
   notify?(message: string): void;
+  mediaDock?: ReactNode;
+  assetInspector?: { title: string; content: ReactNode } | null;
+  onClearAssetSelection?(): void;
+  timelineOpenRequest?: number;
 }
 
 type Sheet =
@@ -215,6 +220,7 @@ type Sheet =
   | { kind: "timeline"; allCues?: boolean }
   | { kind: "locks" | "storyboard" | "assistant" | "issues" | "paste" };
 
+const MEDIA = "media";
 const SCRIPT = "script";
 const NO_SELECTION = { lines: [] as LineId[], cursor: null as LineId | null };
 const LOCK_FIELDS: LockField[] = ["text", "cast", "motion", "face", "camera", "audio", "stage", "timing"];
@@ -288,7 +294,7 @@ export function AuthoringWorkspace(props: AuthoringWorkspaceProps) {
     setLocalView(next);
     props.onScriptViewChange?.(next);
   };
-  const [localDestination, setLocalDestination] = useState(SCRIPT);
+  const [localDestination, setLocalDestination] = useState(() => (props.mediaDock ? MEDIA : SCRIPT));
   const destination = props.destination ?? localDestination;
   const setDestination = (next: string) => {
     setLocalDestination(next);
@@ -307,23 +313,24 @@ export function AuthoringWorkspace(props: AuthoringWorkspaceProps) {
     return () => query.removeEventListener("change", update);
   }, []);
   const [timelineScope, setTimelineScope] = useState<"scene" | "selection" | null>(() =>
-    props.sceneTimeline && window.matchMedia("(min-width: 840px)").matches ? "scene" : null,
+    props.sceneTimeline || props.timeline ? "scene" : null,
   );
   const [timelineTransport, setTimelineTransport] = useState<TimelineTransportState | null>(null);
   const [cueInspecting, setCueInspecting] = useState(false);
   const [inspectorHost, setInspectorHost] = useState<HTMLDivElement | null>(null);
-  const [timelineHeight, setTimelineHeight] = useState(36);
+  const [timelineHeight, setTimelineHeight] = useState(50);
   const timelineWorkspace = useMemo(
     () => ({
       setTransport: setTimelineTransport,
       setCueInspecting,
       openInspector: () => {
+        props.onClearAssetSelection?.();
         setSheet(null);
         setPanelCollapsed(false);
       },
       closeInspector: () => setPanelCollapsed(true),
     }),
-    [],
+    [props.onClearAssetSelection],
   );
   useEffect(() => {
     if (!props.toolRequest) return;
@@ -336,6 +343,17 @@ export function AuthoringWorkspace(props: AuthoringWorkspaceProps) {
     }
     setStageCollapsed(false);
   }, [props.toolRequest?.id]);
+  useEffect(() => {
+    if (!props.timelineOpenRequest) return;
+    setTimelineScope("scene");
+    setSheet(null);
+    setPanelCollapsed(false);
+  }, [props.timelineOpenRequest]);
+  useEffect(() => {
+    if (!props.assetInspector) return;
+    setSheet(null);
+    setPanelCollapsed(false);
+  }, [Boolean(props.assetInspector)]);
   const [localSelection, setLocalSelection] = useState(NO_SELECTION);
   const [touchSelecting, setTouchSelecting] = useState(false);
   const [editing, setEditing] = useState<LineId | null>(null);
@@ -366,10 +384,17 @@ export function AuthoringWorkspace(props: AuthoringWorkspaceProps) {
   const hasSource = Boolean(sourceEditor || source);
   const issueCount = model.issues.length;
   const activeDestination =
-    destination === SCRIPT || destinations.some((item) => item.id === destination) ? destination : SCRIPT;
+    (destination === MEDIA && props.mediaDock) ||
+    destination === SCRIPT ||
+    destinations.some((item) => item.id === destination)
+      ? destination
+      : props.mediaDock
+        ? MEDIA
+        : SCRIPT;
   const lastLine = scene.lines[scene.lines.length - 1];
 
   const select = (lines: LineId[], cursor: LineId | null, nodeId = cursor) => {
+    props.onClearAssetSelection?.();
     setSheet((open) => (open?.kind === "inspect" && open.nodeIds ? { ...open, nodeIds: undefined } : open));
     if (!props.selection) setLocalSelection({ lines, cursor });
     onSelectionChange?.(scene.id, lines, cursor, nodeId);
@@ -384,10 +409,10 @@ export function AuthoringWorkspace(props: AuthoringWorkspaceProps) {
   }, [scene.id]);
   useEffect(() => {
     if (!props.inspectRequest) return;
+    props.onClearAssetSelection?.();
     setPanelCollapsed(false);
     setSheet({ kind: "inspect", lines: [], nodeIds: [props.inspectRequest] });
-    setDestination(SCRIPT);
-    setView("script");
+    if (view === "source") setView("script");
   }, [props.inspectRequest]);
 
   useEffect(() => {
@@ -436,7 +461,8 @@ export function AuthoringWorkspace(props: AuthoringWorkspaceProps) {
 
   const openSheet = (next: Sheet) => {
     flush();
-    if ((next.kind === "storyboard" || next.kind === "timeline") && destination !== SCRIPT) {
+    props.onClearAssetSelection?.();
+    if ((next.kind === "storyboard" || next.kind === "timeline") && destination !== SCRIPT && destination !== MEDIA) {
       bridge.openScene(scene.id);
     }
     if (next.kind === "timeline") setTimelineScope(next.allCues ? "scene" : "selection");
@@ -460,7 +486,7 @@ export function AuthoringWorkspace(props: AuthoringWorkspaceProps) {
     setSheet(null);
     setDestination(id);
     if (window.matchMedia("(max-width: 839px)").matches) closeTimeline();
-    if (id !== SCRIPT && !visited.includes(id)) setVisited((list) => [...list, id]);
+    if (id !== SCRIPT && id !== MEDIA && !visited.includes(id)) setVisited((list) => [...list, id]);
   };
 
   const focusLine = (id: LineId) =>
@@ -611,7 +637,7 @@ export function AuthoringWorkspace(props: AuthoringWorkspaceProps) {
     if (targetLines.length > 0) openSheet({ kind: "inspect", lines: targetLines });
   };
   const canPlayStage = scene.lines.length > 0 && model.playback.ready;
-  const hasWorkspaceMenu = Boolean(onLibrary || onHistory || onPasteText || onTools || onAssets || onImport);
+  const hasWorkspaceMenu = Boolean(onLibrary || onHistory || onPasteText || onTools || onAssets || onImport || onInsert || hasSource);
   const workspaceMenu = hasWorkspaceMenu ? (
     <DropdownMenu.Root dir={i18n.dir()}>
       <DropdownMenu.Trigger asChild>
@@ -626,6 +652,22 @@ export function AuthoringWorkspace(props: AuthoringWorkspaceProps) {
       </DropdownMenu.Trigger>
       <DropdownMenu.Portal>
         <DropdownMenu.Content className="editor-file-menu" align="end" sideOffset={6}>
+          {onInsert && (
+            <DropdownMenu.Item onSelect={insertCommand}>
+              {t("authoring.insertCommand")}
+            </DropdownMenu.Item>
+          )}
+          {hasSource && (
+            <DropdownMenu.Item
+              onSelect={() => {
+                flush();
+                setDestination(SCRIPT);
+                setView("source");
+              }}
+            >
+              {t("Advanced text")}
+            </DropdownMenu.Item>
+          )}
           {onLibrary && (
             <DropdownMenu.Item
               onSelect={() => {
@@ -840,12 +882,24 @@ export function AuthoringWorkspace(props: AuthoringWorkspaceProps) {
     </>
   );
 
+  const hasAssetInspector = Boolean(props.assetInspector && !panelCollapsed && !sheet);
   const inspectorCollapsed = panelCollapsed && !activePanel;
+  const navItems: StudioDestination[] = [
+    ...(narrowViewport && (props.sceneTimeline || props.timeline)
+      ? [{ id: "__timeline__", label: t("Timeline"), icon: <GanttChart aria-hidden />, content: null }]
+      : []),
+    ...(props.mediaDock
+      ? [{ id: MEDIA, label: t("Project media"), icon: <Library aria-hidden />, content: null }]
+      : []),
+    { id: SCRIPT, label: t("authoring.script"), icon: <ScrollText aria-hidden />, content: null },
+    ...destinations,
+  ];
   const workbenchClasses = [
-    destinations.length > 0 || workspaceMenu ? "author-workbench has-destinations" : "author-workbench",
+    navItems.length > 1 || workspaceMenu ? "author-workbench has-destinations" : "author-workbench",
     timelineScope ? "has-timeline" : "",
     activePanel ? "has-active-panel" : "",
-    cueInspecting && !panelCollapsed && !sheet ? "has-cue-inspector" : "",
+    cueInspecting && !panelCollapsed && !sheet && !hasAssetInspector ? "has-cue-inspector" : "",
+    hasAssetInspector ? "has-asset-inspector" : "",
     inspectorCollapsed ? "is-inspector-collapsed" : "",
   ]
     .filter(Boolean)
@@ -858,26 +912,36 @@ export function AuthoringWorkspace(props: AuthoringWorkspaceProps) {
         style={{ "--author-timeline-height": timelineHeight + "%" } as CSSProperties}
         onKeyDown={onWorkbenchKey}
       >
-        {(destinations.length > 0 || workspaceMenu) && (
+        {(navItems.length > 0 || workspaceMenu) && (
           <div className="author-destinations-bar">
-            {destinations.length > 0 && (
+            {navItems.length > 0 && (
               <nav className="author-destinations" aria-label={t("authoring.destinations")}>
-                {[{ id: SCRIPT, label: t("authoring.script"), icon: <ScrollText /> }, ...destinations].map((item) => (
-                  <button
-                    key={item.id}
-                    type="button"
-                    className="author-destination-button"
-                    aria-label={item.label}
-                    title={item.label}
-                    aria-current={activeDestination === item.id ? "page" : undefined}
-                    onClick={() => goTo(item.id)}
-                  >
-                    <span className="author-destination-icon" aria-hidden>
-                      {item.icon}
-                    </span>
-                    <span className="author-destination-label">{item.label}</span>
-                  </button>
-                ))}
+                {navItems.map((item) => {
+                  const isCurrent =
+                    item.id === "__timeline__"
+                      ? Boolean(timelineScope)
+                      : (!narrowViewport || !timelineScope) && activeDestination === item.id;
+                  return (
+                    <button
+                      key={item.id}
+                      type="button"
+                      className="author-destination-button"
+                      aria-label={item.label}
+                      title={item.label}
+                      aria-current={isCurrent ? "page" : undefined}
+                      onClick={() =>
+                        item.id === "__timeline__"
+                          ? openSheet({ kind: "timeline", allCues: true })
+                          : goTo(item.id)
+                      }
+                    >
+                      <span className="author-destination-icon" aria-hidden>
+                        {item.icon}
+                      </span>
+                      <span className="author-destination-label">{item.label}</span>
+                    </button>
+                  );
+                })}
               </nav>
             )}
             {workspaceMenu}
@@ -885,6 +949,15 @@ export function AuthoringWorkspace(props: AuthoringWorkspaceProps) {
         )}
 
       <div className="author-work">
+        {props.mediaDock && (
+          <section
+            className="author-media-surface"
+            aria-label={t("Project media")}
+            hidden={activeDestination !== MEDIA}
+          >
+            {props.mediaDock}
+          </section>
+        )}
         <section className="author-manuscript" aria-label={t("authoring.script")} hidden={activeDestination !== SCRIPT}>
           <div className="author-manuscript-head">
             {model.scenes.length > 1 ? (
@@ -906,23 +979,51 @@ export function AuthoringWorkspace(props: AuthoringWorkspaceProps) {
             ) : (
               <h2 className="author-scene-title">{scene.title}</h2>
             )}
-            {hasSource && (
-              <div className="author-segmented" role="tablist">
-                <button type="button" role="tab" aria-selected={view === "script"} onClick={() => setView("script")}>
-                  {t("authoring.script")}
-                </button>
-                <button
-                  type="button"
-                  role="tab"
-                  aria-selected={view === "source"}
-                  onClick={() => {
-                    flush();
-                    setView("source");
-                  }}
-                >
-                  {t("authoring.source")}
-                </button>
-              </div>
+            {view === "source" && hasSource && (
+              <button type="button" className="author-button author-button--tonal" onClick={() => setView("script")}>
+                {t("Back to manuscript")}
+              </button>
+            )}
+            {(hasSource || onInsert || onPasteText) && (
+              <DropdownMenu.Root dir={i18n.dir()}>
+                <DropdownMenu.Trigger asChild>
+                  <button
+                    type="button"
+                    className="author-icon-button"
+                    aria-label={t("Manuscript actions")}
+                    title={t("Manuscript actions")}
+                  >
+                    <MoreVertical aria-hidden />
+                  </button>
+                </DropdownMenu.Trigger>
+                <DropdownMenu.Portal>
+                  <DropdownMenu.Content className="editor-file-menu" align="end" sideOffset={6}>
+                    {hasSource && (
+                      <DropdownMenu.Item
+                        onSelect={() => {
+                          if (view === "source") setView("script");
+                          else {
+                            flush();
+                            setView("source");
+                          }
+                        }}
+                      >
+                        {t(view === "source" ? "Back to manuscript" : "Advanced text")}
+                      </DropdownMenu.Item>
+                    )}
+                    {onInsert && (
+                      <DropdownMenu.Item onSelect={insertCommand}>
+                        {t("authoring.insertCommand")}
+                      </DropdownMenu.Item>
+                    )}
+                    {onPasteText && (
+                      <DropdownMenu.Item onSelect={() => openSheet({ kind: "paste" })}>
+                        {t("authoring.pasteText")}
+                      </DropdownMenu.Item>
+                    )}
+                  </DropdownMenu.Content>
+                </DropdownMenu.Portal>
+              </DropdownMenu.Root>
             )}
           </div>
 
@@ -1284,12 +1385,6 @@ export function AuthoringWorkspace(props: AuthoringWorkspaceProps) {
                     <Plus aria-hidden />
                     {t("authoring.addLine")}
                   </button>
-                  {onInsert && (
-                    <button type="button" className="author-button author-button--tonal" onClick={insertCommand}>
-                      <ListPlus aria-hidden />
-                      {t("authoring.insertCommand")}
-                    </button>
-                  )}
                 </div>
               )}
             </div>
@@ -1312,7 +1407,7 @@ export function AuthoringWorkspace(props: AuthoringWorkspaceProps) {
 
       <div
         className="author-companion"
-        data-has-panel={!panelCollapsed && (Boolean(sheet && sheet.kind !== "paste") || selected.length > 0 || cueInspecting)}
+        data-has-panel={!panelCollapsed && (Boolean(sheet && sheet.kind !== "paste") || selected.length > 0 || cueInspecting || hasAssetInspector)}
       >
         <StageDock
           key="stage"
@@ -1329,6 +1424,12 @@ export function AuthoringWorkspace(props: AuthoringWorkspaceProps) {
           speakers={current ? byId.get(current)!.speakers : []}
           activeTools={activeTools}
           stageMenu={stageMenu}
+          scenes={model.scenes}
+          activeSceneId={scene.id}
+          onSelectScene={(id) => {
+            flush();
+            bridge.openScene(id);
+          }}
           panelOpen={!panelCollapsed}
           timelineTransport={timelineTransport}
           onToggleCollapsed={() => setStageCollapsed((value) => !value)}
@@ -1353,9 +1454,14 @@ export function AuthoringWorkspace(props: AuthoringWorkspaceProps) {
           onStop={() => bridge.stop()}
         />
 
-        <div className="author-inspector" data-panel={cueInspecting && !sheet ? "cue" : (sheet?.kind ?? "inspect")}>
-          <div className="author-cue-dock" ref={setInspectorHost} hidden={panelCollapsed || Boolean(sheet)} />
-          {!panelCollapsed && !sheet && !cueInspecting && renderInspector && (selected.length > 0 || rowFocus || selectedNode) && (
+        <div className="author-inspector" data-panel={hasAssetInspector ? "asset" : cueInspecting && !sheet ? "cue" : (sheet?.kind ?? "inspect")}>
+          <div className="author-cue-dock" ref={setInspectorHost} hidden={panelCollapsed || Boolean(sheet) || hasAssetInspector} />
+          {hasAssetInspector && (
+            <DockPanel title={props.assetInspector!.title} onClose={() => props.onClearAssetSelection?.()}>
+              {props.assetInspector!.content}
+            </DockPanel>
+          )}
+          {!panelCollapsed && !sheet && !cueInspecting && !hasAssetInspector && renderInspector && (selected.length > 0 || rowFocus || selectedNode) && (
             <DockPanel title={t("Properties")} actions={inspectorNavigation} onClose={closePanel}>
               {renderInspector(scene.id, selectedNode && selected.length < 2 ? [selectedNode] : selected.length ? selected : [rowFocus!])}
             </DockPanel>

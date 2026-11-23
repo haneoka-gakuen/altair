@@ -42,9 +42,10 @@
     --author-fast: var(--md-sys-motion-duration-short4);
     --author-target: 48px;
   }
-  @media (min-width: 840px) and (pointer: fine) {
-    .author-workbench {
-      --author-target: 32px;
+  @media (min-width: 840px) {
+    .author-workbench,
+    .author-sheet {
+      --author-target: 30px;
     }
   }
 
@@ -689,7 +690,12 @@
   body:has(.author-workbench)
     :is(.modal-content, .author-project-tools)
     :is(button, select, input:not([type="checkbox"]):not([type="radio"])) {
-    min-block-size: 48px;
+    min-block-size: var(--author-target, 48px);
+  }
+  @media (min-width: 840px) {
+    body:has(.author-workbench) {
+      --author-target: 30px;
+    }
   }
   .author-workbench .author-stage-collapse {
     display: none;
