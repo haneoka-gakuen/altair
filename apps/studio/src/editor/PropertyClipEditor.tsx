@@ -12,6 +12,8 @@ import { tr } from "./i18n";
 
 const easing = [
   "linear",
+  "hold",
+  "smoothstep",
   "inSine",
   "outSine",
   "inOutSine",
@@ -46,9 +48,11 @@ const easing = [
 export function PropertyClipEditor({
   value,
   onChange,
+  channels,
 }: {
   value: JsonValue | undefined;
   onChange(value: JsonObject): void;
+  channels?: readonly { channel: string; label: string; value: number }[];
 }) {
   let clip: PropertyAnimationClip;
   try {
@@ -56,30 +60,106 @@ export function PropertyClipEditor({
   } catch {
     return <span role="alert">{tr("Invalid animation curve")}</span>;
   }
+  const sourceDuration = clip.sourceWindow?.durationSeconds ?? clip.durationSeconds;
   const changePoint = (trackIndex: number, pointIndex: number, patch: Partial<PropertyAnimationPoint>) => {
     const tracks = clip.tracks.map((track, index) =>
       index === trackIndex
         ? {
             ...track,
-            points: track.points.map((point, index) => (index === pointIndex ? { ...point, ...patch } : point)),
+            points: track.points.map((point, index) => {
+              if (index !== pointIndex && index !== pointIndex + 1) return point;
+              const { easeSpan, ...plain } = point;
+              return index === pointIndex ? { ...plain, ...patch } : plain;
+            }),
           }
         : track,
     );
     onChange({ ...clip, tracks } as unknown as JsonObject);
   };
+  const insertPoint = (trackIndex: number) => {
+    const track = clip.tracks[trackIndex]!;
+    const points = [...track.points];
+    const last = points.at(-1)!;
+    if (last.timeSeconds < sourceDuration)
+      points.push({ timeSeconds: sourceDuration, value: last.value, ease: "linear" });
+    else if (points[0]!.timeSeconds > 0) points.unshift({ timeSeconds: 0, value: points[0]!.value, ease: "linear" });
+    else {
+      let right = 0,
+        length = 0;
+      for (let i = 1; i < points.length; i++) {
+        const width = points[i]!.timeSeconds - points[i - 1]!.timeSeconds;
+        if (width > length) {
+          length = width;
+          right = i;
+        }
+      }
+      if (!length) return;
+      const left = points[right - 1]!,
+        end = points[right]!;
+      const timeSeconds = left.timeSeconds + length / 2;
+      const value = samplePropertyAnimation({ durationSeconds: sourceDuration, tracks: [track] }, timeSeconds)[
+        track.channel
+      ]!;
+      const key: PropertyAnimationPoint = { timeSeconds, value, ease: end.ease ?? "linear" };
+      if (end.easeSpan || (end.ease !== undefined && end.ease !== "linear")) {
+        const span = end.easeSpan ?? { start: 0, end: 1, amplitude: end.value - left.value };
+        const middle = (span.start + span.end) / 2;
+        points.splice(
+          right,
+          1,
+          { ...key, easeSpan: { ...span, end: middle } },
+          { ...end, easeSpan: { ...span, start: middle } },
+        );
+      } else points.splice(right, 0, key);
+    }
+    onChange({
+      ...clip,
+      tracks: clip.tracks.map((entry, i) => (i === trackIndex ? { ...entry, points } : entry)),
+    } as unknown as JsonObject);
+  };
   return (
     <div className="property-curve-editor">
-      <label className="field">
-        <span>{tr("Duration (s)")}</span>
-        <NumberInput
-          min={0}
-          step="any"
-          value={clip.durationSeconds}
-          onCommit={(seconds) => {
-            if (seconds >= 0) onChange(resizePropertyClip(clip, seconds));
-          }}
-        />
-      </label>
+      {!channels && (
+        <label className="field">
+          <span>{tr("Duration (s)")}</span>
+          <NumberInput
+            min={0}
+            step="any"
+            value={clip.durationSeconds}
+            onCommit={(seconds) => {
+              if (seconds >= 0) onChange(resizePropertyClip(clip, seconds));
+            }}
+          />
+        </label>
+      )}
+      {channels && (
+        <label className="field">
+          <span>{tr("Add parameter")}</span>
+          <select
+            value=""
+            onChange={(event) => {
+              const added = channels.find(({ channel }) => channel === event.currentTarget.value);
+              if (added)
+                onChange({
+                  ...clip,
+                  tracks: [
+                    ...clip.tracks,
+                    { channel: added.channel, points: [{ timeSeconds: 0, value: added.value }] },
+                  ],
+                } as unknown as JsonObject);
+            }}
+          >
+            <option value="">{tr("None")}</option>
+            {channels
+              .filter(({ channel }) => !clip.tracks.some((track) => track.channel === channel))
+              .map(({ channel, label }) => (
+                <option key={channel} value={channel}>
+                  {label}
+                </option>
+              ))}
+          </select>
+        </label>
+      )}
       {clip.tracks.map((track, trackIndex) => {
         const samples = Array.from({ length: 65 }, (_, index) => ({
           time: (clip.durationSeconds * index) / 64,
@@ -95,7 +175,10 @@ export function PropertyClipEditor({
           .join(" ");
         return (
           <details className="property-curve-track" open key={track.channel}>
-            <summary>{tr("Parameter {{id}}", { id: track.channel })}</summary>
+            <summary>
+              {channels?.find(({ channel }) => channel === track.channel)?.label ??
+                tr("Parameter {{id}}", { id: track.channel })}
+            </summary>
             <svg
               className="property-curve-chart"
               viewBox="0 0 512 104"
@@ -111,14 +194,14 @@ export function PropertyClipEditor({
                     <span>{tr("Time (s)")}</span>
                     <NumberInput
                       min={track.points[index - 1]?.timeSeconds ?? 0}
-                      max={track.points[index + 1]?.timeSeconds ?? clip.durationSeconds}
+                      max={track.points[index + 1]?.timeSeconds ?? sourceDuration}
                       step="any"
                       value={point.timeSeconds}
                       onCommit={(time) =>
                         changePoint(trackIndex, index, {
                           timeSeconds: Math.max(
                             track.points[index - 1]?.timeSeconds ?? 0,
-                            Math.min(track.points[index + 1]?.timeSeconds ?? clip.durationSeconds, time),
+                            Math.min(track.points[index + 1]?.timeSeconds ?? sourceDuration, time),
                           ),
                         })
                       }
@@ -170,26 +253,26 @@ export function PropertyClipEditor({
             <button
               type="button"
               className="author-button"
-              onClick={() =>
-                onChange({
-                  ...clip,
-                  tracks: clip.tracks.map((value, index) =>
-                    index === trackIndex
-                      ? {
-                          ...value,
-                          points: [
-                            ...value.points,
-                            { timeSeconds: clip.durationSeconds, value: value.points.at(-1)!.value, ease: "linear" },
-                          ],
-                        }
-                      : value,
-                  ),
-                } as unknown as JsonObject)
-              }
+              disabled={sourceDuration <= 0}
+              onClick={() => insertPoint(trackIndex)}
             >
               <Plus aria-hidden />
               {tr("Add keyframe")}
             </button>
+            {channels && (
+              <button
+                type="button"
+                className="author-button"
+                onClick={() =>
+                  onChange({
+                    ...clip,
+                    tracks: clip.tracks.filter(({ channel }) => channel !== track.channel),
+                  } as unknown as JsonObject)
+                }
+              >
+                {tr("Remove")}
+              </button>
+            )}
           </details>
         );
       })}

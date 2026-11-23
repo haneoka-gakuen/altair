@@ -1,3 +1,4 @@
+import type { VegaPreviewRouteDecision } from "@haneoka/vega-protocol";
 import {
   AltairPreviewClient,
   bootstrapAltairPreview,
@@ -136,6 +137,12 @@ export class StudioPreviewBridge {
     if (response.status === "superseded") throw new Error("Preview load was superseded by a newer revision");
   }
 
+  async loadExportRoute(story: VegaJsonValue, choiceRoute: readonly VegaPreviewRouteDecision[]): Promise<void> {
+    const response = await this.request({ name: "runtime.load", story, commandIndex: 0, choiceRoute });
+    if (response.status !== "executed")
+      throw new Error(response.error?.message ?? "Preview load was superseded by a newer revision");
+  }
+
   async syncScene(
     sceneId: string,
     sceneRevision: string,
@@ -240,12 +247,32 @@ export class StudioPreviewBridge {
     return response.status === "executed" ? response.result : undefined;
   }
 
-  async captureStage(signal?: AbortSignal): Promise<string> {
-    const response = await this.request({ name: "stage.capture" }, signal);
+  async captureStage(
+    signal?: AbortSignal,
+    options?: { height: number; format: "image/png" | "image/jpeg" | "image/webp"; burnSubtitles?: boolean },
+  ): Promise<string> {
+    const response = await this.request({ name: "stage.capture", ...options }, signal);
     const value = response.result as { image?: unknown } | undefined;
     if (response.status !== "executed" || typeof value?.image !== "string")
       throw new Error("Stage capture is unavailable");
     return value.image;
+  }
+  async sampleTimeline(
+    commandIndex: number,
+    seconds: number,
+    signal?: AbortSignal,
+    source?: { id: string; story: VegaJsonValue },
+  ): Promise<void> {
+    const response = await this.request(
+      { name: "stage.timeline-sample", commandIndex, seconds, ...(source ? { source } : {}) },
+      signal,
+    );
+    if (response.status === "superseded") throw new DOMException("Timeline sample superseded", "AbortError");
+    if (response.status !== "executed") throw new Error(response.error?.message ?? "Timeline preview is unavailable");
+  }
+
+  async clearTimelineSample(): Promise<void> {
+    await this.request({ name: "stage.timeline-clear" }).catch(() => undefined);
   }
   async audioStatus(signal?: AbortSignal): Promise<StudioAudioStatus> {
     const response = await this.request({ name: "audio.snapshot" }, signal);
@@ -253,8 +280,20 @@ export class StudioPreviewBridge {
     return response.result as unknown as StudioAudioStatus;
   }
 
-  async startRecording(height: number, fps: number): Promise<void> {
-    const response = await this.request({ name: "stage.recording.start", width: (height * 16) / 9, height, fps });
+  async startRecording(options: {
+    width: number;
+    height: number;
+    fps: number;
+    frameByFrame?: boolean;
+    transparentBackground?: boolean;
+    container: "webm" | "mp4" | "mov" | "gif" | "apng" | "wav";
+    burnSubtitles: boolean;
+  }): Promise<void> {
+    const response = await this.request({
+      name: "stage.recording.start",
+      ...options,
+      autoAdvance: true,
+    });
     if (response.status !== "executed") throw new Error(response.error?.message ?? "Video recording failed");
   }
 
@@ -272,8 +311,12 @@ export class StudioPreviewBridge {
       }
       return { blob: new Blob(parts, { type: result.mimeType }), subtitles: result.subtitles };
     } finally {
-      await this.request({ name: "stage.recording.release" }).catch(() => {});
+      if (!signal?.aborted) await this.releaseRecording();
     }
+  }
+
+  async releaseRecording(): Promise<void> {
+    await this.request({ name: "stage.recording.release" }).catch(() => {});
   }
 
   async stageSnapshot(signal?: AbortSignal): Promise<VegaJsonValue | undefined> {

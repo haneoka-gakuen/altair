@@ -10,6 +10,7 @@ import {
   storyResourceDirectoryField,
   compileVegaProjectWithDiagnostics,
   canonicalizeNativeStage,
+  canonicalizeProviderStage,
 } from "@haneoka/altair-plugin-vega-preview/projection";
 import { prepareStoryPackage } from "@haneoka/altair-plugin-vega-preview/packaging";
 import { workspaceFiles, NATIVE_RUNTIME_PLUGINS } from "./native-project";
@@ -37,7 +38,9 @@ export async function captureSourceProject(
   missingFiles: ReadonlySet<string> = new Set(),
 ): Promise<LibraryProject> {
   assertStoryProjectProtocol(input);
-  input = canonicalizeNativeStage(input);
+  input = scope.provider === "bestdori" || scope.provider === "sekai"
+    ? canonicalizeProviderStage(input)
+    : canonicalizeNativeStage(input);
   const aliases = compileVegaProjectWithDiagnostics(input).project.assets;
   const sources = new Map<string, string>(),
     paths = new Map<string, string>(),

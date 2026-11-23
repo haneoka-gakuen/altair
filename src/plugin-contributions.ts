@@ -1,6 +1,6 @@
 /// <reference lib="dom" />
 
-import type { AltairDocumentCommand } from "./documents.js";
+import type { AltairAuthoredWorkspace, AltairDocumentCommand, AltairProjectDocument } from "./documents.js";
 import type {
   AltairDocumentEditorContribution,
   AltairEditorWorkspace,
@@ -36,6 +36,36 @@ export const defineAltairService = <T>(id: string): AltairServiceKey<T> => {
   }
   return Object.freeze({ id: id.trim() });
 };
+
+export interface AltairWorkspaceImportFile {
+  readonly path: string;
+  readonly blob: Blob;
+}
+
+export interface AltairWorkspaceImportRequest {
+  readonly source: AltairWorkspaceImportFile;
+  readonly files: readonly AltairWorkspaceImportFile[];
+  readonly template: AltairProjectDocument;
+  readonly locale: string;
+  readonly origin: string;
+  readonly signal: AbortSignal;
+  translate(key: string): string;
+  readResource(url: string, options: { readonly maxBytes: number; readonly timeoutMs?: number }): Promise<Uint8Array>;
+}
+
+export interface AltairWorkspaceImportResult {
+  readonly workspace: AltairAuthoredWorkspace;
+  readonly files: readonly AltairWorkspaceImportFile[];
+}
+
+export interface AltairWorkspaceImporter {
+  recognizes(value: JsonObject): boolean;
+  import(value: JsonObject, request: AltairWorkspaceImportRequest): Promise<AltairWorkspaceImportResult>;
+}
+
+/** An archive importer is activated by the host for the import operation. */
+export const altairWorkspaceImporterService = (pluginId: string): AltairServiceKey<AltairWorkspaceImporter> =>
+  defineAltairService(`haneoka.altair.workspace-importer.${pluginId}`);
 
 export interface AltairContribution {
   readonly id: string;

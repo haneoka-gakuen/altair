@@ -1,4 +1,12 @@
-import { useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from "react";
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+  type KeyboardEvent as ReactKeyboardEvent,
+  type ReactNode,
+} from "react";
 import {
   AlertCircle,
   Clapperboard,
@@ -29,7 +37,7 @@ import { useStudioI18n } from "../i18n";
 import { CastPicker, type CastPickerTab } from "./CastPicker";
 import { StageDock } from "./StageDock";
 import { TaskSheet } from "./TaskSheet";
-import { DockPanel } from "./DockPanel";
+import { DockPanel, TimelineDivider } from "./DockPanel";
 import "./workbench.css";
 import "./studio.css";
 
@@ -169,9 +177,10 @@ export interface AuthoringWorkspaceProps {
   destination?: string;
   inspectRequest?: string;
   timeline?: ReactNode;
+  sceneTimeline?: ReactNode;
   storyboard?: ReactNode;
   assistant?: ReactNode;
-  toolRequest?: { id: string; key: "assistant" | "storyboard" };
+  toolRequest?: { id: string; key: "assistant" | "storyboard" | "timeline" };
   diagnostics?: ReactNode;
   previewTools?: ReactNode;
   destinations?: StudioDestination[];
@@ -195,7 +204,8 @@ export interface AuthoringWorkspaceProps {
 type Sheet =
   | { kind: "cast"; castId: string | null; lines: LineId[]; tab: CastPickerTab }
   | { kind: "inspect"; lines: LineId[]; nodeIds?: string[] }
-  | { kind: "locks" | "timeline" | "storyboard" | "assistant" | "issues" | "paste" };
+  | { kind: "timeline"; allCues?: boolean }
+  | { kind: "locks" | "storyboard" | "assistant" | "issues" | "paste" };
 
 const SCRIPT = "script";
 const NO_SELECTION = { lines: [] as LineId[], cursor: null as LineId | null };
@@ -280,9 +290,12 @@ export function AuthoringWorkspace(props: AuthoringWorkspaceProps) {
   const [stageCollapsed, setStageCollapsed] = useState(false);
   const [sheet, setSheet] = useState<Sheet | null>(null);
   const [panelCollapsed, setPanelCollapsed] = useState(false);
+  const [timelineHeight, setTimelineHeight] = useState(45);
   useEffect(() => {
     if (!props.toolRequest) return;
-    setSheet({ kind: props.toolRequest.key });
+    setSheet(
+      props.toolRequest.key === "timeline" ? { kind: "timeline", allCues: true } : { kind: props.toolRequest.key },
+    );
     setPanelCollapsed(false);
     setStageCollapsed(false);
   }, [props.toolRequest?.id]);
@@ -590,7 +603,7 @@ export function AuthoringWorkspace(props: AuthoringWorkspaceProps) {
       >
         <Clapperboard aria-hidden />
       </button>
-      {timeline && (
+      {timeline && !props.sceneTimeline && (
         <button
           type="button"
           className="author-icon-button"
@@ -669,6 +682,7 @@ export function AuthoringWorkspace(props: AuthoringWorkspaceProps) {
   return (
     <div
       className={`${destinations.length > 0 ? "author-workbench has-destinations" : "author-workbench"}${sheet?.kind === "timeline" ? " has-timeline" : ""}${activePanel ? " has-active-panel" : ""}`}
+      style={{ "--author-timeline-height": timelineHeight + "%" } as CSSProperties}
       onKeyDown={onWorkbenchKey}
     >
       {destinations.length > 0 && (
@@ -1268,8 +1282,13 @@ export function AuthoringWorkspace(props: AuthoringWorkspaceProps) {
         </div>
       </div>
       {sheet?.kind === "timeline" && (
-        <DockPanel timeline title={t("Timeline")} onClose={() => setSheet(null)}>
-          {timeline}
+        <DockPanel
+          timeline
+          title={t("Timeline")}
+          onClose={() => setSheet(null)}
+          resizeHandle={<TimelineDivider height={timelineHeight} onResize={setTimelineHeight} />}
+        >
+          {sheet.allCues ? (props.sceneTimeline ?? timeline) : timeline}
         </DockPanel>
       )}
       {sheet?.kind === "paste" && (

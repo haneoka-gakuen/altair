@@ -1,7 +1,7 @@
 import { RuntimeDebugger } from "./RuntimeDebugger";
 import { VideoExport } from "./VideoExport";
 import { tr } from "./i18n";
-import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
 import { Pause, Play, RotateCcw, StepForward, Maximize2, ExternalLink } from "@haneoka/altair-ui-react";
 import { createAltairVegaPreviewService, type AltairVegaPreviewService } from "@haneoka/altair-plugin-vega-preview";
 import { StudioPreviewBridge } from "../preview-bridge";
@@ -47,6 +47,10 @@ export function Preview({
     [synchronized, setSynchronized] = useState(false),
     [editingTransform, setEditingTransform] = useState(false),
     [revision, setRevision] = useState(0);
+  const restoreExportPreview = useCallback((breakpoints?: readonly VegaPreviewBreakpoint[]) => {
+    restoredBreakpoints.current = breakpoints;
+    setRevision((value) => value + 1);
+  }, []);
   const [debuggerOpen, setDebuggerOpen] = useState(false);
   const [previewError, setPreviewError] = useState(false);
   const fail = (error: unknown) => {
@@ -202,21 +206,57 @@ export function Preview({
     if (!ready || !synchronized || !state.compilation || !state.project || state.compiling) return;
     const snapshot = state,
       compilation = state.compilation;
-    return session.registerFrameCapture(async (commandId, signal) => {
-      if (session.getSnapshot().compilation !== compilation || audition.current?.getSnapshot().owned)
-        throw new Error(tr("Preview is busy"));
+    const mappingFor = (commandId: string, timeline = false) => {
       const scene = snapshot.project!.scenes.find((scene) => scene.id === compilation.sceneId);
       const sourceIndex = scene?.commands.findIndex((command) => command.id === commandId) ?? -1;
-      const mapping = [...compilation.commandMappings]
-        .reverse()
-        .find((mapping) => mapping.sceneId === scene?.id && mapping.sourceCommandIndex === sourceIndex);
-      if (!mapping) throw new Error(tr("Missing statement"));
-      const command = scene!.commands[sourceIndex]!;
+      const story = compilation.story;
+      const commands = story && typeof story === "object" && !Array.isArray(story) ? story.commands : undefined;
+      const mapping = [...compilation.commandMappings].reverse().find((mapping) => {
+        if (mapping.sceneId !== scene?.id || mapping.sourceCommandIndex !== sourceIndex) return false;
+        if (!timeline) return true;
+        const command = Array.isArray(commands) ? commands[mapping.commandIndex] : undefined;
+        return command && typeof command === "object" && !Array.isArray(command) && !!command.commandGroup;
+      });
+      if (!scene || !mapping) throw new Error(tr("Missing statement"));
+      return { mapping, command: scene.commands[sourceIndex]! };
+    };
+    const stopCapture = session.registerFrameCapture(async (commandId, signal, after) => {
+      if (session.getSnapshot().compilation !== compilation || audition.current?.getSnapshot().owned)
+        throw new Error(tr("Preview is busy"));
+      const { mapping, command } = mappingFor(commandId);
       const afterDialogue = storyCommandAtoms([command]).some((atom) => atom.command === VEGA_ADV_OPCODE.Talk);
       await bridge.current.pause(signal);
-      await bridge.current.seek(mapping.commandIndex + (afterDialogue ? 1 : 0), signal);
+      await bridge.current.seek(mapping.commandIndex + ((after ?? afterDialogue) ? 1 : 0), signal);
       return bridge.current.captureStage(signal);
     });
+    const librarySources = new Map<string, ReturnType<EditorSession["prepareTimelineSampleSource"]>>();
+    const stopSampler = session.registerTimelineSampler({
+      async sample(commandId, seconds, signal) {
+        const current = session.getSnapshot();
+        if (current.compilation !== compilation || audition.current?.getSnapshot().owned)
+          throw new Error(tr("Preview is busy"));
+        if (current.preview?.playing) await bridge.current.pause(signal);
+        const compiledScene = snapshot.project!.scenes.find((scene) => scene.id === compilation.sceneId);
+        if (compiledScene?.commands.some((command) => command.id === commandId)) {
+          await bridge.current.sampleTimeline(mappingFor(commandId, true).mapping.commandIndex, seconds, signal);
+          return;
+        }
+        let library = librarySources.get(commandId);
+        if (!library) {
+          library = session.prepareTimelineSampleSource(compilation.sceneId, commandId);
+          librarySources.set(commandId, library);
+          void library.catch(() => librarySources.delete(commandId));
+        }
+        const { commandIndex, story } = await library;
+        signal.throwIfAborted();
+        await bridge.current.sampleTimeline(commandIndex, seconds, signal, { id: commandId, story });
+      },
+      clear: () => bridge.current.clearTimelineSample(),
+    });
+    return () => {
+      stopCapture();
+      stopSampler();
+    };
   }, [ready, synchronized, state.compilation, state.project, state.compiling, session]);
   useEffect(() => {
     audition.current?.setReady(ready && synchronized && !editingTransform && !state.compiling && !state.error);
@@ -366,6 +406,8 @@ export function Preview({
             <>
               <VideoExport
                 bridge={bridge.current}
+                session={session}
+                restorePreview={restoreExportPreview}
                 ready={ready && synchronized && !state.compiling && !auditionOwned}
                 onError={fail}
               />
@@ -462,6 +504,8 @@ export function Preview({
         {!compact && (
           <VideoExport
             bridge={bridge.current}
+            session={session}
+            restorePreview={restoreExportPreview}
             ready={ready && synchronized && !state.compiling && !auditionOwned}
             onError={fail}
           />

@@ -91,6 +91,7 @@ export type StudioAction =
   | "settings"
   | "ai-settings"
   | "assistant"
+  | "timeline"
   | "cinematic"
   | "export-project"
   | "export-game"

@@ -1395,6 +1395,23 @@ a {
   flex-direction: column;
   min-width: 0;
   min-height: 0;
+  overflow: auto;
+}
+.timeline-playhead-control {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-width: 0;
+  flex-shrink: 0;
+}
+.timeline-playhead-control input[type="range"] {
+  flex: 1;
+  min-width: 0;
+  min-height: 48px;
+}
+.timeline-playhead-control output {
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
 }
 .timeline-canvas {
   min-height: 180px;
@@ -1436,6 +1453,7 @@ a {
 }
 .timeline-cue-list {
   display: grid;
+  flex-shrink: 0;
   max-height: 130px;
   overflow: auto;
   border-top: 1px solid var(--md-sys-color-primary-container);
@@ -1489,7 +1507,7 @@ a {
   border-style: dashed;
   border-color: var(--md-sys-color-on-primary-container);
 }
-.timeline-canvas .vis-panel {
+.timeline-canvas :is(.vis-panel, .vis-labelset .vis-label, .vis-time-axis .vis-grid) {
   border-color: var(--md-sys-color-primary-container);
 }
 .timeline-import-dialog {
@@ -1887,4 +1905,35 @@ button:not(:where(.monaco-editor *, .vega-player *)) {
 .field :is(input, textarea, select) {
   font-family: var(--app-font);
   font-size: var(--md-sys-typescale-body-medium-size);
+}
+
+.export-route-settings > summary {
+  min-block-size: 48px;
+  align-content: center;
+  cursor: pointer;
+}
+.export-route-settings > fieldset {
+  min-inline-size: 0;
+  margin: 0 0 12px;
+  border: 1px solid var(--md-sys-color-outline-variant);
+  border-radius: 12px;
+  padding: 12px;
+}
+.export-route-visit, .export-route-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.export-route-visit .field {
+  min-inline-size: 0;
+  flex: 1 1 140px;
+}
+.export-route-actions { margin-block: 12px; }
+
+.export-route-progress {
+  display: block;
+  min-block-size: 48px;
+  align-content: center;
+  font-variant-numeric: tabular-nums;
 }

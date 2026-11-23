@@ -8,6 +8,11 @@ import { defineConfig, searchForWorkspaceRoot } from "vite";
 const studioRoot = fileURLToPath(new URL(".", import.meta.url));
 const studioRequire = createRequire(new URL("./package.json", import.meta.url));
 const studioPackage = JSON.parse(readFileSync(new URL("./package.json", import.meta.url), "utf8"));
+const importersId = "virtual:altair-workspace-importers";
+const importerPackages = [...new Set((process.env.ALTAIR_STUDIO_IMPORTERS ?? "").split(/\s+/u).filter(Boolean))];
+for (const name of importerPackages) {
+  if (!/^@[a-z\d-]+\/[a-z\d-]+$/u.test(name)) throw new Error(`Invalid workspace importer package ${name}`);
+}
 const packageFile = (entry: string): string => {
   let directory = dirname(entry);
   while (!existsSync(resolve(directory, "package.json"))) {
@@ -19,7 +24,19 @@ const packageFile = (entry: string): string => {
 };
 export default defineConfig({
   base: "./",
-  plugins: [react()],
+  plugins: [
+    react(),
+    {
+      name: "altair-workspace-importers",
+      resolveId(id) {
+        if (id === importersId) return `\0${id}`;
+      },
+      load(id) {
+        if (id !== `\0${importersId}`) return;
+        return `export default [${importerPackages.map((name) => `() => import(${JSON.stringify(name)}).then(module => module.default)`).join(",")}];`;
+      },
+    },
+  ],
   resolve: {
     dedupe: Object.keys(studioPackage.dependencies),
     alias: Object.entries({

@@ -1,15 +1,93 @@
 import { useState } from "react";
 import { createFilesZip } from "./archive";
 import type { ProjectFile } from "./library";
-import { scheduleAudioClipGain, type StoryAudioClip } from "@haneoka/vega/audio";
+import {
+  decodeStoryVideoAudio,
+  audioClipPlayableDuration,
+  audioClipSourcePosition,
+  scheduleAudioClipGain,
+  type StoryAudioClip,
+} from "@haneoka/vega/audio";
 import type { AltairAuthoredNode } from "@haneoka/altair";
+import { parseVegaStageMediaClip, stageMediaAudioClip } from "@haneoka/vega-protocol";
+import { readPublicResponse } from "./public-response";
+import { isTimelineReference, resolveTimelineInstance, timelinePlaybackNode } from "@haneoka/altair/documents";
 import type { EditorSession } from "./session";
-import type { TimelineCue } from "./timeline-model";
+import { isTimeline, timelineCues, type TimelineCue, type TimelineTimingContext } from "./timeline-model";
 import { downloadStudioFile } from "./studio-host";
 import { tr } from "./i18n";
 
 export const isAudioClip = (node: AltairAuthoredNode) =>
   node.type.plugin === "haneoka.altair" && node.type.name === "audioClip";
+
+export const isMediaClip = (node: AltairAuthoredNode) =>
+  node.type.plugin === "haneoka.altair" && node.type.name === "mediaClip";
+interface AudioCue {
+  atSeconds: number;
+  durationSeconds: number;
+  clip: StoryAudioClip;
+}
+function audioForCue(cue: TimelineCue): StoryAudioClip | undefined {
+  if (isAudioClip(cue.node)) return cue.node.arguments as unknown as StoryAudioClip;
+  if (
+    isMediaClip(cue.node) &&
+    cue.node.arguments.mediaKind === "video" &&
+    cue.node.arguments.audioEnabled !== false &&
+    cue.node.arguments.source
+  ) {
+    return stageMediaAudioClip(parseVegaStageMediaClip(cue.node.arguments), cue.node.id, cue.trackName);
+  }
+  return undefined;
+}
+const sourceKey = (clip: StoryAudioClip) => (clip.sourceKind ?? "audio") + ":" + clip.source;
+
+function collectAudioTracks(
+  cues: readonly TimelineCue[],
+  timing: TimelineTimingContext,
+  offset = 0,
+  instance: string[] = [],
+  labels: string[] = [],
+  tracks = new Map<string, { name: string; clips: AudioCue[] }>(),
+) {
+  for (const cue of cues) {
+    if (cue.node.disabled) continue;
+    if (cue.playbackMuted && (isTimeline(cue.node) || isTimelineReference(cue.node))) continue;
+    const atSeconds = offset + cue.atSeconds;
+    const source = resolveTimelineInstance(timelinePlaybackNode(cue), timing);
+    const nested = source?.node ?? (isTimeline(cue.node) ? cue.node : undefined);
+    if (nested) {
+      const title =
+        typeof nested.arguments.title === "string" && nested.arguments.title.trim()
+          ? nested.arguments.title
+          : (source?.scene.name ?? tr("Timeline"));
+      collectAudioTracks(
+        timelineCues(nested, timing),
+        timing,
+        atSeconds,
+        [...instance, cue.node.id],
+        [...labels, title],
+        tracks,
+      );
+    } else {
+      const sound = audioForCue(cue);
+      if (!sound) continue;
+      const id = JSON.stringify([...instance, cue.trackId]);
+      const track = tracks.get(id);
+      const clip: AudioCue = {
+        atSeconds,
+        durationSeconds: cue.durationSeconds,
+        clip: {
+          ...sound,
+          trackVolume: cue.trackGain ?? sound.trackVolume,
+          muted: sound.muted || cue.playbackMuted || cue.playbackAudioMuted,
+        },
+      };
+      if (track) track.clips.push(clip);
+      else tracks.set(id, { name: [...labels, cue.trackName].join(" · "), clips: [clip] });
+    }
+  }
+  return tracks;
+}
 function wav(buffer: AudioBuffer): Uint8Array<ArrayBuffer> {
   const channels = buffer.numberOfChannels,
     bytes = new Uint8Array(44 + buffer.length * channels * 2),
@@ -39,19 +117,19 @@ function wav(buffer: AudioBuffer): Uint8Array<ArrayBuffer> {
 }
 
 async function mix(
-  cues: readonly TimelineCue[],
+  cues: readonly AudioCue[],
   decoded: ReadonlyMap<string, AudioBuffer>,
   duration: number,
   categoryVolumes: Record<string, number>,
 ): Promise<Uint8Array<ArrayBuffer>> {
   const context = new OfflineAudioContext(2, Math.max(1, Math.ceil(duration * 48000)), 48000);
   for (const cue of cues) {
-    const clip = cue.node.arguments as unknown as StoryAudioClip,
-      buffer = decoded.get(clip.source)!;
-    if (clip.muted || clip.offsetSeconds >= buffer.duration) continue;
-    const length = clip.loop
-      ? clip.durationSeconds
-      : Math.min(clip.durationSeconds, (buffer.duration - clip.offsetSeconds) / clip.playbackRate);
+    const { clip } = cue;
+    if (clip.muted) continue;
+    const buffer = decoded.get(sourceKey(clip));
+    if (!buffer || clip.offsetSeconds >= buffer.duration) continue;
+    const length = audioClipPlayableDuration(clip, buffer.duration);
+    if (!length) continue;
     const source = context.createBufferSource(),
       gain = context.createGain();
     source.buffer = buffer;
@@ -68,7 +146,7 @@ async function mix(
       0,
       clip.volume * clip.trackVolume * (categoryVolumes[clip.category] ?? (clip.category === "Bgm" ? 0.7 : 1)),
     );
-    source.start(cue.atSeconds, clip.offsetSeconds);
+    source.start(cue.atSeconds, audioClipSourcePosition(clip, buffer.duration));
     source.stop(cue.atSeconds + length);
   }
   return wav(await context.startRendering());
@@ -78,30 +156,34 @@ export function AudioMixExport({
   node,
   session,
   cues: allCues,
+  timing,
 }: {
   node: AltairAuthoredNode;
   session: EditorSession;
   cues: readonly TimelineCue[];
+  timing: TimelineTimingContext;
 }) {
   const [busy, setBusy] = useState(false),
     [issue, setIssue] = useState("");
-  const cues = allCues.filter((cue) => isAudioClip(cue.node)),
-    tracks = [...new Set(cues.map((cue) => String(cue.node.arguments.trackName)))];
-  const changeTrack = (name: string, key: "trackVolume" | "muted", value: number | boolean) =>
-    session.editNode(node.id, (current) => ({
-      ...current,
-      children: current.children?.map((child) =>
-        isAudioClip(child) && child.arguments.trackName === name
-          ? { ...child, arguments: { ...child.arguments, [key]: value } }
-          : child,
-      ),
-    }));
+  let byTrack: ReturnType<typeof collectAudioTracks>;
+  try {
+    byTrack = collectAudioTracks(allCues, timing);
+  } catch (error) {
+    return (
+      <div className="home-error" role="alert">
+        {error instanceof Error ? error.message : String(error)}
+      </div>
+    );
+  }
+  const tracks = [...byTrack.values()];
+  const cues = tracks.flatMap((track) => track.clips);
   const exportAudio = async (stems: boolean) => {
     setBusy(true);
     setIssue("");
     try {
       const duration = Math.max(
         Number(node.arguments.durationSeconds) || 0,
+        ...allCues.map((cue) => cue.atSeconds + cue.durationSeconds),
         ...cues.map((cue) => cue.atSeconds + cue.durationSeconds),
       );
       if (duration * 48000 * 2 > 32 * 1024 * 1024) throw new Error("Audio export exceeds memory limit");
@@ -109,11 +191,24 @@ export function AudioMixExport({
         throw new Error("Audio export exceeds memory limit");
       const context = new OfflineAudioContext(2, 1, 48000),
         decoded = new Map<string, AudioBuffer>();
-      for (const source of new Set(cues.map((cue) => String(cue.node.arguments.source)))) {
-        const file = session.getSnapshot().files.find((file) => file.path === source);
-        if (!file) throw new Error("Audio file is missing");
+      const sounds = new Map(cues.filter(({ clip }) => !clip.muted).map(({ clip }) => [sourceKey(clip), clip]));
+      for (const [key, clip] of sounds) {
+        const file = session.getSnapshot().files.find((file) => file.path === clip.source);
+        let bytes: Uint8Array;
+        if (file) bytes = new Uint8Array(await file.blob.arrayBuffer());
+        else if (/^(?:https?:\/\/|\/(?!\/))/iu.test(clip.source)) {
+          bytes = await readPublicResponse(clip.source, {
+            label: "Audio",
+            maxBytes: 128 * 1024 * 1024,
+            signals: [session.lifetimeSignal],
+          });
+        } else throw new Error("Audio file is missing");
         try {
-          decoded.set(source, await context.decodeAudioData(await file.blob.arrayBuffer()));
+          const buffer =
+            clip.sourceKind === "video"
+              ? await decodeStoryVideoAudio(bytes, context, session.lifetimeSignal)
+              : await context.decodeAudioData(new Uint8Array(bytes).buffer);
+          if (buffer) decoded.set(key, buffer);
         } catch (error) {
           throw new Error("Audio file cannot be decoded", { cause: error });
         }
@@ -124,23 +219,16 @@ export function AudioMixExport({
           throw new Error("Audio export exceeds memory limit");
       }
       const audio = session.getSnapshot().project?.runtime?.audio as
-        { categoryVolumes?: Record<string, number> } | undefined;
+        | { categoryVolumes?: Record<string, number> }
+        | undefined;
       if (stems) {
         const files: ProjectFile[] = [];
-        for (const [index, name] of tracks.entries())
+        for (const [index, track] of tracks.entries())
           files.push({
-            path: `${index + 1}-${name.replace(/[^\p{L}\p{N}_.-]/gu, "_")}.wav`,
-            blob: new Blob(
-              [
-                await mix(
-                  cues.filter((cue) => cue.node.arguments.trackName === name),
-                  decoded,
-                  duration,
-                  audio?.categoryVolumes ?? {},
-                ),
-              ],
-              { type: "audio/wav" },
-            ),
+            path: `${index + 1}-${track.name.replace(/[^\p{L}\p{N}_.-]/gu, "_")}.wav`,
+            blob: new Blob([await mix(track.clips, decoded, duration, audio?.categoryVolumes ?? {})], {
+              type: "audio/wav",
+            }),
           });
         downloadStudioFile(await createFilesZip(files), "audio-tracks.zip");
       } else
@@ -154,45 +242,19 @@ export function AudioMixExport({
       setBusy(false);
     }
   };
-  if (!cues.length) return null;
+  if (
+    !cues.length &&
+    !allCues.some((cue) => cue.playbackMuted && (isTimeline(cue.node) || isTimelineReference(cue.node)))
+  )
+    return null;
   return (
     <details className="audio-mix-settings">
       <summary>{tr("Audio tracks")}</summary>
-      {tracks.map((name) => {
-        const clip = cues.find((cue) => cue.node.arguments.trackName === name)!.node;
-        return (
-          <div className="audio-track-settings" key={name}>
-            <span>{name}</span>
-            <label className="field">
-              <span>{tr("Track volume")}</span>
-              <input
-                type="number"
-                min="0"
-                max="1"
-                step="0.05"
-                value={Number(clip.arguments.trackVolume)}
-                onChange={(event) => {
-                  const value = Number(event.target.value);
-                  if (Number.isFinite(value) && value >= 0 && value <= 1) changeTrack(name, "trackVolume", value);
-                }}
-              />
-            </label>
-            <label>
-              <input
-                type="checkbox"
-                checked={clip.arguments.muted === true}
-                onChange={(event) => changeTrack(name, "muted", event.target.checked)}
-              />
-              {tr("Muted")}
-            </label>
-          </div>
-        );
-      })}
       <div className="timeline-toolbar">
         <button className="secondary-button" disabled={busy} onClick={() => void exportAudio(false)}>
           {tr("Export audio mix")}
         </button>
-        <button className="secondary-button" disabled={busy} onClick={() => void exportAudio(true)}>
+        <button className="secondary-button" disabled={busy || !tracks.length} onClick={() => void exportAudio(true)}>
           {tr("Export audio tracks")}
         </button>
       </div>

@@ -1,4 +1,13 @@
+import {
+  compileRouteAnswers,
+  exportRoutesKey,
+  routePrompts,
+  savedExportRoutes,
+  type ExportRoute,
+} from "./export-route";
 import { DocumentHistory } from "./document-history";
+import { createTimelineTimingContext } from "@haneoka/altair/documents";
+import { createTimeline } from "./timeline-model";
 import type { DocumentChange, EditorProposal, EditorAiDraft } from "./proposal";
 import { tr } from "./i18n";
 import { downloadStudioFile } from "./studio-host";
@@ -124,7 +133,7 @@ export interface EditorSnapshot {
   readonly aiDraft?: EditorAiDraft;
   readonly proposals?: readonly EditorProposal[];
   readonly previewProposalId?: string;
-  readonly toolRequest?: { id: string; key: "assistant" | "storyboard"; generate?: boolean };
+  readonly toolRequest?: { id: string; key: "assistant" | "storyboard" | "timeline"; generate?: boolean };
   readonly authoringSelection?: { sceneId: string; lines: readonly string[]; cursor: string | null };
 }
 const isScene = nativeScenePath;
@@ -141,7 +150,7 @@ export class EditorSession {
     if (this.state.toolRequest?.id === id)
       this.publish({ toolRequest: { ...this.state.toolRequest, generate: false } });
   }
-  requestTool(key: "assistant" | "storyboard", generate = false) {
+  requestTool(key: NonNullable<EditorSnapshot["toolRequest"]>["key"], generate = false) {
     this.publish({ view: "visual", toolRequest: { id: crypto.randomUUID(), key, generate } });
   }
   proposalCurrent(proposal: EditorProposal): boolean {
@@ -233,16 +242,74 @@ export class EditorSession {
   seekPreview(index: number): Promise<void> {
     return this.previewNavigation?.seekIndex(index) ?? Promise.resolve();
   }
-  private frameCapture: ((commandId: string, signal: AbortSignal) => Promise<string>) | undefined;
-  registerFrameCapture(capture: (commandId: string, signal: AbortSignal) => Promise<string>): () => void {
+  private frameCapture: ((commandId: string, signal: AbortSignal, after?: boolean) => Promise<string>) | undefined;
+  registerFrameCapture(
+    capture: (commandId: string, signal: AbortSignal, after?: boolean) => Promise<string>,
+  ): () => void {
     this.frameCapture = capture;
     return () => {
       if (this.frameCapture === capture) this.frameCapture = undefined;
     };
   }
-  captureFrame(commandId: string, signal: AbortSignal): Promise<string> {
+  captureFrame(commandId: string, signal: AbortSignal, after?: boolean): Promise<string> {
     if (!this.frameCapture) return Promise.reject(new Error(tr("Stage capture is unavailable")));
-    return this.frameCapture(commandId, signal);
+    return this.frameCapture(commandId, signal, after);
+  }
+  private timelineSampler?: {
+    sample(id: string, seconds: number, signal: AbortSignal): Promise<void>;
+    clear(): Promise<void>;
+  };
+  registerTimelineSampler(sampler: NonNullable<EditorSession["timelineSampler"]>): () => void {
+    this.timelineSampler = sampler;
+    return () => {
+      if (this.timelineSampler === sampler) this.timelineSampler = undefined;
+    };
+  }
+  sampleTimeline(id: string, seconds: number, signal: AbortSignal): Promise<void> {
+    return (
+      this.timelineSampler?.sample(id, seconds, signal) ??
+      Promise.reject(new Error(tr("Timeline preview is unavailable")))
+    );
+  }
+  clearTimelineSample(): void {
+    void this.timelineSampler?.clear();
+  }
+  async prepareTimelineSampleSource(
+    sceneId: string,
+    nodeId: string,
+  ): Promise<Pick<CompileVegaPreviewStoryResult, "story"> & { commandIndex: number }> {
+    const workspace = readNativeWorkspace(this.state.documents);
+    const scene = workspace.scenes.find((row) => row.id === sceneId);
+    if (!this.editorHost || !scene?.nodes.some((node) => node.id === nodeId && node.arguments.libraryOnly === true))
+      throw new Error(tr("Select a timeline to preview"));
+    const project = this.editorHost.compileDocuments({
+      ...workspace,
+      scenes: workspace.scenes.map((row) =>
+        row.id === sceneId
+          ? {
+              ...row,
+              nodes: row.nodes.map((node) =>
+                node.id === nodeId ? { ...node, arguments: { ...node.arguments, libraryOnly: false } } : node,
+              ),
+            }
+          : row,
+      ),
+    });
+    const { compileAltairVegaPreviewStory } = await import("@haneoka/altair-plugin-vega-preview");
+    const preview = await compileAltairVegaPreviewStory({ project, sceneId });
+    const sourceIndex = project.scenes
+      .find((row) => row.id === sceneId)!
+      .commands.findIndex((command) => command.id === nodeId);
+    const story = preview.story;
+    const commands = story && typeof story === "object" && !Array.isArray(story) ? story.commands : undefined;
+    const commandIndex = preview.commandMappings.find((mapping) => {
+      if (mapping.sceneId !== sceneId || mapping.sourceCommandIndex !== sourceIndex || !Array.isArray(commands))
+        return false;
+      const command = commands[mapping.commandIndex];
+      return command && typeof command === "object" && !Array.isArray(command) && !!command.commandGroup;
+    })?.commandIndex;
+    if (commandIndex === undefined) throw new Error(tr("Select a timeline to preview"));
+    return { commandIndex, story: this.previewResources.hydrate(preview.story) };
   }
   private auditionService: AnimationAudition | undefined;
   get animationAudition(): AnimationAudition | undefined {
@@ -748,20 +815,37 @@ export class EditorSession {
   redo() {
     this.travelHistory(true);
   }
+  private timelineTiming() {
+    try {
+      return createTimelineTimingContext(readNativeWorkspace(this.state.documents));
+    } catch {
+      // While a source document is incomplete, keep the last compiled timing metadata.
+    }
+    const project = this.state.project;
+    return project
+      ? {
+          assets: project.assets,
+          runtime: project.runtime,
+          locale: typeof project.meta.locale === "string" ? project.meta.locale : undefined,
+        }
+      : undefined;
+  }
   editArgument(id: string, key: string, value: JsonValue, path = this.state.active) {
     const document = this.document(path);
     if (!document) return;
     this.update(
       path,
-      updateNativeNode(document.text, id, (node) => ({
-        ...node,
-        arguments: { ...node.arguments, [key]: value },
-      })),
+      updateNativeNode(
+        document.text,
+        id,
+        (node) => ({ ...node, arguments: { ...node.arguments, [key]: value } }),
+        this.timelineTiming(),
+      ),
     );
   }
   editNode(id: string, update: (node: AltairAuthoredNode) => AltairAuthoredNode) {
     const doc = this.document();
-    if (doc) this.update(doc.path, updateNativeNode(doc.text, id, update));
+    if (doc) this.update(doc.path, updateNativeNode(doc.text, id, update, this.timelineTiming()));
   }
   insert(value: AltairAuthoredNode | string, afterLine = this.state.line) {
     const doc = this.document();
@@ -787,6 +871,67 @@ export class EditorSession {
     const text = serializeAltairDocument({ ...scene, nodes }, doc.text);
     this.update(doc.path, text);
     this.select(nativeStatements(text).find((node) => node.id === inserted.id)!.line);
+  }
+  groupTimelineCommands(ids: readonly string[]): void {
+    const page = this.document();
+    if (!page || !isScene(page.path)) throw Error(tr("Open a target scene first"));
+    const scene = parseAltairSceneDocument(page.text);
+    const selected = new Set(ids);
+    const index = scene.nodes.findIndex((node) => selected.has(node.id));
+    const children = scene.nodes.slice(index, index + selected.size);
+    if (index < 0 || children.length !== selected.size || children.some((node) => !selected.has(node.id)))
+      throw Error(tr("Select consecutive scene commands"));
+    if (children.some((node) => node.arguments.libraryOnly === true))
+      throw Error(tr("Selection contains a reusable timeline definition"));
+    if (
+      children.some(
+        (node) =>
+          (node.type.plugin === "haneoka.altair-adv" && ["GoTo", "ChoiceSet", "ChoiceShow"].includes(node.type.name)) ||
+          (node.type.plugin === "haneoka.altair" &&
+            ["branch", "jump", "call", "return", "end", "input"].includes(node.type.name)),
+      )
+    )
+      throw Error(tr("Selection contains a scene navigation command"));
+    const workspace = readNativeWorkspace(this.state.documents);
+    const isDestination = (target: unknown) => {
+      if (!target || typeof target !== "object" || Array.isArray(target)) return false;
+      const ref = target as JsonObject;
+      return ref.sceneId === scene.id && typeof ref.nodeId === "string" && selected.has(ref.nodeId);
+    };
+    const record = (value: unknown): JsonObject =>
+      value && typeof value === "object" && !Array.isArray(value) ? (value as JsonObject) : {};
+    const keys = new Set(
+      children.flatMap((node) => {
+        const key = node.arguments.key ?? record(node.extensions?.fields).key;
+        return typeof key === "string" && key ? [key] : [];
+      }),
+    );
+    const targetsSelection = (node: AltairAuthoredNode): boolean => {
+      if (node.children?.some(targetsSelection)) return true;
+      const { target, then, else: otherwise } = node.arguments;
+      if ([target, then, otherwise, node.arguments.timeline].some(isDestination)) return true;
+      if (node.type.plugin !== "haneoka.altair-adv") return false;
+      const source = record(node.extensions?.fields);
+      const params = node.arguments.params ?? source.params;
+      if (
+        node.type.name === "GoTo" &&
+        keys.has(String(node.arguments.destination ?? (Array.isArray(params) ? params[0] : "")))
+      )
+        return true;
+      const choices = node.arguments.choices ?? source.choices;
+      return Array.isArray(choices) && choices.some((choice) => keys.has(String(record(choice).nextKey ?? "")));
+    };
+    if (isDestination(workspace.project.entry) || workspace.scenes.some((entry) => entry.nodes.some(targetsSelection)))
+      throw Error(tr("Selection contains a branch destination or a referenced timeline"));
+    const group = createTimeline(children, true);
+    const nodes = [...scene.nodes];
+    nodes.splice(index, children.length, { ...group, extensions: { "haneoka.authoring.explicit": true } });
+    const text = serializeAltairDocument({ ...scene, nodes }, page.text);
+    this.updateDocuments([{ path: page.path, before: page.text, after: text }]);
+    const statement = this.statements().find((item) => item.id === group.id);
+    if (statement) this.select(statement.line);
+    const cursor = children.flatMap(nativeDialogueNodes)[0]?.id ?? group.id;
+    this.setAuthoringSelection(scene.id, [cursor], cursor);
   }
   insertGroup(group: AltairCommandGroup, afterLine = this.state.line): void {
     const doc = this.document(),
@@ -1835,6 +1980,48 @@ export class EditorSession {
         error: this.compilationError,
       });
     }
+  }
+  async saveExportRoute(route: ExportRoute, remove = false): Promise<void> {
+    const manifest = this.document(NATIVE_PROJECT_PATH);
+    if (!manifest) throw new Error(tr("Project manifest is missing"));
+    const current = parseAltairProjectDocument(manifest.text);
+    const routes = savedExportRoutes({ extensions: current.extensions ?? {} });
+    const next = routes.filter((other) => other.id !== route.id);
+    if (!remove) {
+      if (!route.name.trim()) throw new Error(tr("Enter a route name"));
+      if (!current.scenes.some((scene) => scene.id === route.sceneId)) throw new Error(tr("Route scene is missing"));
+      const index = routes.findIndex((other) => other.id === route.id);
+      next.splice(index < 0 ? next.length : index, 0, { ...route, name: route.name.trim() });
+    }
+    const extensions: JsonObject = { ...current.extensions, [exportRoutesKey]: next.map((item) => ({ ...item })) };
+    this.updateDocuments([
+      {
+        path: manifest.path,
+        before: manifest.text,
+        after: serializeAltairDocument({ ...current, extensions }, manifest.text),
+      },
+    ]);
+    await this.save();
+  }
+  async compileExportRoute(route: ExportRoute) {
+    const project = this.state.project;
+    if (!project || !project.scenes.some((scene) => scene.id === route.sceneId))
+      throw new Error(tr("Route scene is missing"));
+    const visible = this.state.compilation;
+    const { compileAltairVegaPreviewStory } = await import("@haneoka/altair-plugin-vega-preview");
+    const compilation =
+      visible?.sceneId === route.sceneId
+        ? visible
+        : await compileAltairVegaPreviewStory({
+            project,
+            sceneId: route.sceneId,
+            signal: this.lifetimeSignal,
+          });
+    if (this.state.project !== project) throw new Error(tr("The project changed while preparing the export"));
+    return {
+      story: compilation === visible ? compilation.story : this.previewResources.hydrate(compilation.story),
+      choices: compileRouteAnswers(route, routePrompts(project, compilation)),
+    };
   }
   runtimeIndex(line = this.state.line): number {
     const { project, compilation } = this.state;

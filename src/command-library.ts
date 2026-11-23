@@ -138,12 +138,22 @@ export function cloneAltairNodeGroup(
       throw new Error(`A clone handler is required for ${node.type.plugin}:${node.type.name}`);
     const args = rewrite ? rewrite(cloneStoryValue(node), context) : cloneStoryValue(node.arguments);
     if (!rewrite && node.type.plugin === "haneoka.altair") {
+      if (typeof args.linkedMediaId === "string") {
+        const target = ids.get(args.linkedMediaId);
+        if (target) args.linkedMediaId = target;
+        else delete args.linkedMediaId;
+      }
       if (Array.isArray(args.tracks))
-        args.tracks = args.tracks.map((track) =>
-          track && typeof track === "object" && !Array.isArray(track) && typeof track.nodeId === "string"
-            ? { ...track, nodeId: ids.get(track.nodeId) ?? track.nodeId }
-            : track,
-        );
+        args.tracks = args.tracks.map((track) => {
+          if (!track || typeof track !== "object" || Array.isArray(track) || typeof track.nodeId !== "string")
+            return track;
+          const updated: JsonObject = { ...track, nodeId: ids.get(track.nodeId) ?? track.nodeId };
+          const anchor = track.anchor;
+          if (anchor && typeof anchor === "object" && !Array.isArray(anchor) && typeof anchor.nodeId === "string")
+            updated.anchor = { ...anchor, nodeId: ids.get(anchor.nodeId) ?? anchor.nodeId };
+          if (typeof track.cueId === "string") updated.cueId = ids.get(track.cueId) ?? track.cueId;
+          return updated;
+        });
       for (const key of ["target", "then", "else"]) {
         const target = args[key];
         if (

@@ -33,7 +33,13 @@ import {
 import { VEGA_ADV_OPCODE } from "@haneoka/vega-protocol";
 import { NativeInspector } from "./NativeInspector";
 import { NumberInput } from "@haneoka/altair-ui-react";
-import { nativeStatements, nativeNodeLabel, nativeNodeExcerpt, nativeScenePath } from "./native-project";
+import {
+  nativeDialogueNodes,
+  nativeStatements,
+  nativeNodeLabel,
+  nativeNodeExcerpt,
+  nativeScenePath,
+} from "./native-project";
 import { tr } from "./i18n";
 import type { EditorSession } from "./session";
 import { readLocalizedText } from "./localized-text";
@@ -128,10 +134,22 @@ export function StoryboardEditor({
   };
   const issues = validateStoryboard(currentScene);
   const nodeIds = new Set(authored.nodes.map((node) => node.id));
+  const executableIds = new Set(
+    authored.nodes
+      .filter(
+        (node) =>
+          !node.disabled &&
+          !(
+            node.type.plugin === "haneoka.altair" &&
+            (node.type.name === "note" || (node.type.name === "timeline" && node.arguments.libraryOnly === true))
+          ),
+      )
+      .map((node) => node.id),
+  );
   const ready =
     !state.compiling &&
-    scene.commands.length === nodeIds.size &&
-    scene.commands.every((command) => nodeIds.has(command.id));
+    scene.commands.length === executableIds.size &&
+    scene.commands.every((command) => executableIds.has(command.id));
   const selected = authored.nodes.filter((node) => scope?.includes(node.id));
   const start = nodeIds.has(range.start) ? range.start : (selected[0]?.id ?? authored.nodes[0]?.id ?? "");
   const end = nodeIds.has(range.end) ? range.end : (selected.at(-1)?.id ?? authored.nodes.at(-1)?.id ?? "");
@@ -146,10 +164,12 @@ export function StoryboardEditor({
   const caption = (shot: StoryShot) => {
     const start = authored.nodes.findIndex((node) => node.id === shot.start),
       end = authored.nodes.findIndex((node) => node.id === shot.end);
-    const excerpt = authored.nodes
-      .slice(start, end + 1)
-      .map((node) => nativeNodeExcerpt(node, locale))
-      .find(Boolean);
+    const nodes = authored.nodes.slice(start, end + 1);
+    const excerpt =
+      nodes
+        .flatMap(nativeDialogueNodes)
+        .map((node) => readLocalizedText(node.arguments.text, locale))
+        .find(Boolean) ?? nodes.map((node) => nativeNodeExcerpt(node, locale)).find(Boolean);
     return `${start + 1}–${end + 1} · ${excerpt || label(shot.start)}`;
   };
   const { presentationBaked: _legacyBake, ...sceneExtensions } = authored.extensions ?? {};
@@ -180,31 +200,57 @@ export function StoryboardEditor({
       ),
     );
   };
-  const frameId = (shot: StoryShot) => {
+  const shotCommands = (shot: StoryShot) => {
     const head = scene.commands.findIndex((command) => command.id === shot.start),
       tail = scene.commands.findIndex((command) => command.id === shot.end);
+    return scene.commands.slice(head, tail + 1);
+  };
+  const frameId = (shot: StoryShot) => {
+    const commands = shotCommands(shot);
     return (
-      scene.commands
-        .slice(head, tail + 1)
-        .find((command) => storyCommandAtoms([command]).some((child) => child.command === VEGA_ADV_OPCODE.Talk))?.id ??
+      commands.find((command) => storyCommandAtoms([command]).some((child) => child.command === VEGA_ADV_OPCODE.Talk))
+        ?.id ??
+      commands.at(-1)?.id ??
       shot.start
     );
   };
-  const captureAll = async () => {
+  const stripShots = shots.filter(
+    (shot) =>
+      shot.origin !== "automatic" ||
+      storyCommandAtoms(shotCommands(shot)).some(
+        (command) =>
+          command.command !== VEGA_ADV_OPCODE.Character &&
+          command.command !== VEGA_ADV_OPCODE.Costume &&
+          command.command !== VEGA_ADV_OPCODE.Role,
+      ),
+  );
+  const captureAll = async (download = false) => {
     capture.current?.abort();
     const controller = (capture.current = new AbortController());
     const revision = state.compilation;
     setCaptureError("");
     setCapturing(true);
     try {
-      for (const shot of shots) {
+      const captureShot = async (shot: StoryShot) => {
         controller.signal.throwIfAborted();
-        if (session.getSnapshot().compilation !== revision) break;
-        const image = await session.captureFrame(frameId(shot), controller.signal);
+        if (session.getSnapshot().compilation !== revision) throw new DOMException("Stage changed", "AbortError");
+        const cached = thumbnails[shot.id];
+        const image =
+          cached && cached.revision === revision
+            ? cached.image
+            : await session.captureFrame(frameId(shot), controller.signal, true);
         if (!controller.signal.aborted) setThumbnails((current) => ({ ...current, [shot.id]: { revision, image } }));
+        return { image, caption: caption(shot) };
+      };
+      if (download) {
+        const { exportStoryboardStrip } = await import("./storyboard-strip");
+        await exportStoryboardStrip(stripShots, captureShot, controller.signal);
+      } else {
+        for (const shot of shots) await captureShot(shot);
       }
     } catch (error) {
-      if (!controller.signal.aborted) setCaptureError(tr(error instanceof Error ? error.message : String(error)));
+      if (!controller.signal.aborted && !(error instanceof DOMException && error.name === "AbortError"))
+        setCaptureError(tr(error instanceof Error ? error.message : String(error)));
     } finally {
       if (capture.current === controller) setCapturing(false);
     }
@@ -513,6 +559,13 @@ export function StoryboardEditor({
         >
           {tr(capturing ? "Stop" : "Generate thumbnails")}
         </button>
+        <button
+          className="secondary-button"
+          disabled={capturing || !ready || !stripShots.length || !state.preview?.ready}
+          onClick={() => void captureAll(true)}
+        >
+          {tr("Export storyboard strip")}
+        </button>
       </div>
       <fieldset
         className="storyboard-shot-editing"
@@ -574,16 +627,8 @@ export function StoryboardEditor({
                       revision = state.compilation;
                     setCaptureError("");
                     selectShot(shot);
-                    const head = scene.commands.findIndex((command) => command.id === shot.start),
-                      tail = scene.commands.findIndex((command) => command.id === shot.end);
-                    const frameId =
-                      scene.commands
-                        .slice(head, tail + 1)
-                        .find((command) =>
-                          storyCommandAtoms([command]).some((child) => child.command === VEGA_ADV_OPCODE.Talk),
-                        )?.id ?? shot.start;
                     void session
-                      .captureFrame(frameId, controller.signal)
+                      .captureFrame(frameId(shot), controller.signal, true)
                       .then((image) => {
                         if (!controller.signal.aborted)
                           setThumbnails((current) => ({ ...current, [shot.id]: { revision, image } }));

@@ -2,7 +2,7 @@ import { normalizeAdvLocalizedText } from "@haneoka/altair-plugin-adv";
 import { tr, studioI18n } from "./i18n";
 import { orderedProjectLocales, projectLanguageLabel } from "./project-language";
 import { useId, useState, type ReactNode } from "react";
-import { parseAltairProjectDocument, type JsonValue, type JsonObject } from "@haneoka/altair";
+import { parseAltairProjectDocument, type AltairAuthoredNode, type JsonValue, type JsonObject } from "@haneoka/altair";
 import { nativeCommands, nativeNodeLabel, NATIVE_PROJECT_PATH, type EditorStatement } from "./native-project";
 import type { EditorSession } from "./session";
 import { readLocalizedText, editLocalizedText } from "./localized-text";
@@ -32,16 +32,43 @@ const resourceCategories: Record<string, string[]> = {
   video: ["videos"],
   timeline: ["timelines"],
 };
+
+export function CommandDataFields({ node, session }: { node: AltairAuthoredNode; session: EditorSession }) {
+  const edit = (kind: "arguments" | "fields", value: JsonValue) => {
+    if (!value || typeof value !== "object" || Array.isArray(value)) return;
+    session.editNode(node.id, (current) =>
+      kind === "arguments"
+        ? { ...current, arguments: value }
+        : { ...current, extensions: { ...current.extensions, fields: value } },
+    );
+  };
+  return (
+    <details className="argument-section">
+      <summary>{tr("Command data")}</summary>
+      <div className="field">
+        <span>{tr("Command arguments")}</span>
+        <YamlField value={node.arguments} onChange={(value) => edit("arguments", value)} />
+      </div>
+      <div className="field">
+        <span>{tr("Runtime fields")}</span>
+        <YamlField value={node.extensions?.fields ?? {}} onChange={(value) => edit("fields", value)} />
+      </div>
+    </details>
+  );
+}
+
 export function NativeInspector({
   statement,
   session,
   onOpenTimeline,
   embedded = false,
+  hideTimedAdvance = false,
 }: {
   statement: EditorStatement | undefined;
   session: EditorSession;
   onOpenTimeline?: () => void;
   embedded?: boolean;
+  hideTimedAdvance?: boolean;
 }) {
   const [editingLocale, setEditingLocale] = useState<string>();
   const resourceListId = useId();
@@ -83,6 +110,9 @@ export function NativeInspector({
         { key: "fadeOutSeconds", label: tr("Fade out (s)"), kind: "number" },
         { key: "loop", label: tr("Loop"), kind: "boolean" },
         { key: "muted", label: tr("Muted"), kind: "boolean" },
+        ...(node.arguments.category === "Voice"
+          ? [{ key: "lipSyncTarget", label: tr("field.Talk.targetName"), kind: "text" }]
+          : []),
       ]
     : timeline
       ? [
@@ -148,6 +178,7 @@ export function NativeInspector({
   fields = fields.filter(
     (field) =>
       !["sourceIdentity", "forgetSource", "sourceScene", "webgalAnimationPreset"].includes(field.key) &&
+      (!hideTimedAdvance || field.key !== "advanceAfterSeconds") &&
       (!animationNode || !["animationVersion", "relative", "inherit", "relativeCalc"].includes(field.key)),
   );
   let locales: readonly string[] = [];
@@ -251,18 +282,31 @@ export function NativeInspector({
           ))}
         </select>
       );
-    else if (field.kind === "number")
+    else if (field.kind === "number") {
+      const timedAdvance = field.key === "advanceAfterSeconds";
+      const nonNegative = timedAdvance || (timeline && field.key === "durationSeconds");
       control = (
         <NumberInput
-          min={timeline && field.key === "durationSeconds" ? 0 : undefined}
+          min={nonNegative ? 0 : undefined}
+          disabled={timedAdvance && Boolean(node.arguments.noWait)}
+          placeholder={timedAdvance ? tr("Default") : undefined}
           step="any"
           value={typeof value === "number" ? value : undefined}
           onCommit={(next) => {
-            if (!timeline || next >= 0) update(next);
+            if (!nonNegative || next >= 0) update(next);
           }}
+          onClear={
+            timedAdvance
+              ? () =>
+                  session.editNode(node.id, (current) => {
+                    const { advanceAfterSeconds: _, ...args } = current.arguments;
+                    return { ...current, arguments: args };
+                  })
+              : undefined
+          }
         />
       );
-    else if (field.kind === "localized-list") {
+    } else if (field.kind === "localized-list") {
       const items = Array.isArray(value) ? value : value == null ? [] : [value];
       control = (
         <div className="localized-speakers">
@@ -364,7 +408,7 @@ export function NativeInspector({
     );
   };
   const primaryKeys = audioClip
-    ? ["trackName", "category", "offsetSeconds", "durationSeconds", "volume", "muted"]
+    ? ["trackName", "category", "offsetSeconds", "durationSeconds", "volume", "muted", "lipSyncTarget"]
     : timeline
       ? fields.map((field) => field.key)
       : animationNode
@@ -375,8 +419,8 @@ export function NativeInspector({
               .filter((field) => !["boolean", "select"].includes(field.kind))
               .slice(0, 4)
               .map((field) => field.key);
-  const primary = fields.filter((field) => primaryKeys.includes(field.key)),
-    advanced = fields.filter((field) => !primaryKeys.includes(field.key));
+  const primary = fields.filter((field) => primaryKeys.includes(field.key) || field.key === "advanceAfterSeconds"),
+    advanced = fields.filter((field) => !primary.includes(field));
   const Panel = embedded ? "section" : "aside";
   return (
     <Panel className={embedded ? "nested-dialogue-inspector" : "statement-inspector"}>
@@ -445,6 +489,7 @@ export function NativeInspector({
             {advanced.map(renderField)}
           </details>
         )}
+        <CommandDataFields node={node} session={session} />
         <details className="argument-section">
           <summary>{tr("Node information")}</summary>
           <pre>

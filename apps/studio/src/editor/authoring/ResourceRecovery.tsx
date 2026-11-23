@@ -6,10 +6,19 @@ import { TaskSheet } from "./TaskSheet";
 
 export function ResourceRecovery({ session }: { session: EditorSession }) {
   const state = useSyncExternalStore(session.subscribe, session.getSnapshot);
-  const { t } = useStudioI18n();
+  const { t, i18n } = useStudioI18n();
   const [open, setOpen] = useState(false),
     [pending, setPending] = useState(""),
     [issue, setIssue] = useState("");
+  const [notesOpen, setNotesOpen] = useState(false);
+  const imported = state.project?.extensions["haneoka.authoring.importNotes"];
+  const notes = Array.isArray(imported)
+    ? imported.flatMap((value) => {
+        if (!value || typeof value !== "object" || Array.isArray(value)) return [];
+        const message = value[i18n.resolvedLanguage ?? "en"] ?? value.en;
+        return typeof message === "string" ? [message] : [];
+      })
+    : [];
   const declared = state.project?.extensions["haneoka.authoring.missingFiles"];
   const missing = (Array.isArray(declared) ? declared : []).filter(
     (path): path is string => typeof path === "string" && !state.files.some((file) => file.path === path),
@@ -21,6 +30,20 @@ export function ResourceRecovery({ session }: { session: EditorSession }) {
         {t("Missing resources")}
         <span>{missing.length}</span>
       </button>
+      {notes.length > 0 && (
+        <button type="button" className="author-button" onClick={() => setNotesOpen(true)}>
+          {t("Import notes")} <span>{notes.length}</span>
+        </button>
+      )}
+      {notesOpen && (
+        <TaskSheet title={t("Import notes")} onClose={() => setNotesOpen(false)}>
+          <ul>
+            {[...new Set(notes)].map((note) => (
+              <li key={note}>{note}</li>
+            ))}
+          </ul>
+        </TaskSheet>
+      )}
       {open && (
         <TaskSheet title={t("Missing resources")} onClose={() => setOpen(false)}>
           <div className="author-resource-recovery">

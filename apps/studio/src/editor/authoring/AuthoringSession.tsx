@@ -676,6 +676,13 @@ export function AuthoringSession({
           .filter((root) => nodes(root).some((node) => state.authoringSelection!.lines.includes(node.id)))
           .map((root) => root.id)
       : [];
+  const groupedSelection =
+    state.authoringSelection?.sceneId === active.scene.id
+      ? manuscript.scenes
+          .find((scene) => scene.id === active.scene.id)
+          ?.lines.filter((line) => state.authoringSelection!.lines.includes(line.id))
+          .flatMap((line) => [line.id, ...line.notes.map((note) => note.id)])
+      : undefined;
   const renderInspector = (sceneId: string, ids: string[]) => {
     const entry = context(session).scenes.find((entry) => entry.scene.id === sceneId)!;
     const selectedLines =
@@ -822,7 +829,12 @@ export function AuthoringSession({
         }
         timeline={
           <Suspense fallback={null}>
-            <TimelineEditor session={session} scope={scope} />
+            <TimelineEditor session={session} scope={scope} groupSelection={groupedSelection} />
+          </Suspense>
+        }
+        sceneTimeline={
+          <Suspense fallback={<div role="status">{tr("Opening timeline…")}</div>}>
+            <TimelineEditor session={session} groupSelection={groupedSelection} />
           </Suspense>
         }
         storyboard={

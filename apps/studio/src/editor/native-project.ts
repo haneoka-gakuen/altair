@@ -1,6 +1,7 @@
 import { authoredTypeLabelKey } from "@haneoka/altair-ui-react";
+import { resolveTimelineCues, rippleTimelineFollowing, type TimelineTimingContext } from "@haneoka/altair/documents";
 import { convertWorkspaceModels } from "@haneoka/altair-plugin-models/models";
-import { tr, deviceLanguage, canonicalLanguage } from "./i18n";
+import { tr, deviceLanguage, canonicalLanguage, studioI18n } from "./i18n";
 import {
   AltairDocumentRegistry,
   serializeAuthoredText,
@@ -50,6 +51,8 @@ import {
   NATIVE_SCRIPT_STATE,
 } from "@haneoka/altair-plugin-webgal/native-script";
 import { nativePresentationWorkspace } from "./authoring-project";
+import { importWorkspaceDocument } from "./workspace-import";
+import { readPublicResponse } from "./public-response";
 export const NATIVE_RUNTIME_PLUGINS = [
   { id: "haneoka.cubism", version: "0.1.0", permissions: ["render:webgl", "audio:analysis"] },
   { id: "haneoka.composite", version: "0.1.0", permissions: ["render:webgl"] },
@@ -105,6 +108,10 @@ export function nativeNodeLabel(node: AltairAuthoredNode): string {
     (command) => node.type.plugin === "haneoka.altair-adv" && command.name === node.type.name,
   );
   if (descriptor) return descriptor.label;
+  if (node.type.plugin === "haneoka.altair" && node.type.name === "timelineRef") return tr("Timeline reference");
+  if (node.type.plugin === "haneoka.altair" && node.type.name === "mediaClip") return tr("Media clip");
+  if (node.type.plugin === "haneoka.altair" && node.type.name === "adjustment")
+    return tr(node.arguments.mode === "mask" ? "Layer mask" : "Adjustment layer");
   if (node.type.plugin === "haneoka.altair" && node.type.name === "propertyClip") {
     const clip = node.arguments.clip;
     const tracks =
@@ -159,31 +166,19 @@ export function workspaceFiles(workspace: AltairAuthoredWorkspace): ProjectFile[
     })),
   ];
 }
-export function createNativeProject(title: string, locale = deviceLanguage()): LibraryProject {
-  locale = canonicalLanguage(locale);
-  const id = crypto.randomUUID(),
-    scene = {
-      ...newNativeScene(tr("Opening")),
-      nodes: [
-        {
-          ...advCommandToAuthoredNode(
-            createStoryCommand("Talk", {
-              text: { [locale]: tr("Welcome to your new story.") },
-              targetTextNames: [{ [locale]: tr("Character") }],
-            }),
-          ),
-          id: crypto.randomUUID(),
-        },
-      ],
-    };
-  const project: AltairProjectDocument = {
+function newNativeProjectManifest(
+  title: string,
+  locale: string,
+  sceneId: string = crypto.randomUUID(),
+): AltairProjectDocument {
+  return {
     format: "project",
     version: 1,
-    id,
+    id: crypto.randomUUID(),
     title,
     locales: [locale],
-    entry: { sceneId: scene.id },
-    scenes: [{ id: scene.id, path: "scenes/opening.scene.yaml" }],
+    entry: { sceneId },
+    scenes: [{ id: sceneId, path: "scenes/opening.scene.yaml" }],
     plugins: [...DEFAULT_STUDIO_PROJECT_PLUGINS, ...NATIVE_RUNTIME_PLUGINS],
     assets: {},
     runtime: {
@@ -191,8 +186,27 @@ export function createNativeProject(title: string, locale = deviceLanguage()): L
       presentation: { mode: "our-notes", version: 2, blocking: "native", cameraMode: "automatic" },
     },
   };
+}
+
+export function createNativeProject(title: string, locale = deviceLanguage()): LibraryProject {
+  locale = canonicalLanguage(locale);
+  const scene = {
+    ...newNativeScene(tr("Opening")),
+    nodes: [
+      {
+        ...advCommandToAuthoredNode(
+          createStoryCommand("Talk", {
+            text: { [locale]: tr("Welcome to your new story.") },
+            targetTextNames: [{ [locale]: tr("Character") }],
+          }),
+        ),
+        id: crypto.randomUUID(),
+      },
+    ],
+  };
+  const project = newNativeProjectManifest(title, locale, scene.id);
   return {
-    id,
+    id: project.id,
     name: title,
     updatedAt: Date.now(),
     files: workspaceFiles({ project, scenes: [scene] }),
@@ -309,7 +323,7 @@ export async function normalizeImportedProject(project: LibraryProject): Promise
   let foreignPresentation = false;
   for (const file of project.files.filter((file) => /\.(?:json|asset)$/iu.test(file.path))) {
     // Runtime models and binary assets remain Blobs; only candidate story JSON is decoded here.
-    if (file.blob.size > WEBGAL_WORKSPACE_LIMITS.sceneBytes) continue;
+    if (file.blob.size > WEBGAL_WORKSPACE_LIMITS.sceneBytes && !/\.story\.json$/iu.test(file.path)) continue;
     let value: unknown;
     try {
       value = JSON.parse(await file.blob.text());
@@ -318,6 +332,29 @@ export async function normalizeImportedProject(project: LibraryProject): Promise
     }
     if (!value || typeof value !== "object" || Array.isArray(value)) continue;
     const record = value as Record<string, unknown>;
+    const imported = await importWorkspaceDocument(record as JsonObject, async () => {
+      const { studioEnvironment } = await import("./studio-host");
+      const locale = canonicalLanguage(studioEnvironment().locale || studioI18n.resolvedLanguage || deviceLanguage());
+      const signal = new AbortController().signal;
+      const template = newNativeProjectManifest(project.name, locale);
+      return {
+        source: file,
+        files: project.files,
+        template: { ...template, id: project.id },
+        locale,
+        origin: studioEnvironment().origin || location.origin,
+        signal,
+        translate: tr,
+        readResource: (url, options) =>
+          readPublicResponse(url, { ...options, label: tr("Import project"), signals: [signal] }),
+      };
+    });
+    if (imported)
+      return normalizeImportedProject({
+        ...project,
+        name: imported.workspace.project.title,
+        files: [...workspaceFiles(imported.workspace), ...imported.files],
+      });
     const { isOpenotesProject } = await import("@haneoka/altair-plugin-haneoka/openotes");
     if (isOpenotesProject(value)) {
       const [{ importOpenotesSource }, { studioEnvironment }] = await Promise.all([
@@ -581,6 +618,7 @@ export function updateNativeNode(
   text: string,
   id: string,
   update: (node: AltairAuthoredNode) => AltairAuthoredNode,
+  timing?: TimelineTimingContext,
 ): string {
   const scene = parseAltairSceneDocument(text);
   let found = false;
@@ -589,7 +627,18 @@ export function updateNativeNode(
       found = true;
       return update(node);
     }
-    return node.children ? { ...node, children: node.children.map(visit) } : node;
+    if (!node.children) return node;
+    const children = node.children.map(visit);
+    const changed = children.findIndex((child, index) => child !== node.children![index]);
+    if (changed < 0) return node;
+    const next = { ...node, children };
+    if (node.type.plugin !== "haneoka.altair" || node.type.name !== "timeline") return next;
+    const cues = resolveTimelineCues(node, timing);
+    const changedId = children[changed]!.id;
+    if (cues.some((cue) => cue.node.id === changedId && cue.trackLocked)) throw Error(tr("This track is locked"));
+    return cues.some((cue) => cue.node.id === changedId)
+      ? rippleTimelineFollowing(cues, next, changedId, timing)
+      : next;
   };
   const nodes = scene.nodes.map(visit);
   if (!found) throw new Error(tr("The statement was deleted or moved"));

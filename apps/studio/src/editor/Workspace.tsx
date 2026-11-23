@@ -47,7 +47,7 @@ import {
 } from "@haneoka/altair";
 import { AnimationAuditionControls } from "./AnimationAuditionControls";
 import { NativeInspector } from "./NativeInspector";
-import { type EditorSession } from "./session";
+import { type EditorSession, type EditorSnapshot } from "./session";
 import { createProjectZip, exportProjectZip } from "./archive";
 import type { ProjectFile } from "./library";
 import { AuthoringSession } from "./authoring/AuthoringSession";
@@ -230,7 +230,7 @@ export function Workspace({ session, onHome, externalError, onClearError }: {
     };
   };
   const [gameExport, setGameExport] = useState(false);
-  const showAuthoringTool = async (key: "assistant" | "storyboard", generate = false) => {
+  const showAuthoringTool = async (key: NonNullable<EditorSnapshot["toolRequest"]>["key"], generate = false) => {
     const snapshot = session.getSnapshot();
     if (!nativeScenePath(snapshot.active)) {
       const manifest = parseAltairProjectDocument(session.document(NATIVE_PROJECT_PATH)!.text);
@@ -242,6 +242,7 @@ export function Workspace({ session, onHome, externalError, onClearError }: {
   useEffect(
     () =>
       registerStudioActions({
+        timeline: () => showAuthoringTool("timeline"),
         assistant: () => showAuthoringTool("assistant"),
         cinematic: async () => {
           await showAuthoringTool("storyboard");
@@ -823,6 +824,15 @@ export function Workspace({ session, onHome, externalError, onClearError }: {
           </DropdownMenu.Portal>
         </DropdownMenu.Root>
         <div className="header-spacer" />
+        <button
+          className="secondary-button"
+          title={tr("Timeline")}
+          aria-label={tr("Timeline")}
+          onClick={() => void showAuthoringTool("timeline").catch((error) => setIssue(String(error)))}
+        >
+          <GanttChart size={16} />
+          <span className="workspace-action-label">{tr("Timeline")}</span>
+        </button>
         <InterfaceLanguage />
         <button className="secondary-button" onClick={() => setGameExport(true)}>
           {tr("Export game")}

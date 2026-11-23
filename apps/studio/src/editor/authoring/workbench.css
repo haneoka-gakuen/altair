@@ -203,17 +203,49 @@
   }
 
   .author-workbench.has-timeline:has(> .author-companion) {
-    grid-template-rows: minmax(0, 3fr) minmax(12rem, 2fr);
-    grid-template-areas: "work stage" "timeline stage";
+    grid-template-rows: minmax(0, 1fr) var(--author-timeline-height, 45%);
+    grid-template-areas: "work stage" "timeline timeline";
   }
   .author-workbench.has-timeline.has-destinations:has(> .author-companion) {
-    grid-template-areas: "nav work stage" "nav timeline stage";
+    grid-template-areas: "nav work stage" "nav timeline timeline";
   }
   .author-workbench > .author-timeline {
     grid-area: timeline;
   }
+  .author-timeline-divider {
+    display: grid;
+    flex: none;
+    block-size: var(--md-sys-spacing-4);
+    place-items: center;
+    cursor: row-resize;
+    touch-action: none;
+    user-select: none;
+  }
+  .author-timeline-divider::before {
+    content: "";
+    inline-size: var(--author-target);
+    block-size: var(--md-sys-spacing-1);
+    border-radius: var(--md-sys-shape-corner-full);
+    background: var(--md-sys-color-outline-variant);
+  }
+  .author-timeline-divider:is(:focus-visible, :hover, :active)::before {
+    background: var(--md-sys-color-primary);
+  }
+  @media (min-width: 840px) {
+    .author-workbench.has-timeline .author-stage-tools {
+      flex-wrap: nowrap;
+      overflow-x: auto;
+      overscroll-behavior-inline: contain;
+    }
+    .author-workbench.has-timeline .author-stage-tools :is(button, details) {
+      flex-shrink: 0;
+    }
+  }
 
   @media (max-width: 839px) {
+    .author-timeline-divider {
+      display: none;
+    }
     .author-workbench:has(> .author-companion) {
       grid-template-rows: minmax(0, auto) minmax(32dvh, 1fr);
       grid-template-areas: "stage" "work";
@@ -223,12 +255,22 @@
       grid-template-areas: "nav" "stage" "work";
     }
     .author-workbench.has-timeline:has(> .author-companion) {
-      grid-template-rows: minmax(0, auto) minmax(20dvh, 1fr) 30dvh;
+      grid-template-rows: max-content minmax(20dvh, 1fr) 30dvh;
       grid-template-areas: "stage" "work" "timeline";
+      overflow-y: auto;
     }
     .author-workbench.has-timeline.has-destinations:has(> .author-companion) {
-      grid-template-rows: auto minmax(0, auto) minmax(20dvh, 1fr) 30dvh;
+      grid-template-rows: max-content max-content minmax(20dvh, 1fr) 30dvh;
       grid-template-areas: "nav" "stage" "work" "timeline";
+    }
+    .author-workbench.has-timeline .author-stage-frame {
+      flex: none;
+    }
+    .author-workbench.has-timeline .author-stage {
+      position: sticky;
+      inset-block-start: 0;
+      z-index: 1;
+      background: var(--md-sys-color-surface);
     }
     .author-workbench > .author-companion {
       container-type: normal;
@@ -306,5 +348,28 @@
     .author-workbench.has-timeline .author-companion:has(> .author-inspector) > .author-stage {
       --author-stage-max-block: 16dvh;
     }
+  }
+}
+
+@media (min-width: 840px) {
+  .author-timeline > .author-panel-body {
+    container-type: size;
+  }
+  .author-timeline .timeline-workbench {
+    display: grid;
+    grid-template-columns: clamp(12rem, 20%, 17rem) minmax(0, 1fr);
+    align-items: start;
+  }
+  .author-timeline .timeline-workbench > :not(.timeline-body) {
+    grid-column: 1;
+  }
+  .author-timeline .timeline-workbench > .timeline-body {
+    position: sticky;
+    inset-block-start: 0;
+    grid-column: 2;
+    grid-row: 1 / span 5;
+    block-size: 100cqb;
+    min-block-size: 12rem;
+    grid-template-rows: minmax(0, 1fr);
   }
 }
