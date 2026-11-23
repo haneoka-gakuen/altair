@@ -771,7 +771,10 @@ export function AuthoringSession({
     if (statement && session.getSnapshot().selectedNodeId !== statement.id) {
       session.select(statement.line);
     }
-    const rows = manuscript.scenes.find((scene) => scene.id === sceneId)?.lines ?? [];
+    const displayed = manuscript.ctx.scenes.find((candidate) => candidate.scene.id === sceneId)?.doc;
+    const rows = entry && entry.doc !== displayed
+      ? makeLines(session, entry.scene, manuscript.cast, ctx.locale)
+      : (manuscript.scenes.find((scene) => scene.id === sceneId)?.lines ?? []);
     const containsCue = (line: StudioLine) => line.notes.some((note) => note.id === nodeId);
     const row = rows.find((line) => line.id === nodeId)
       ?? rows.find((line) => line.id === previous?.cursor && containsCue(line))
