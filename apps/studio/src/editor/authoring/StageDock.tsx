@@ -45,7 +45,10 @@ export function StageDock({
       aria-label={t("Stage")}
       style={{ "--author-stage-aspect": aspect } as CSSProperties}
     >
-      <div className="author-stage-frame">{stage}</div>
+      <h2 className="author-monitor-title">{t("Stage")}</h2>
+      <div className="author-monitor">
+        <div className="author-stage-frame">{stage}</div>
+      </div>
       <div className="author-stage-bar">
         <button
           type="button"

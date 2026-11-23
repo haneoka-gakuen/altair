@@ -4,7 +4,7 @@ import { PluginPanel } from "./PluginPanel";
 import { tr, useStudioI18n } from "./i18n";
 import { InterfaceLanguage } from "./InterfaceLanguage";
 import { ProjectSettings } from "./ProjectSettings";
-import { registerStudioActions, studioIntent } from "./studio-host";
+import { executeStudioAction, registerStudioActions, studioIntent } from "./studio-host";
 import type { StudioAssetRequest, StudioAssetCatalogue, StudioProjectFile } from "@haneoka/altair/studio-host";
 import type { PublicResourcePickerController } from "./public-resource-controller";
 import { lazy, Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
@@ -635,6 +635,9 @@ export function Workspace({ session, onHome, externalError, onClearError }: {
     ...workspacePanels.map((panel) => ({ id: panel.selector, label: panel.id === "flowchart" ? tr("Flow") : tr(panel.name ?? panel.id), icon: <GanttChart aria-hidden />, content: <div className="author-plugin-workspace"><PluginPanel session={session} panelId={panel.selector} path={state.active} /></div> })),
     { id: "files", label: tr("Project files"), icon: <Folder aria-hidden />, content: <div className="author-file-workspace"><aside>{projectFilePane}</aside><section>{fileEditor}</section></div> },
   ];
+  const importProject = () => {
+    if (!studioIntent("import")) void executeStudioAction("import").catch((error) => setIssue(String(error)));
+  };
   const enterHome = () => {
     if (state.saving) return;
     if (dirty) {
@@ -809,6 +812,9 @@ export function Workspace({ session, onHome, externalError, onClearError }: {
                 {tr("Refresh local files")}
               </DropdownMenu.Item>
               <DropdownMenu.Separator />
+              <DropdownMenu.Item disabled={state.saving} onSelect={importProject}>
+                {tr("Import project")}
+              </DropdownMenu.Item>
               <DropdownMenu.Item disabled={!doc || state.saving} onSelect={() => setHistoryPath(state.active)}>
                 {tr("Version history")}
               </DropdownMenu.Item>
@@ -867,7 +873,7 @@ export function Workspace({ session, onHome, externalError, onClearError }: {
           <span className="workspace-action-label">{tr("Export project")}</span>
         </button>
       </header>
-      <AuthoringSession session={session} onImport={() => { studioIntent("import"); }} onAssets={() => { if (!studioIntent("assets")) void catalogueAction(); }} onTools={() => setAuthoringTools(true)} onLibrary={() => setShowLibrary(true)} onHistory={() => setHistoryPath(state.active)} destinations={destinations} notify={setIssue} />
+      <AuthoringSession session={session} onImport={importProject} onAssets={() => { if (!studioIntent("assets")) void catalogueAction(); }} onTools={() => setAuthoringTools(true)} onLibrary={() => setShowLibrary(true)} onHistory={() => setHistoryPath(state.active)} destinations={destinations} notify={setIssue} />
       {authoringTools && <TaskSheet title={tr("Project files")} wide onClose={() => setAuthoringTools(false)}><div className="author-project-tools"><AnimationAuditionControls session={session} />
       <Group
         className="workspace-panels"

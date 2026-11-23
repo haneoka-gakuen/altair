@@ -487,6 +487,7 @@ export function EditorApp() {
               files,
               directories,
             };
+            await active.current?.save();
             await open(project);
           })
           .catch((error) => setError(error instanceof Error ? error.message : String(error)))

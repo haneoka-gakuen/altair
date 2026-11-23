@@ -1,4 +1,16 @@
-import { useCallback, useEffect, useId, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import {
+  useCallback,
+  useContext,
+  useEffect,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+  type ReactNode,
+} from "react";
+import { createPortal } from "react-dom";
+import { DockPanel, TimelineInspectorHost, TimelineToolbarHost } from "./authoring/DockPanel";
 import { presentationTargets } from "@haneoka/altair-plugin-vega-preview/projection";
 import * as Dialog from "@radix-ui/react-dialog";
 import {
@@ -16,6 +28,7 @@ import {
   Plus,
   Import,
   Maximize,
+  Settings2,
   NumberInput,
   StructuredTextInput,
   Trash2,
@@ -48,6 +61,7 @@ import type { ProjectFile } from "./library";
 import {
   NATIVE_PROJECT_PATH,
   nativeCommands,
+  nativeStatementIsVisible,
   nativeNodeExcerpt,
   nativeNodeLabel,
   nativeStatements,
@@ -782,6 +796,63 @@ function useTimelinePlayhead(
   return { seconds: position?.timelineId === timelineId ? (position?.seconds ?? 0) : 0, request };
 }
 
+function SceneSequence({
+  session,
+  text,
+  selected,
+  locale,
+}: {
+  session: EditorSession;
+  text: string;
+  selected: string | undefined;
+  locale: string;
+}) {
+  const statements = useMemo(
+    () => nativeStatements(text).filter((entry) => nativeStatementIsVisible(entry.node)),
+    [text],
+  );
+  return (
+    <ol className="timeline-scene-sequence" aria-label={tr("Scene")}>
+      {statements.map((entry, index) => (
+        <li key={entry.id}>
+          <button type="button" aria-pressed={entry.id === selected} onClick={() => session.select(entry.line)}>
+            <span>{index + 1}</span>
+            <strong>{nativeNodeLabel(entry.node)}</strong>
+            <small>{nativeNodeExcerpt(entry.node, locale)}</small>
+          </button>
+        </li>
+      ))}
+    </ol>
+  );
+}
+
+function CueInspectorDock({
+  title,
+  onClose,
+  children,
+}: {
+  title: string | undefined;
+  onClose(): void;
+  children: ReactNode;
+}) {
+  const inspectorHost = useContext(TimelineInspectorHost);
+  const [wide, setWide] = useState(() => window.matchMedia("(min-width: 840px)").matches);
+  useEffect(() => {
+    const query = window.matchMedia("(min-width: 840px)");
+    const update = () => setWide(query.matches);
+    query.addEventListener("change", update);
+    return () => query.removeEventListener("change", update);
+  }, []);
+  if (!title) return null;
+  if (!inspectorHost || !wide) return <div className="timeline-cue-inspector">{children}</div>;
+  return createPortal(
+    <DockPanel title={title} onClose={onClose}>
+      <div className="timeline-cue-inspector">{children}</div>
+    </DockPanel>,
+    inspectorHost,
+  );
+}
+
 export function TimelineEditor({
   session,
   scope,
@@ -803,6 +874,10 @@ export function TimelineEditor({
     [issue, setIssue] = useState(""),
     [scrubIssue, setScrubIssue] = useState(""),
     [busy, setBusy] = useState(false);
+  useEffect(() => setSelected(""), [state.authoringSelection?.cursor, state.active]);
+  const toolbarHost = useContext(TimelineToolbarHost);
+  const [showOptions, setShowOptions] = useState(false);
+  const optionsId = useId();
   const [mediaKind, setMediaKind] = useState<MediaKind>("image");
   const [mediaSource, setMediaSource] = useState<string>();
   const mediaListId = useId();
@@ -1185,475 +1260,500 @@ export function TimelineEditor({
       setBusy(false);
     }
   };
+  const toolbar = (
+    <div className="timeline-primary-tools" role="group" aria-label={tr("Timeline")}>
+      <select
+        aria-label={tr("Active timeline")}
+        value={current?.id ?? ""}
+        onChange={(event) => {
+          const statement = session.statements().find((item) => item.id === event.target.value);
+          if (statement) session.select(statement.line);
+          if (scene)
+            setActiveTimeline({
+              sceneId: scene.id,
+              id: event.currentTarget.value,
+              statement: session.getSnapshot().selectedNodeId,
+            });
+          setSelected("");
+          setFit((value) => value + 1);
+        }}
+      >
+        {!timelines.length && <option value="">{tr("No timeline yet")}</option>}
+        {timelines.map((node, index) => (
+          <option key={node.id} value={node.id}>
+            {(typeof node.arguments.title === "string" && node.arguments.title) || `${tr("Timeline")} ${index + 1}`}
+          </option>
+        ))}
+      </select>
+      <button
+        className="secondary-button"
+        aria-label={tr("New timeline")}
+        title={tr("New timeline")}
+        disabled={!scene}
+        onClick={() => {
+          session.insert(createTimeline());
+          setActiveTimeline(undefined);
+          setSelected("");
+          setFit((value) => value + 1);
+        }}
+      >
+        <Plus size={14} />
+        <span>{tr("New timeline")}</span>
+      </button>
+      <button className="icon-button" aria-label={tr("Fit to view")} onClick={() => setFit((value) => value + 1)}>
+        <Maximize size={16} />
+      </button>
+      <button
+        type="button"
+        className="secondary-button"
+        aria-label={tr("Settings")}
+        title={tr("Settings")}
+        aria-expanded={showOptions}
+        aria-controls={optionsId}
+        onClick={() => setShowOptions((open) => !open)}
+      >
+        <Settings2 size={16} />
+        <span>{tr("Settings")}</span>
+      </button>
+    </div>
+  );
   return (
     <section className="timeline-workbench">
-      <div className="timeline-toolbar">
-        <select
-          aria-label={tr("Active timeline")}
-          value={current?.id ?? ""}
-          onChange={(event) => {
-            const statement = session.statements().find((item) => item.id === event.target.value);
-            if (statement) session.select(statement.line);
-            if (scene)
-              setActiveTimeline({
-                sceneId: scene.id,
-                id: event.currentTarget.value,
-                statement: session.getSnapshot().selectedNodeId,
-              });
-            setSelected("");
-            setFit((value) => value + 1);
-          }}
-        >
-          {!timelines.length && <option value="">{tr("No timeline yet")}</option>}
-          {timelines.map((node, index) => (
-            <option key={node.id} value={node.id}>
-              {(typeof node.arguments.title === "string" && node.arguments.title) || `${tr("Timeline")} ${index + 1}`}
-            </option>
-          ))}
-        </select>
-        <button
-          className="secondary-button"
-          disabled={!scene}
-          onClick={() => {
-            session.insert(createTimeline());
-            setActiveTimeline(undefined);
-            setSelected("");
-            setFit((value) => value + 1);
-          }}
-        >
-          <Plus size={14} />
-          {tr("New timeline")}
-        </button>
-        <button
-          className="secondary-button"
-          disabled={!groupIds.length}
-          onClick={async () => {
-            try {
-              await session.groupTimelineCommands(groupIds);
-              setActiveTimeline(undefined);
-              setSelected("");
-              setFit((value) => value + 1);
-              setIssue("");
-            } catch (error) {
-              setIssue(error instanceof Error ? error.message : String(error));
-            }
-          }}
-        >
-          {tr("Group selected commands")}
-        </button>
-        <button className="secondary-button" disabled={!scene} onClick={() => setShowImport(true)}>
-          <Import size={14} />
-          {tr("Import cues")}
-        </button>
-        <button className="icon-button" aria-label={tr("Fit to view")} onClick={() => setFit((value) => value + 1)}>
-          <Maximize size={16} />
-        </button>
-        {subtitles && (
-          <button
-            type="button"
-            className="secondary-button"
-            aria-label={tr("Download subtitles")}
-            onClick={() => downloadStudioFile(new Blob([subtitles], { type: "application/x-subrip" }), "timeline.srt")}
-          >
-            SRT
-          </button>
-        )}
-      </div>
+      {toolbarHost ? createPortal(toolbar, toolbarHost) : toolbar}
       {!scene ? (
         <div className="empty-panel">{tr("Open a target scene first")}</div>
       ) : (
         <>
-          {current && <AudioMixExport node={current} session={session} cues={cues} timing={timing} />}
-          {current && (
-            <details className="audio-mix-settings">
-              <summary>{tr("Timeline markers")}</summary>
-              <div className="timeline-toolbar">
+          <div className="timeline-edit-options" id={optionsId} hidden={!showOptions}>
+            <div className="timeline-toolbar">
+              <button
+                className="secondary-button"
+                disabled={!groupIds.length}
+                onClick={async () => {
+                  try {
+                    await session.groupTimelineCommands(groupIds);
+                    setActiveTimeline(undefined);
+                    setSelected("");
+                    setFit((value) => value + 1);
+                    setIssue("");
+                  } catch (error) {
+                    setIssue(error instanceof Error ? error.message : String(error));
+                  }
+                }}
+              >
+                {tr("Group selected commands")}
+              </button>
+              <button className="secondary-button" disabled={!scene} onClick={() => setShowImport(true)}>
+                <Import size={14} />
+                {tr("Import cues")}
+              </button>
+              {subtitles && (
                 <button
                   type="button"
                   className="secondary-button"
-                  onClick={() => {
-                    const marker = {
-                      id: crypto.randomUUID(),
-                      timeSeconds: snapMarkerTime(cue?.atSeconds ?? markerFocus?.timeSeconds ?? 0),
-                      note: "",
-                    };
-                    if (saveMarkers((previous) => [...previous, marker])) setMarkerId(marker.id);
-                  }}
+                  aria-label={tr("Download subtitles")}
+                  onClick={() =>
+                    downloadStudioFile(new Blob([subtitles], { type: "application/x-subrip" }), "timeline.srt")
+                  }
                 >
-                  {tr("Add marker")}
+                  SRT
                 </button>
-                {activeMarker && (
-                  <>
-                    <select
-                      aria-label={tr("Timeline marker")}
-                      value={activeMarker.id}
-                      onChange={(event) => {
-                        const value = markers.find((marker) => marker.id === event.currentTarget.value);
-                        if (value) {
-                          setMarkerId(value.id);
-                          setMarkerFocus({ timeSeconds: value.timeSeconds });
-                        }
-                      }}
-                    >
-                      {markers.map((marker) => (
-                        <option key={marker.id} value={marker.id}>
-                          {marker.timeSeconds.toFixed(3)} s {marker.note}
-                        </option>
-                      ))}
-                    </select>
-                    <label>
-                      {tr("Marker time (s)")}{" "}
-                      <NumberInput
-                        min="0"
-                        step={1 / frameRate}
-                        value={activeMarker.timeSeconds}
-                        onCommit={(seconds) =>
-                          saveMarkers((previous) =>
-                            previous.map((marker) =>
-                              marker.id === activeMarker.id
-                                ? { ...marker, timeSeconds: snapMarkerTime(seconds) }
-                                : marker,
-                            ),
-                          )
-                        }
-                      />
-                    </label>
-                    <label>
-                      {tr("Marker note")}{" "}
-                      <input
-                        key={`${activeMarker.id}:${activeMarker.note}`}
-                        defaultValue={activeMarker.note}
-                        onBlur={(event) => {
-                          const note = event.currentTarget.value.trim();
-                          if (note !== activeMarker.note)
-                            saveMarkers((previous) =>
-                              previous.map((marker) => (marker.id === activeMarker.id ? { ...marker, note } : marker)),
-                            );
-                        }}
-                      />
-                    </label>
-                    <button
-                      type="button"
-                      className="secondary-button"
-                      onClick={() => setMarkerFocus({ timeSeconds: activeMarker.timeSeconds })}
-                    >
-                      {tr("Go to marker")}
-                    </button>
-                    <button
-                      type="button"
-                      className="secondary-button"
-                      onClick={() =>
-                        saveMarkers((previous) => previous.filter((marker) => marker.id !== activeMarker.id))
-                      }
-                    >
-                      {tr("Delete marker")}
-                    </button>
-                  </>
-                )}
-              </div>
-            </details>
-          )}
-          <div className="timeline-settings">
-            <select aria-label={tr("Command")} value={command} onChange={(event) => setCommand(event.target.value)}>
-              <option value="mediaClip">{tr("Media clip")}</option>
-              <option value="audioClip">{tr("Audio clip")}</option>
-              <option value="propertyClip">{tr("Camera keyframes")}</option>
-              <option value="adjustment">{tr("Adjustment layer")}</option>
-              <option value="mask">{tr("Layer mask")}</option>
-              <option value="timelineRef" disabled={!choices.length}>
-                {tr("Timeline reference")}
-              </option>
-              {available.map((command) => (
-                <option key={command.name} value={command.name}>
-                  {command.label}
-                </option>
-              ))}
-            </select>
-            {command === "mediaClip" && (
-              <>
-                <label>
-                  {tr("Media kind")}
-                  <select
-                    value={mediaKind}
-                    onChange={(event) => {
-                      setMediaKind(event.target.value as MediaKind);
-                      setMediaSource(undefined);
+              )}
+            </div>
+            {current && <AudioMixExport node={current} session={session} cues={cues} timing={timing} />}
+            {current && (
+              <details className="audio-mix-settings">
+                <summary>{tr("Timeline markers")}</summary>
+                <div className="timeline-toolbar">
+                  <button
+                    type="button"
+                    className="secondary-button"
+                    onClick={() => {
+                      const marker = {
+                        id: crypto.randomUUID(),
+                        timeSeconds: snapMarkerTime(cue?.atSeconds ?? markerFocus?.timeSeconds ?? 0),
+                        note: "",
+                      };
+                      if (saveMarkers((previous) => [...previous, marker])) setMarkerId(marker.id);
                     }}
                   >
-                    <option value="image">{tr("Image clip")}</option>
-                    <option value="video">{tr("Video clip")}</option>
+                    {tr("Add marker")}
+                  </button>
+                  {activeMarker && (
+                    <>
+                      <select
+                        aria-label={tr("Timeline marker")}
+                        value={activeMarker.id}
+                        onChange={(event) => {
+                          const value = markers.find((marker) => marker.id === event.currentTarget.value);
+                          if (value) {
+                            setMarkerId(value.id);
+                            setMarkerFocus({ timeSeconds: value.timeSeconds });
+                          }
+                        }}
+                      >
+                        {markers.map((marker) => (
+                          <option key={marker.id} value={marker.id}>
+                            {marker.timeSeconds.toFixed(3)} s {marker.note}
+                          </option>
+                        ))}
+                      </select>
+                      <label>
+                        {tr("Marker time (s)")}{" "}
+                        <NumberInput
+                          min="0"
+                          step={1 / frameRate}
+                          value={activeMarker.timeSeconds}
+                          onCommit={(seconds) =>
+                            saveMarkers((previous) =>
+                              previous.map((marker) =>
+                                marker.id === activeMarker.id
+                                  ? { ...marker, timeSeconds: snapMarkerTime(seconds) }
+                                  : marker,
+                              ),
+                            )
+                          }
+                        />
+                      </label>
+                      <label>
+                        {tr("Marker note")}{" "}
+                        <input
+                          key={`${activeMarker.id}:${activeMarker.note}`}
+                          defaultValue={activeMarker.note}
+                          onBlur={(event) => {
+                            const note = event.currentTarget.value.trim();
+                            if (note !== activeMarker.note)
+                              saveMarkers((previous) =>
+                                previous.map((marker) =>
+                                  marker.id === activeMarker.id ? { ...marker, note } : marker,
+                                ),
+                              );
+                          }}
+                        />
+                      </label>
+                      <button
+                        type="button"
+                        className="secondary-button"
+                        onClick={() => setMarkerFocus({ timeSeconds: activeMarker.timeSeconds })}
+                      >
+                        {tr("Go to marker")}
+                      </button>
+                      <button
+                        type="button"
+                        className="secondary-button"
+                        onClick={() =>
+                          saveMarkers((previous) => previous.filter((marker) => marker.id !== activeMarker.id))
+                        }
+                      >
+                        {tr("Delete marker")}
+                      </button>
+                    </>
+                  )}
+                </div>
+              </details>
+            )}
+            <div className="timeline-settings">
+              <select aria-label={tr("Command")} value={command} onChange={(event) => setCommand(event.target.value)}>
+                <option value="mediaClip">{tr("Media clip")}</option>
+                <option value="audioClip">{tr("Audio clip")}</option>
+                <option value="propertyClip">{tr("Camera keyframes")}</option>
+                <option value="adjustment">{tr("Adjustment layer")}</option>
+                <option value="mask">{tr("Layer mask")}</option>
+                <option value="timelineRef" disabled={!choices.length}>
+                  {tr("Timeline reference")}
+                </option>
+                {available.map((command) => (
+                  <option key={command.name} value={command.name}>
+                    {command.label}
+                  </option>
+                ))}
+              </select>
+              {command === "mediaClip" && (
+                <>
+                  <label>
+                    {tr("Media kind")}
+                    <select
+                      value={mediaKind}
+                      onChange={(event) => {
+                        setMediaKind(event.target.value as MediaKind);
+                        setMediaSource(undefined);
+                      }}
+                    >
+                      <option value="image">{tr("Image clip")}</option>
+                      <option value="video">{tr("Video clip")}</option>
+                    </select>
+                  </label>
+                  <label>
+                    {tr("Media source")}
+                    <input
+                      list={mediaListId}
+                      value={mediaSource ?? availableMedia[0]?.path ?? ""}
+                      onChange={(event) => setMediaSource(event.target.value)}
+                    />
+                    <datalist id={mediaListId}>
+                      {availableMedia.map((file) => (
+                        <option key={file.path} value={file.path} />
+                      ))}
+                    </datalist>
+                  </label>
+                </>
+              )}
+              {command === "timelineRef" && (
+                <label>
+                  {tr("Timeline to insert")}
+                  <select
+                    value={insertSource ? sourceKey(insertSource) : ""}
+                    onChange={(event) => setSourceChoice(event.target.value)}
+                  >
+                    {sourceOptions}
                   </select>
                 </label>
-                <label>
-                  {tr("Media source")}
-                  <input
-                    list={mediaListId}
-                    value={mediaSource ?? availableMedia[0]?.path ?? ""}
-                    onChange={(event) => setMediaSource(event.target.value)}
-                  />
-                  <datalist id={mediaListId}>
-                    {availableMedia.map((file) => (
-                      <option key={file.path} value={file.path} />
-                    ))}
-                  </datalist>
-                </label>
-              </>
-            )}
-            {command === "timelineRef" && (
-              <label>
-                {tr("Timeline to insert")}
-                <select
-                  value={insertSource ? sourceKey(insertSource) : ""}
-                  onChange={(event) => setSourceChoice(event.target.value)}
-                >
-                  {sourceOptions}
-                </select>
-              </label>
-            )}
-            <button
-              className="secondary-button"
-              disabled={(command === "timelineRef" && !insertSource) || (command === "mediaClip" && !mediaToInsert)}
-              onClick={add}
-            >
-              <Plus size={14} />
-              {tr("Add cue")}
-            </button>
-            {current && (
-              <>
-                <label>
-                  {tr("Timeline name")}
-                  <input
-                    key={JSON.stringify([current.id, current.arguments.title])}
-                    defaultValue={typeof current.arguments.title === "string" ? current.arguments.title : ""}
-                    onKeyDown={(event) => {
-                      if (event.key === "Enter") event.currentTarget.blur();
-                    }}
-                    onBlur={(event) => {
-                      const title = event.currentTarget.value.trim();
-                      if (title !== (current.arguments.title ?? ""))
-                        change((node) => {
-                          const { title: previous, ...args } = node.arguments;
-                          return { ...node, arguments: title ? { ...args, title } : args };
-                        });
-                    }}
-                  />
-                </label>
-                <label>
-                  <input
-                    type="checkbox"
-                    checked={current.arguments.libraryOnly === true}
-                    onChange={(event) =>
-                      change((node) => ({
-                        ...node,
-                        arguments: { ...node.arguments, libraryOnly: event.target.checked },
-                      }))
-                    }
-                  />
-                  {tr("Play only when referenced")}
-                </label>
-                <label>
-                  {tr("Minimum duration (s)")}
-                  <NumberInput
-                    min="0"
-                    step="0.1"
-                    value={Number((Number(current.arguments.durationSeconds) || 0).toFixed(3))}
-                    onCommit={(value) => {
-                      if (value >= 0)
+              )}
+              <button
+                className="secondary-button"
+                disabled={(command === "timelineRef" && !insertSource) || (command === "mediaClip" && !mediaToInsert)}
+                onClick={add}
+              >
+                <Plus size={14} />
+                {tr("Add cue")}
+              </button>
+              {current && (
+                <>
+                  <label>
+                    {tr("Timeline name")}
+                    <input
+                      key={JSON.stringify([current.id, current.arguments.title])}
+                      defaultValue={typeof current.arguments.title === "string" ? current.arguments.title : ""}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter") event.currentTarget.blur();
+                      }}
+                      onBlur={(event) => {
+                        const title = event.currentTarget.value.trim();
+                        if (title !== (current.arguments.title ?? ""))
+                          change((node) => {
+                            const { title: previous, ...args } = node.arguments;
+                            return { ...node, arguments: title ? { ...args, title } : args };
+                          });
+                      }}
+                    />
+                  </label>
+                  <label>
+                    <input
+                      type="checkbox"
+                      checked={current.arguments.libraryOnly === true}
+                      onChange={(event) =>
+                        change((node) => ({
+                          ...node,
+                          arguments: { ...node.arguments, libraryOnly: event.target.checked },
+                        }))
+                      }
+                    />
+                    {tr("Play only when referenced")}
+                  </label>
+                  <label>
+                    {tr("Minimum duration (s)")}
+                    <NumberInput
+                      min="0"
+                      step="0.1"
+                      value={Number((Number(current.arguments.durationSeconds) || 0).toFixed(3))}
+                      onCommit={(value) => {
+                        if (value >= 0)
+                          change((node) => ({
+                            ...node,
+                            arguments: {
+                              ...node.arguments,
+                              durationSeconds: value,
+                            },
+                          }));
+                      }}
+                    />
+                  </label>
+                  <label>
+                    <input
+                      type="checkbox"
+                      checked={current.arguments.waitForPrevious === true}
+                      onChange={(event) =>
                         change((node) => ({
                           ...node,
                           arguments: {
                             ...node.arguments,
-                            durationSeconds: value,
+                            waitForPrevious: event.target.checked,
                           },
-                        }));
-                    }}
-                  />
-                </label>
-                <label>
-                  <input
-                    type="checkbox"
-                    checked={current.arguments.waitForPrevious === true}
-                    onChange={(event) =>
-                      change((node) => ({
-                        ...node,
-                        arguments: {
-                          ...node.arguments,
-                          waitForPrevious: event.target.checked,
-                        },
-                      }))
-                    }
-                  />
-                  {tr("Wait for previous timeline")}
-                </label>
-                <label>
-                  <input
-                    type="checkbox"
-                    checked={current.arguments.waitForCompletion === true}
-                    onChange={(event) =>
-                      change((node) => ({
-                        ...node,
-                        arguments: { ...node.arguments, waitForCompletion: event.target.checked },
-                      }))
-                    }
-                  />
-                  {tr("Wait for timeline to finish")}
-                </label>
-                <label>
-                  <input
-                    type="checkbox"
-                    checked={current.arguments.cancelOnManualAdvance === true}
-                    onChange={(event) =>
-                      change((node) => ({
-                        ...node,
-                        arguments: {
-                          ...node.arguments,
-                          cancelOnManualAdvance: event.target.checked,
-                        },
-                      }))
-                    }
-                  />
-                  {tr("Cancel on advance")}
-                </label>
-                <label>
-                  <input
-                    type="checkbox"
-                    checked={current.arguments.rippleScope === "timeline"}
-                    onChange={(event) => {
-                      const timeline = event.currentTarget.checked;
-                      change((node) => {
-                        const { rippleScope: _, ...rest } = node.arguments;
-                        return { ...node, arguments: timeline ? { ...rest, rippleScope: "timeline" } : rest };
-                      });
-                    }}
-                  />
-                  {tr("Ripple across tracks")}
-                </label>
-              </>
-            )}
-          </div>
-          {current && (
-            <details key={current.id} className="audio-mix-settings">
-              <summary>{tr("Timeline tracks")}</summary>
-              <form
-                className="timeline-settings"
-                onSubmit={(event) => {
-                  event.preventDefault();
-                  const name = String(new FormData(event.currentTarget).get("name") ?? "").trim();
-                  if (!name) return;
-                  change((node) => addTimelineLane(node, name));
-                  event.currentTarget.reset();
-                }}
-              >
-                <input name="name" aria-label={tr("New track name")} placeholder={tr("New track name")} required />
-                <button className="secondary-button" type="submit">
-                  <Plus size={14} />
-                  {tr("Add track")}
-                </button>
-              </form>
-              {trackRows.map(({ id, name, laneId, laneIndex, hasAudio, hasVisual, legacyGains }) => {
-                const mix = timelineTrackState(current, id);
-                const set = (patch: Parameters<typeof setTimelineTrackState>[2]) =>
-                  change((node) => setTimelineTrackState(node, id, patch));
-                return (
-                  <div key={id} className="timeline-settings" role="group" aria-label={name}>
-                    {laneId ? (
-                      <>
-                        <input
-                          key={name}
-                          aria-label={tr("Track name")}
-                          defaultValue={name}
-                          disabled={mix.locked}
-                          onBlur={(event) => {
-                            const next = event.currentTarget.value.trim();
-                            event.currentTarget.value = next || name;
-                            if (next && next !== name) change((node) => renameTimelineLane(node, laneId, next));
-                          }}
-                          onKeyDown={(event) => {
-                            if (event.key === "Escape") event.currentTarget.value = name;
-                            if (event.key === "Enter" || event.key === "Escape") {
-                              event.preventDefault();
-                              event.currentTarget.blur();
-                            }
-                          }}
-                        />
-                        <button
-                          className="icon-button"
-                          aria-label={tr("Move up")}
-                          title={tr("Move up")}
-                          disabled={mix.locked || laneIndex === 0}
-                          onClick={() => change((node) => moveTimelineLane(node, laneId, -1))}
-                        >
-                          <ArrowUp size={16} />
-                        </button>
-                        <button
-                          className="icon-button"
-                          aria-label={tr("Move down")}
-                          title={tr("Move down")}
-                          disabled={mix.locked || laneIndex === lanes.length - 1}
-                          onClick={() => change((node) => moveTimelineLane(node, laneId, 1))}
-                        >
-                          <ArrowDown size={16} />
-                        </button>
-                        <button
-                          className="icon-button"
-                          aria-label={tr("Remove track")}
-                          title={tr("Remove track")}
-                          disabled={mix.locked}
-                          onClick={() => change((node) => removeTimelineLane(node, laneId, timing))}
-                        >
-                          <Trash2 size={16} />
-                        </button>
-                      </>
-                    ) : (
-                      <strong>{name}</strong>
-                    )}
-                    <label>
-                      <input
-                        type="checkbox"
-                        checked={mix.locked}
-                        onChange={(event) => set({ locked: event.target.checked })}
-                      />
-                      {tr("Lock track")}
-                    </label>
-                    <label>
-                      <input
-                        type="checkbox"
-                        checked={mix.muted}
-                        onChange={(event) => set({ muted: event.target.checked })}
-                      />
-                      {tr(hasAudio && !hasVisual ? "Mute track" : "Hide track")}
-                    </label>
-                    {hasAudio && (
-                      <>
-                        <label>
+                        }))
+                      }
+                    />
+                    {tr("Wait for previous timeline")}
+                  </label>
+                  <label>
+                    <input
+                      type="checkbox"
+                      checked={current.arguments.waitForCompletion === true}
+                      onChange={(event) =>
+                        change((node) => ({
+                          ...node,
+                          arguments: { ...node.arguments, waitForCompletion: event.target.checked },
+                        }))
+                      }
+                    />
+                    {tr("Wait for timeline to finish")}
+                  </label>
+                  <label>
+                    <input
+                      type="checkbox"
+                      checked={current.arguments.cancelOnManualAdvance === true}
+                      onChange={(event) =>
+                        change((node) => ({
+                          ...node,
+                          arguments: {
+                            ...node.arguments,
+                            cancelOnManualAdvance: event.target.checked,
+                          },
+                        }))
+                      }
+                    />
+                    {tr("Cancel on advance")}
+                  </label>
+                  <label>
+                    <input
+                      type="checkbox"
+                      checked={current.arguments.rippleScope === "timeline"}
+                      onChange={(event) => {
+                        const timeline = event.currentTarget.checked;
+                        change((node) => {
+                          const { rippleScope: _, ...rest } = node.arguments;
+                          return { ...node, arguments: timeline ? { ...rest, rippleScope: "timeline" } : rest };
+                        });
+                      }}
+                    />
+                    {tr("Ripple across tracks")}
+                  </label>
+                </>
+              )}
+            </div>
+            {current && (
+              <details key={current.id} className="audio-mix-settings">
+                <summary>{tr("Timeline tracks")}</summary>
+                <form
+                  className="timeline-settings"
+                  onSubmit={(event) => {
+                    event.preventDefault();
+                    const name = String(new FormData(event.currentTarget).get("name") ?? "").trim();
+                    if (!name) return;
+                    change((node) => addTimelineLane(node, name));
+                    event.currentTarget.reset();
+                  }}
+                >
+                  <input name="name" aria-label={tr("New track name")} placeholder={tr("New track name")} required />
+                  <button className="secondary-button" type="submit">
+                    <Plus size={14} />
+                    {tr("Add track")}
+                  </button>
+                </form>
+                {trackRows.map(({ id, name, laneId, laneIndex, hasAudio, hasVisual, legacyGains }) => {
+                  const mix = timelineTrackState(current, id);
+                  const set = (patch: Parameters<typeof setTimelineTrackState>[2]) =>
+                    change((node) => setTimelineTrackState(node, id, patch));
+                  return (
+                    <div key={id} className="timeline-settings" role="group" aria-label={name}>
+                      {laneId ? (
+                        <>
                           <input
-                            type="checkbox"
-                            checked={mix.solo}
-                            onChange={(event) => set({ solo: event.target.checked })}
-                          />
-                          {tr("Solo track")}
-                        </label>
-                        <label>
-                          {tr("Track volume")}
-                          <NumberInput
-                            min="0"
-                            max="1"
-                            step="0.05"
-                            value={mix.gain}
-                            placeholder={legacyGains.size === 1 ? String([...legacyGains][0]) : tr("Per clip")}
-                            onClear={() => set({ gain: undefined })}
-                            onCommit={(gain) => {
-                              if (gain >= 0 && gain <= 1) set({ gain });
+                            key={name}
+                            aria-label={tr("Track name")}
+                            defaultValue={name}
+                            disabled={mix.locked}
+                            onBlur={(event) => {
+                              const next = event.currentTarget.value.trim();
+                              event.currentTarget.value = next || name;
+                              if (next && next !== name) change((node) => renameTimelineLane(node, laneId, next));
+                            }}
+                            onKeyDown={(event) => {
+                              if (event.key === "Escape") event.currentTarget.value = name;
+                              if (event.key === "Enter" || event.key === "Escape") {
+                                event.preventDefault();
+                                event.currentTarget.blur();
+                              }
                             }}
                           />
-                        </label>
-                      </>
-                    )}
-                  </div>
-                );
-              })}
-            </details>
-          )}
+                          <button
+                            className="icon-button"
+                            aria-label={tr("Move up")}
+                            title={tr("Move up")}
+                            disabled={mix.locked || laneIndex === 0}
+                            onClick={() => change((node) => moveTimelineLane(node, laneId, -1))}
+                          >
+                            <ArrowUp size={16} />
+                          </button>
+                          <button
+                            className="icon-button"
+                            aria-label={tr("Move down")}
+                            title={tr("Move down")}
+                            disabled={mix.locked || laneIndex === lanes.length - 1}
+                            onClick={() => change((node) => moveTimelineLane(node, laneId, 1))}
+                          >
+                            <ArrowDown size={16} />
+                          </button>
+                          <button
+                            className="icon-button"
+                            aria-label={tr("Remove track")}
+                            title={tr("Remove track")}
+                            disabled={mix.locked}
+                            onClick={() => change((node) => removeTimelineLane(node, laneId, timing))}
+                          >
+                            <Trash2 size={16} />
+                          </button>
+                        </>
+                      ) : (
+                        <strong>{name}</strong>
+                      )}
+                      <label>
+                        <input
+                          type="checkbox"
+                          checked={mix.locked}
+                          onChange={(event) => set({ locked: event.target.checked })}
+                        />
+                        {tr("Lock track")}
+                      </label>
+                      <label>
+                        <input
+                          type="checkbox"
+                          checked={mix.muted}
+                          onChange={(event) => set({ muted: event.target.checked })}
+                        />
+                        {tr(hasAudio && !hasVisual ? "Mute track" : "Hide track")}
+                      </label>
+                      {hasAudio && (
+                        <>
+                          <label>
+                            <input
+                              type="checkbox"
+                              checked={mix.solo}
+                              onChange={(event) => set({ solo: event.target.checked })}
+                            />
+                            {tr("Solo track")}
+                          </label>
+                          <label>
+                            {tr("Track volume")}
+                            <NumberInput
+                              min="0"
+                              max="1"
+                              step="0.05"
+                              value={mix.gain}
+                              placeholder={legacyGains.size === 1 ? String([...legacyGains][0]) : tr("Per clip")}
+                              onClear={() => set({ gain: undefined })}
+                              onCommit={(gain) => {
+                                if (gain >= 0 && gain <= 1) set({ gain });
+                              }}
+                            />
+                          </label>
+                        </>
+                      )}
+                    </div>
+                  );
+                })}
+              </details>
+            )}
+          </div>
           <div className="timeline-body">
             <div className="timeline-track-area">
               {current && scrubDuration > 0 && (
@@ -1671,29 +1771,38 @@ export function TimelineEditor({
                   <output>{playhead.seconds.toFixed(2)} s</output>
                 </label>
               )}
-              <CueChart
-                markers={markers}
-                markerFocus={markerFocus}
-                onMarkerMove={(id, seconds) =>
-                  saveMarkers((previous) =>
-                    previous.map((marker) =>
-                      marker.id === id ? { ...marker, timeSeconds: snapMarkerTime(seconds) } : marker,
-                    ),
-                  )
-                }
-                key={current?.id ?? "empty"}
-                cues={cues}
-                nameOf={nameOf}
-                lanes={laneNames}
-                selected={selected}
-                onSelect={setSelected}
-                onMove={move}
-                fit={fit}
-                locale={i18n.resolvedLanguage ?? "en"}
-                files={state.files}
-                playhead={current && scrubDuration > 0 ? Math.min(playhead.seconds, scrubDuration) : undefined}
-                onScrub={scrub}
-              />
+              {!current && doc ? (
+                <SceneSequence
+                  session={session}
+                  text={doc.text}
+                  selected={state.selectedNodeId}
+                  locale={timing.locale ?? "und"}
+                />
+              ) : (
+                <CueChart
+                  markers={markers}
+                  markerFocus={markerFocus}
+                  onMarkerMove={(id, seconds) =>
+                    saveMarkers((previous) =>
+                      previous.map((marker) =>
+                        marker.id === id ? { ...marker, timeSeconds: snapMarkerTime(seconds) } : marker,
+                      ),
+                    )
+                  }
+                  key={current?.id ?? "empty"}
+                  cues={cues}
+                  nameOf={nameOf}
+                  lanes={laneNames}
+                  selected={selected}
+                  onSelect={setSelected}
+                  onMove={move}
+                  fit={fit}
+                  locale={i18n.resolvedLanguage ?? "en"}
+                  files={state.files}
+                  playhead={current && scrubDuration > 0 ? Math.min(playhead.seconds, scrubDuration) : undefined}
+                  onScrub={scrub}
+                />
+              )}
               <div className="timeline-cue-list" aria-label={tr("Timeline commands")}>
                 {cues.map((cue) => (
                   <button
@@ -1716,7 +1825,7 @@ export function TimelineEditor({
                 ))}
               </div>
             </div>
-            <div className="timeline-cue-inspector">
+            <CueInspectorDock title={cue && nameOf(cue.node)} onClose={() => setSelected("")}>
               {reference && (
                 <button
                   className="secondary-button"
@@ -2188,7 +2297,7 @@ export function TimelineEditor({
                   <CommandDataFields node={cue.node} session={session} />
                 )}
               </fieldset>
-            </div>
+            </CueInspectorDock>
           </div>
         </>
       )}

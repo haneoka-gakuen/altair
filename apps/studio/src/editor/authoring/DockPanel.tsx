@@ -1,6 +1,9 @@
-import { useId, useRef, type ReactNode } from "react";
+import { createContext, useId, useRef, useState, type ReactNode } from "react";
 import { X } from "@haneoka/altair-ui-react";
 import { useStudioI18n } from "../i18n";
+
+export const TimelineToolbarHost = createContext<HTMLDivElement | null>(null);
+export const TimelineInspectorHost = createContext<HTMLDivElement | null>(null);
 
 export function DockPanel({
   title,
@@ -19,17 +22,21 @@ export function DockPanel({
 }) {
   const { t } = useStudioI18n();
   const id = useId();
+  const [toolbar, setToolbar] = useState<HTMLDivElement | null>(null);
   return (
     <section className={timeline ? "author-panel author-timeline" : "author-panel"} aria-labelledby={id}>
       {resizeHandle}
       <header className="author-panel-header">
         <h2 id={id}>{title}</h2>
+        {timeline && <div className="author-timeline-toolbar" ref={setToolbar} />}
         {actions && <div className="author-panel-context-actions">{actions}</div>}
         <button type="button" className="author-icon-button" aria-label={t("Close")} onClick={onClose}>
           <X aria-hidden />
         </button>
       </header>
-      <div className="author-panel-body">{children}</div>
+      <div className="author-panel-body">
+        <TimelineToolbarHost.Provider value={toolbar}>{children}</TimelineToolbarHost.Provider>
+      </div>
     </section>
   );
 }

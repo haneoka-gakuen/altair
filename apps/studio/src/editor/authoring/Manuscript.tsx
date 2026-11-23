@@ -18,6 +18,7 @@ import {
   FolderOpen,
   Image,
   ListPlus,
+  Library,
   Lock,
   Music,
   PersonStanding,
@@ -37,7 +38,7 @@ import { useStudioI18n } from "../i18n";
 import { CastPicker, type CastPickerTab } from "./CastPicker";
 import { StageDock } from "./StageDock";
 import { TaskSheet } from "./TaskSheet";
-import { DockPanel, TimelineDivider } from "./DockPanel";
+import { DockPanel, TimelineDivider, TimelineInspectorHost } from "./DockPanel";
 import "./workbench.css";
 import "./studio.css";
 
@@ -290,12 +291,17 @@ export function AuthoringWorkspace(props: AuthoringWorkspaceProps) {
   const [stageCollapsed, setStageCollapsed] = useState(false);
   const [sheet, setSheet] = useState<Sheet | null>(null);
   const [panelCollapsed, setPanelCollapsed] = useState(false);
-  const [timelineHeight, setTimelineHeight] = useState(45);
+  const [timelineScope, setTimelineScope] = useState<"scene" | "selection" | null>(() =>
+    props.sceneTimeline && window.matchMedia("(min-width: 840px)").matches ? "scene" : null,
+  );
+  const [inspectorHost, setInspectorHost] = useState<HTMLDivElement | null>(null);
+  const [timelineHeight, setTimelineHeight] = useState(40);
   useEffect(() => {
     if (!props.toolRequest) return;
-    setSheet(
-      props.toolRequest.key === "timeline" ? { kind: "timeline", allCues: true } : { kind: props.toolRequest.key },
-    );
+    if (props.toolRequest.key === "timeline") {
+      setTimelineScope("scene");
+      setSheet(null);
+    } else setSheet({ kind: props.toolRequest.key });
     setPanelCollapsed(false);
     setStageCollapsed(false);
   }, [props.toolRequest?.id]);
@@ -403,7 +409,8 @@ export function AuthoringWorkspace(props: AuthoringWorkspaceProps) {
       setDestination(SCRIPT);
     }
     setPanelCollapsed(false);
-    setSheet(next);
+    if (next.kind === "timeline") setTimelineScope(next.allCues ? "scene" : "selection");
+    else setSheet(next);
   };
   const closePanel = () => {
     setSheet(null);
@@ -414,6 +421,7 @@ export function AuthoringWorkspace(props: AuthoringWorkspaceProps) {
     flush();
     setSheet(null);
     setDestination(id);
+    if (window.matchMedia("(max-width: 839px)").matches) setTimelineScope(null);
     if (id !== SCRIPT && !visited.includes(id)) setVisited((list) => [...list, id]);
   };
 
@@ -538,11 +546,12 @@ export function AuthoringWorkspace(props: AuthoringWorkspaceProps) {
     }
   };
 
-  const tools = (
-    <>
+  const projectTools = (
+    <div className="author-project-actions">
       {onAssets && (
         <button
           type="button"
+          data-host-action="assets"
           className="author-icon-button"
           aria-label={t("Assets")}
           title={t("Assets")}
@@ -571,27 +580,35 @@ export function AuthoringWorkspace(props: AuthoringWorkspaceProps) {
       {onLibrary && (
         <button
           type="button"
-          className="author-button"
+          className="author-icon-button"
+          title={t("Command library")}
+          aria-label={t("Command library")}
           onClick={() => {
             flush();
             onLibrary();
           }}
         >
-          {t("Command library")}
+          <Library aria-hidden />
         </button>
       )}
       {onHistory && (
         <button
           type="button"
-          className="author-button"
+          className="author-icon-button"
+          title={t("Version history")}
+          aria-label={t("Version history")}
           onClick={() => {
             flush();
             onHistory();
           }}
         >
-          {t("Version history")}
+          <Clock aria-hidden />
         </button>
       )}
+    </div>
+  );
+  const tools = (
+    <>
       {previewTools}
       <button
         type="button"
@@ -603,19 +620,26 @@ export function AuthoringWorkspace(props: AuthoringWorkspaceProps) {
       >
         <Clapperboard aria-hidden />
       </button>
-      {timeline && !props.sceneTimeline && (
+      {timeline && (
         <button
           type="button"
           className="author-icon-button"
+          data-host-action="timeline"
           aria-label={t("Timeline")}
           title={t("Timeline")}
-          onClick={() => openSheet({ kind: "timeline" })}
+          aria-pressed={Boolean(timelineScope)}
+          onClick={() => (timelineScope ? setTimelineScope(null) : openSheet({ kind: "timeline", allCues: true }))}
         >
           <Clock aria-hidden />
         </button>
       )}
       {assistant && (
-        <button type="button" className="author-button" onClick={() => openSheet({ kind: "assistant" })}>
+        <button
+          type="button"
+          className="author-button"
+          data-host-action="assistant"
+          onClick={() => openSheet({ kind: "assistant" })}
+        >
           <Sparkles aria-hidden />
           {t("ai.assistant")}
         </button>
@@ -624,6 +648,7 @@ export function AuthoringWorkspace(props: AuthoringWorkspaceProps) {
         <button
           type="button"
           className="author-icon-button"
+          data-host-action="storyboard"
           aria-label={t("Storyboard")}
           title={t("Storyboard")}
           onClick={() => openSheet({ kind: "storyboard" })}
@@ -653,6 +678,7 @@ export function AuthoringWorkspace(props: AuthoringWorkspaceProps) {
           .filter((line): line is StudioLine => line !== undefined)
       : [];
   const playingId = model.playback.playing ? model.playback.lineId : null;
+  const monitorLine = playingId && byId.has(playingId) ? playingId : (current ?? model.playback.lineId);
   const inspectorIds = sheet?.kind === "inspect" ? (sheet.nodeIds ?? sheetLines.map((line) => line.id)) : [];
   const rowFocus = current ?? scene.lines[0]?.id;
   const selecting = view === "script" && (selected.length > 1 || touchSelecting);
@@ -681,7 +707,7 @@ export function AuthoringWorkspace(props: AuthoringWorkspaceProps) {
 
   return (
     <div
-      className={`${destinations.length > 0 ? "author-workbench has-destinations" : "author-workbench"}${sheet?.kind === "timeline" ? " has-timeline" : ""}${activePanel ? " has-active-panel" : ""}`}
+      className={`${destinations.length > 0 ? "author-workbench has-destinations" : "author-workbench"}${timelineScope ? " has-timeline" : ""}${activePanel ? " has-active-panel" : ""}`}
       style={{ "--author-timeline-height": timelineHeight + "%" } as CSSProperties}
       onKeyDown={onWorkbenchKey}
     >
@@ -1127,6 +1153,7 @@ export function AuthoringWorkspace(props: AuthoringWorkspaceProps) {
               {item.content}
             </section>
           ))}
+        {projectTools}
       </div>
 
       <div
@@ -1141,7 +1168,7 @@ export function AuthoringWorkspace(props: AuthoringWorkspaceProps) {
           playing={model.playback.playing}
           position={Math.max(
             0,
-            scene.lines.findIndex((line) => line.id === (model.playback.lineId ?? current)),
+            scene.lines.findIndex((line) => line.id === monitorLine),
           )}
           length={scene.lines.length}
           canPlay={scene.lines.length > 0 && model.playback.ready}
@@ -1159,9 +1186,10 @@ export function AuthoringWorkspace(props: AuthoringWorkspaceProps) {
         />
 
         <div className="author-inspector" data-panel={sheet?.kind ?? "inspect"}>
-          {!panelCollapsed && (!sheet || sheet.kind === "timeline") && renderInspector && selected.length > 0 && (
+          {!sheet && <div className="author-cue-dock" ref={setInspectorHost} />}
+          {!panelCollapsed && !sheet && renderInspector && (selected.length > 0 || rowFocus) && (
             <DockPanel title={t("Properties")} actions={inspectorNavigation} onClose={closePanel}>
-              {renderInspector(scene.id, selected)}
+              {renderInspector(scene.id, selected.length ? selected : [rowFocus!])}
             </DockPanel>
           )}
           {!panelCollapsed && sheet?.kind === "cast" && sheetLines.length > 0 && (
@@ -1281,14 +1309,16 @@ export function AuthoringWorkspace(props: AuthoringWorkspaceProps) {
           )}
         </div>
       </div>
-      {sheet?.kind === "timeline" && (
+      {timelineScope && (
         <DockPanel
           timeline
           title={t("Timeline")}
-          onClose={() => setSheet(null)}
+          onClose={() => setTimelineScope(null)}
           resizeHandle={<TimelineDivider height={timelineHeight} onResize={setTimelineHeight} />}
         >
-          {sheet.allCues ? (props.sceneTimeline ?? timeline) : timeline}
+          <TimelineInspectorHost.Provider value={inspectorHost}>
+            {timelineScope === "scene" ? (props.sceneTimeline ?? timeline) : timeline}
+          </TimelineInspectorHost.Provider>
         </DockPanel>
       )}
       {sheet?.kind === "paste" && (

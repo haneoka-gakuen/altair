@@ -396,7 +396,7 @@ export function Preview({
           <span
             className="author-preview-state"
             role="status"
-            hidden={ready && synchronized && !state.error && !previewError}
+            hidden={(status === "Preview ready" || (ready && synchronized)) && !state.error && !previewError}
           >
             {state.error ? tr("Preview shows the last valid version") : tr(status)}
           </span>

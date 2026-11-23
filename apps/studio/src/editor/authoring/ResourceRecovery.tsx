@@ -25,11 +25,13 @@ export function ResourceRecovery({ session }: { session: EditorSession }) {
   );
   return (
     <>
-      <button type="button" className="author-button" disabled={!missing.length} onClick={() => setOpen(true)}>
-        <FileWarning aria-hidden />
-        {t("Missing resources")}
-        <span>{missing.length}</span>
-      </button>
+      {missing.length > 0 && (
+        <button type="button" className="author-button" onClick={() => setOpen(true)}>
+          <FileWarning aria-hidden />
+          {t("Missing resources")}
+          <span>{missing.length}</span>
+        </button>
+      )}
       {notes.length > 0 && (
         <button type="button" className="author-button" onClick={() => setNotesOpen(true)}>
           {t("Import notes")} <span>{notes.length}</span>
